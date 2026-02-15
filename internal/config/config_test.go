@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 const opencodeType = "opencode"
 
@@ -276,7 +279,7 @@ func TestValidateSettings_RejectsOpenAIAgentWithoutAPIKey(t *testing.T) {
 	}
 }
 
-func TestValidateSettings_RejectsOpenAIAgentWithAPIKeyEnv(t *testing.T) {
+func TestValidateSettings_ShowsMigrationHintForAPIKeyEnv(t *testing.T) {
 	t.Parallel()
 
 	settings := map[string]any{
@@ -306,5 +309,16 @@ func TestValidateSettings_RejectsOpenAIAgentWithAPIKeyEnv(t *testing.T) {
 	err := ValidateSettings(settings)
 	if err == nil {
 		t.Fatal("ValidateSettings returned nil error, want error")
+	}
+
+	for _, expected := range []string{
+		"agents.openai_primary.api_key_env",
+		"no longer supported",
+		"migrate to api_key",
+		"OPENAI_API_KEY",
+	} {
+		if !strings.Contains(err.Error(), expected) {
+			t.Fatalf("ValidateSettings error = %q, want substring %q", err.Error(), expected)
+		}
 	}
 }
