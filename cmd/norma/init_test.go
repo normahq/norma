@@ -9,6 +9,7 @@ import (
 
 func TestDefaultConfigYAML_IsLoadable(t *testing.T) {
 	repoRoot := t.TempDir()
+	t.Setenv("OPENAI_API_KEY", "test-openai-api-key")
 	if err := writeTestFile(filepath.Join(repoRoot, defaultConfigPath), defaultConfigYAML); err != nil {
 		t.Fatalf("write default config: %v", err)
 	}
