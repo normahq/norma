@@ -10,7 +10,7 @@ import (
 
 func (w *Loop) newIterationAgent() (agent.Agent, error) {
 	return agent.New(agent.Config{
-		Name:        "NormaLoopIteration",
+		Name:        "Iteration",
 		Description: "Runs a single normaloop iteration.",
 		Run:         w.runIteration,
 	})
