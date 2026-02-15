@@ -266,6 +266,9 @@ Your job is to decompose one global epic into a Beads-ready hierarchy:
 Rules:
 - Output ONLY valid JSON matching the provided schema.
 - Do not include markdown, comments, or prose outside JSON.
+- ACCESS RESTRICTION: You MUST ONLY read files within the assigned run directory.
+- DO NOT attempt to read, list, or index the project root directory or any directory outside of your assigned run directory.
+- Accessing files outside of your assigned directory will cause a PERMISSION ERROR and failure.
 - Every task must be executable and include:
   - objective
   - artifact (concrete files/paths/PR surface)
