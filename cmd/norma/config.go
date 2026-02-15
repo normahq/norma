@@ -47,16 +47,23 @@ func loadRawConfig(repoRoot string) (config.Config, error) {
 	if err != nil {
 		return config.Config{}, fmt.Errorf("read config bytes: %w", err)
 	}
+
+	// Expand environment variables
+	expanded, err := config.ExpandEnv(string(rawConfig))
+	if err != nil {
+		return config.Config{}, fmt.Errorf("expand env vars in config: %w", err)
+	}
+
 	var rawSettings map[string]any
-	if err := yaml.Unmarshal(rawConfig, &rawSettings); err != nil {
+	if err := yaml.Unmarshal([]byte(expanded), &rawSettings); err != nil {
 		return config.Config{}, fmt.Errorf("parse raw config yaml: %w", err)
 	}
 	if err := config.ValidateSettings(rawSettings); err != nil {
 		return config.Config{}, fmt.Errorf("validate config: %w", err)
 	}
 
-	viper.SetConfigFile(path)
-	if err := viper.ReadInConfig(); err != nil {
+	viper.SetConfigType("yaml")
+	if err := viper.ReadConfig(strings.NewReader(expanded)); err != nil {
 		return config.Config{}, fmt.Errorf("read config: %w", err)
 	}
 	var cfg config.Config
