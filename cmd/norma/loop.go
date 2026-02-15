@@ -60,7 +60,7 @@ func loopCmd() *cobra.Command {
 				return err
 			}
 
-			fmt.Println("Running tasks using Google ADK Loop Agent...")
+			log.Info().Msg("Running tasks using Google ADK Loop Agent...")
 			_, err = adkrunner.Run(cmd.Context(), adkrunner.RunInput{
 				AppName: "norma",
 				UserID:  "norma-user",
