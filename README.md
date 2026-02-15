@@ -159,6 +159,28 @@ profiles:
       act: codex_primary
 ```
 
+### Migration: api_key_env to api_key
+
+If you are using the legacy `api_key_env` configuration, migrate to the new `api_key` field:
+
+**Before:**
+```yaml
+agents:
+  openai_primary:
+    type: openai
+    model: gpt-5
+    api_key_env: OPENAI_API_KEY
+```
+
+**After:**
+```yaml
+agents:
+  openai_primary:
+    type: openai
+    model: gpt-5
+    api_key: ${OPENAI_API_KEY}
+```
+
 ### 4. Create a Task & Run
 ```bash
 # Add a task to Beads
