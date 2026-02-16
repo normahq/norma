@@ -22,7 +22,7 @@ func Init(debug bool) {
 	log.Logger = zerolog.New(zerolog.ConsoleWriter{
 		Out:        os.Stderr,
 		TimeFormat: time.RFC3339,
-	}).With().Timestamp().Str("app", "norma").Logger()
+	}).With().Timestamp().Logger()
 }
 
 // DebugEnabled reports whether debug logging is enabled.
