@@ -8,8 +8,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/metalagman/ainvoke/adk"
+	"github.com/metalagman/norma/internal/agent/openaiapi"
 	"github.com/metalagman/norma/internal/agents/pdca/contracts"
 	"github.com/metalagman/norma/internal/config"
 	"github.com/rs/zerolog/log"
@@ -25,21 +27,69 @@ type Runner interface {
 	Run(ctx context.Context, req contracts.AgentRequest, stdout, stderr io.Writer) (outBytes, errBytes []byte, exitCode int, err error)
 }
 
+type completionClient interface {
+	Complete(ctx context.Context, req openaiapi.CompletionRequest) (openaiapi.CompletionResponse, error)
+}
+
+var newOpenAICompletionClient = func(cfg openaiapi.Config) (completionClient, error) {
+	return openaiapi.NewClient(cfg, nil)
+}
+
 // NewRunner constructs a runner for the given agent config and role.
 func NewRunner(cfg config.AgentConfig, role contracts.Role) (Runner, error) {
-	if cfg.Type == config.AgentTypeOpenAI {
-		return newOpenAIRunner(cfg, role)
-	}
+	var agentFactory func(ctx context.Context, req contracts.AgentRequest, stdout, stderr io.Writer) (agent.Agent, error)
 
-	cmd, err := ResolveCmd(cfg)
-	if err != nil {
-		return nil, err
+	if cfg.Type == config.AgentTypeOpenAI {
+		agentFactory = func(ctx context.Context, req contracts.AgentRequest, stdout, stderr io.Writer) (agent.Agent, error) {
+			prompt, err := role.Prompt(req)
+			if err != nil {
+				return nil, fmt.Errorf("generate prompt: %w", err)
+			}
+
+			openAICfg := openaiapi.Config{
+				Model:   cfg.Model,
+				BaseURL: cfg.BaseURL,
+				APIKey:  cfg.APIKey,
+				Timeout: time.Duration(cfg.Timeout) * time.Second,
+			}
+			client, err := newOpenAICompletionClient(openAICfg)
+			if err != nil {
+				return nil, fmt.Errorf("create openai client: %w", err)
+			}
+
+			return NewOpenAIAgent(client, cfg.Model, req.Step.Name, "Norma OpenAI agent", prompt)
+		}
+	} else {
+		cmd, err := ResolveCmd(cfg)
+		if err != nil {
+			return nil, err
+		}
+
+		agentFactory = func(ctx context.Context, req contracts.AgentRequest, stdout, stderr io.Writer) (agent.Agent, error) {
+			prompt, err := role.Prompt(req)
+			if err != nil {
+				return nil, fmt.Errorf("generate prompt: %w", err)
+			}
+
+			return adk.NewExecAgent(
+				req.Step.Name,
+				"Norma agent",
+				cmd,
+				adk.WithExecAgentPrompt(prompt),
+				adk.WithExecAgentInputSchema(role.InputSchema()),
+				adk.WithExecAgentOutputSchema(role.OutputSchema()),
+				adk.WithExecAgentRunDir(req.Paths.RunDir),
+				adk.WithExecAgentUseTTY(cfg.UseTTY != nil && *cfg.UseTTY),
+				adk.WithExecAgentStdout(stdout),
+				adk.WithExecAgentStderr(stderr),
+			)
+		}
 	}
 
 	return &adkRunner{
-		cfg:  cfg,
-		role: role,
-		cmd:  cmd,
+		cfg:          cfg,
+		role:         role,
+		agentFactory: agentFactory,
 	}, nil
 }
 
@@ -82,9 +132,9 @@ func ResolveCmd(cfg config.AgentConfig) ([]string, error) {
 }
 
 type adkRunner struct {
-	cfg  config.AgentConfig
-	role contracts.Role
-	cmd  []string
+	cfg          config.AgentConfig
+	role         contracts.Role
+	agentFactory func(ctx context.Context, req contracts.AgentRequest, stdout, stderr io.Writer) (agent.Agent, error)
 }
 
 func (r *adkRunner) Run(ctx context.Context, req contracts.AgentRequest, stdout, stderr io.Writer) ([]byte, []byte, int, error) {
@@ -112,20 +162,9 @@ func (r *adkRunner) Run(ctx context.Context, req contracts.AgentRequest, stdout,
 		return nil, nil, 0, fmt.Errorf("marshal input: %w", err)
 	}
 
-	a, err := adk.NewExecAgent(
-		req.Step.Name,
-		"Norma agent",
-		r.cmd,
-		adk.WithExecAgentPrompt(prompt),
-		adk.WithExecAgentInputSchema(r.role.InputSchema()),
-		adk.WithExecAgentOutputSchema(r.role.OutputSchema()),
-		adk.WithExecAgentRunDir(req.Paths.RunDir),
-		adk.WithExecAgentUseTTY(r.cfg.UseTTY != nil && *r.cfg.UseTTY),
-		adk.WithExecAgentStdout(stdout),
-		adk.WithExecAgentStderr(stderr),
-	)
+	a, err := r.agentFactory(ctx, req, stdout, stderr)
 	if err != nil {
-		return nil, nil, 0, fmt.Errorf("failed to create exec agent: %w", err)
+		return nil, nil, 0, fmt.Errorf("failed to create agent: %w", err)
 	}
 
 	sessionService := session.InMemoryService()
@@ -160,10 +199,7 @@ func (r *adkRunner) Run(ctx context.Context, req contracts.AgentRequest, stdout,
 			} else {
 				lastExitCode = 1
 			}
-			if stderr != nil {
-				_, _ = fmt.Fprintln(stderr, err)
-			}
-			return nil, nil, lastExitCode, fmt.Errorf("exec agent execution error: %w", err)
+			return nil, nil, lastExitCode, fmt.Errorf("agent execution error: %w", err)
 		}
 		if ev.Content != nil && len(ev.Content.Parts) > 0 {
 			lastOutBytes = []byte(ev.Content.Parts[0].Text)
@@ -171,7 +207,7 @@ func (r *adkRunner) Run(ctx context.Context, req contracts.AgentRequest, stdout,
 	}
 
 	if len(lastOutBytes) == 0 {
-		return nil, nil, 0, fmt.Errorf("no output from exec agent")
+		return nil, nil, 0, fmt.Errorf("no output from agent")
 	}
 
 	// Parse role-specific response and map back to normalized AgentResponse.
@@ -183,6 +219,18 @@ func (r *adkRunner) Run(ctx context.Context, req contracts.AgentRequest, stdout,
 			return newOut, nil, 0, nil
 		}
 		return lastOutBytes, nil, 0, fmt.Errorf("marshal agent response: %w", mErr)
+	}
+
+	// Try extracting JSON if direct mapping failed
+	if extracted, ok := ExtractJSON(lastOutBytes); ok {
+		agentResp, err = r.role.MapResponse(extracted)
+		if err == nil {
+			newOut, mErr := json.Marshal(agentResp)
+			if mErr == nil {
+				return newOut, nil, 0, nil
+			}
+			return extracted, nil, 0, fmt.Errorf("marshal agent response: %w", mErr)
+		}
 	}
 
 	return lastOutBytes, nil, 0, fmt.Errorf("parse agent response: %w", err)

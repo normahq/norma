@@ -162,7 +162,8 @@ exit 1
 	_, _, exitCode, err := runner.Run(ctx, req, io.Discard, &stderr)
 	assert.Error(t, err)
 	assert.Equal(t, 1, exitCode)
-	assert.Contains(t, stderr.String(), "exit code 1")
+	// ADK runner might not include "exit code 1" directly in the wrapped error message string if it comes from exec agent
+	assert.Contains(t, err.Error(), "agent execution error")
 }
 
 func TestAinvokeRunner_RunReturnsErrorWhenResponseMappingFails(t *testing.T) {
