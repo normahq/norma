@@ -416,7 +416,6 @@ The OpenAI provider is a separate ADK provider path and is NOT an `ainvoke` prov
 - `exec`  : ADK agent adapter that spawns a local binary, JSON on stdin/stdout
 - `openai` : ADK-native OpenAI provider integration
 - `ainvoke-exec` profile: `exec`-based adapter configuration that delegates CLI provider calls (Codex/OpenCode/Gemini/Claude) to `ainvoke`
-- Legacy direct CLI types (`codex`, `opencode`, `gemini`, `claude`) may exist for compatibility, but MUST NOT be used in this repo's active profiles.
 
 ### 6.2 Agent configuration (MVP)
 Stored in `.norma/config.yaml`.
@@ -465,7 +464,7 @@ Notes:
 - The `openai` provider MUST be configured as a separate ADK provider integration, not routed via `ainvoke`.
 - Do not configure active profiles with direct CLI provider types (`type: codex|opencode|gemini|claude`); use `type: exec` + `ainvoke`.
 - Provider-specific path/context constraints should be configured in the `ainvoke` invocation/options.
-- OpenAI-specific settings (`model`, `base_url`, `api_key_env`/`api_key`, `timeout`) belong on the `type: openai` agent config.
+- OpenAI-specific settings (`model`, `base_url`, `api_key`, `timeout`) belong on the `type: openai` agent config.
 - Every configured role agent MUST be instantiated and executed through ADK (`agent.Agent` + ADK runner); non-ADK standalone agents are out of scope.
 - `profiles.<name>.features.*.agents.*` must reference keys defined in top-level `agents`.
 - `retention.keep_last` and `retention.keep_days` control auto-pruning on each run (optional).
