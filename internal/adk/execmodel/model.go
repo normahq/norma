@@ -26,7 +26,8 @@ type Model struct {
 
 // Config describes how to run the executive model.
 type Config struct {
-	ainvoke.AgentConfig
+	Cmd          []string
+	UseTTY       bool
 	RunDir       string
 	InputSchema  string
 	OutputSchema string
@@ -48,7 +49,10 @@ func New(cfg Config) (*Model, error) {
 	if cfg.OutputSchema == "" {
 		cfg.OutputSchema = defaultOutputSchema
 	}
-	runner, err := ainvoke.NewRunner(cfg.AgentConfig)
+	runner, err := ainvoke.NewRunner(ainvoke.AgentConfig{
+		Cmd:    cfg.Cmd,
+		UseTTY: cfg.UseTTY,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create ainvoke runner: %w", err)
 	}
@@ -74,17 +78,6 @@ func (m *Model) GenerateContent(ctx context.Context, req *model.LLMRequest, stre
 			return
 		}
 
-		runDir := m.cfg.RunDir
-		if runDir == "" {
-			var err error
-			runDir, err = os.MkdirTemp("", "norma-execmodel-*")
-			if err != nil {
-				yield(nil, fmt.Errorf("create temp run dir: %w", err))
-				return
-			}
-			defer os.RemoveAll(runDir)
-		}
-
 		var systemInstructions []string
 		if req.Config != nil && req.Config.SystemInstruction != nil {
 			for _, part := range req.Config.SystemInstruction.Parts {
@@ -95,7 +88,7 @@ func (m *Model) GenerateContent(ctx context.Context, req *model.LLMRequest, stre
 		}
 
 		inv := ainvoke.Invocation{
-			RunDir:       runDir,
+			RunDir:       m.cfg.RunDir,
 			SystemPrompt: strings.Join(systemInstructions, "\n"),
 			Input:        m.prepareInput(req.Contents),
 			InputSchema:  m.cfg.InputSchema,
@@ -115,7 +108,7 @@ func (m *Model) GenerateContent(ctx context.Context, req *model.LLMRequest, stre
 			return
 		}
 
-		outputData, err := os.ReadFile(filepath.Join(runDir, ainvoke.OutputFileName))
+		outputData, err := os.ReadFile(filepath.Join(m.cfg.RunDir, ainvoke.OutputFileName))
 		if err != nil {
 			yield(nil, fmt.Errorf("read output: %w", err))
 			return

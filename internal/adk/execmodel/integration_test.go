@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/metalagman/ainvoke"
 	"github.com/metalagman/norma/internal/adk/execmodel"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/adk/agent"
@@ -31,9 +30,7 @@ echo '{"output": "integrated response"}' > output.json
 
 	cfg := execmodel.Config{
 		RunDir: runDir,
-		AgentConfig: ainvoke.AgentConfig{
-			Cmd: []string{scriptPath},
-		},
+		Cmd:    []string{scriptPath},
 	}
 
 	m, err := execmodel.New(cfg)

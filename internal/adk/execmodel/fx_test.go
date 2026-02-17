@@ -3,7 +3,6 @@ package execmodel_test
 import (
 	"testing"
 
-	"github.com/metalagman/ainvoke"
 	"github.com/metalagman/norma/internal/adk/execmodel"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/fx"
@@ -16,9 +15,7 @@ func TestModule(t *testing.T) {
 	app := fxtest.New(t,
 		fx.Provide(func() execmodel.Config {
 			return execmodel.Config{
-				AgentConfig: ainvoke.AgentConfig{
-					Cmd: []string{"echo"},
-				},
+				Cmd: []string{"echo"},
 			}
 		}),
 		execmodel.Module,

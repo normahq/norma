@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/metalagman/ainvoke"
 	"github.com/metalagman/norma/internal/adk/execmodel"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -50,9 +49,7 @@ echo '{"output": "hello from exec"}' > output.json
 
 	cfg := execmodel.Config{
 		RunDir: runDir,
-		AgentConfig: ainvoke.AgentConfig{
-			Cmd: []string{scriptPath},
-		},
+		Cmd:    []string{scriptPath},
 	}
 	
 	m, err := execmodel.New(cfg)
