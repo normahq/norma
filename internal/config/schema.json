@@ -64,6 +64,13 @@
             "minLength": 1
           }
         },
+        "extra_args": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
         "model": {
           "type": "string",
           "minLength": 1

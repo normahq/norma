@@ -2,13 +2,14 @@ package modelfactory
 
 // ModelConfig describes how to run a model.
 type ModelConfig struct {
-	Type    string   `json:"type"                     mapstructure:"type"`
-	Cmd     []string `json:"cmd,omitempty"            mapstructure:"cmd"`
-	Model   string   `json:"model,omitempty"          mapstructure:"model"`
-	BaseURL string   `json:"base_url,omitempty"       mapstructure:"base_url"`
-	APIKey  string   `json:"api_key,omitempty"        mapstructure:"api_key"`
-	Timeout int      `json:"timeout,omitempty"        mapstructure:"timeout"`
-	UseTTY  *bool    `json:"use_tty,omitempty"        mapstructure:"use_tty"`
+	Type      string   `json:"type"                     mapstructure:"type"`
+	Cmd       []string `json:"cmd,omitempty"            mapstructure:"cmd"`
+	ExtraArgs []string `json:"extra_args,omitempty"     mapstructure:"extra_args"`
+	Model     string   `json:"model,omitempty"          mapstructure:"model"`
+	BaseURL   string   `json:"base_url,omitempty"       mapstructure:"base_url"`
+	APIKey    string   `json:"api_key,omitempty"        mapstructure:"api_key"`
+	Timeout   int      `json:"timeout,omitempty"        mapstructure:"timeout"`
+	UseTTY    *bool    `json:"use_tty,omitempty"        mapstructure:"use_tty"`
 }
 
 // FactoryConfig is a map of model configurations.

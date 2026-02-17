@@ -15,8 +15,10 @@ var constructors = map[string]constructor{
 	ModelTypeGeminiAIStudio: NewGeminiAIStudio,
 	ModelTypeOpenAI:         NewOpenAI,
 	ModelTypeExec: func(cfg ModelConfig) (model.LLM, error) {
+		cmd := append([]string(nil), cfg.Cmd...)
+		cmd = append(cmd, cfg.ExtraArgs...)
 		return execmodel.New(execmodel.Config{
-			Cmd:    cfg.Cmd,
+			Cmd:    cmd,
 			UseTTY: cfg.UseTTY != nil && *cfg.UseTTY,
 		})
 	},
@@ -26,6 +28,7 @@ var constructors = map[string]constructor{
 			cmd = append(cmd, "--model", cfg.Model)
 		}
 		cmd = append(cmd, "--approval-mode", "yolo")
+		cmd = append(cmd, cfg.ExtraArgs...)
 		return execmodel.New(execmodel.Config{
 			Cmd:    cmd,
 			UseTTY: cfg.UseTTY != nil && *cfg.UseTTY,
@@ -36,6 +39,7 @@ var constructors = map[string]constructor{
 		if cfg.Model != "" {
 			cmd = append(cmd, "--model", cfg.Model)
 		}
+		cmd = append(cmd, cfg.ExtraArgs...)
 		return execmodel.New(execmodel.Config{
 			Cmd:    cmd,
 			UseTTY: cfg.UseTTY != nil && *cfg.UseTTY,
@@ -47,6 +51,7 @@ var constructors = map[string]constructor{
 			cmd = append(cmd, "--model", cfg.Model)
 		}
 		cmd = append(cmd, "--sandbox", "workspace-write")
+		cmd = append(cmd, cfg.ExtraArgs...)
 		return execmodel.New(execmodel.Config{
 			Cmd:    cmd,
 			UseTTY: cfg.UseTTY != nil && *cfg.UseTTY,
@@ -57,6 +62,7 @@ var constructors = map[string]constructor{
 		if cfg.Model != "" {
 			cmd = append(cmd, "--model", cfg.Model)
 		}
+		cmd = append(cmd, cfg.ExtraArgs...)
 		return execmodel.New(execmodel.Config{
 			Cmd:    cmd,
 			UseTTY: cfg.UseTTY != nil && *cfg.UseTTY,

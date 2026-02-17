@@ -47,6 +47,17 @@ func TestFactory_CreateModel(t *testing.T) {
 			target: "e1",
 		},
 		{
+			name: "exec_extra_args_ok",
+			config: modelfactory.FactoryConfig{
+				"e2": {
+					Type:      modelfactory.ModelTypeExec,
+					Cmd:       []string{"echo"},
+					ExtraArgs: []string{"hello", "world"},
+				},
+			},
+			target: "e2",
+		},
+		{
 			name: "gemini_alias_ok",
 			config: modelfactory.FactoryConfig{
 				"g_alias": {
