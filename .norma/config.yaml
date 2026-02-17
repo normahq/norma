@@ -23,30 +23,35 @@ profiles:
       do: ainvoke_opencode_agent
       check: ainvoke_codex_agent
       act: ainvoke_codex_agent
+    planner: ainvoke_codex_agent
   codex:
     pdca:
       plan: ainvoke_codex_agent
       do: ainvoke_codex_agent
       check: ainvoke_codex_agent
       act: ainvoke_codex_agent
+    planner: ainvoke_codex_agent
   opencode:
     pdca:
       plan: ainvoke_opencode_agent
       do: ainvoke_opencode_agent
       check: ainvoke_opencode_agent
       act: ainvoke_opencode_agent
+    planner: ainvoke_opencode_agent
   gemini:
     pdca:
       plan: ainvoke_gemini_agent
       do: ainvoke_gemini_agent
       check: ainvoke_gemini_agent
       act: ainvoke_gemini_agent
+    planner: ainvoke_gemini_agent
   openai:
     pdca:
       plan: openai_primary
       do: openai_primary
       check: openai_primary
       act: openai_primary
+    planner: openai_primary
 
 budgets:
   max_iterations: 5
