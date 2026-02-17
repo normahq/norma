@@ -3,6 +3,7 @@ package agentfactory
 import (
 	"fmt"
 
+	"github.com/metalagman/norma/internal/adk/execmodel"
 	"google.golang.org/adk/agent"
 	"google.golang.org/adk/agent/llmagent"
 	"google.golang.org/adk/model"
@@ -29,7 +30,7 @@ func NewFactory(config FactoryConfig) *Factory {
 
 func isSupported(agentType string) bool {
 	switch agentType {
-	case AgentTypeGeminiAIStudio, AgentTypeOpenAI:
+	case AgentTypeGeminiAIStudio, AgentTypeOpenAI, AgentTypeExec:
 		return true
 	default:
 		return false
@@ -49,6 +50,12 @@ func (f *Factory) CreateLLMModel(name string) (model.LLM, error) {
 		return NewGeminiAIStudioLLM(cfg)
 	case AgentTypeOpenAI:
 		return NewOpenAILLM(cfg)
+	case AgentTypeExec:
+		return execmodel.New(execmodel.Config{
+			Name:   name,
+			Cmd:    cfg.Cmd,
+			UseTTY: cfg.UseTTY,
+		})
 	default:
 		return nil, fmt.Errorf("unsupported agent type %q", cfg.Type)
 	}

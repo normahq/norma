@@ -37,6 +37,16 @@ func TestFactory_CreateLLMModel(t *testing.T) {
 			target: "o1",
 		},
 		{
+			name: "exec_ok",
+			config: agentfactory.FactoryConfig{
+				"e1": {
+					Type: agentfactory.AgentTypeExec,
+					Cmd:  []string{"echo", "hello"},
+				},
+			},
+			target: "e1",
+		},
+		{
 			name: "not_found",
 			config: agentfactory.FactoryConfig{
 				"g1": {Type: agentfactory.AgentTypeGeminiAIStudio},

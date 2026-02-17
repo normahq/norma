@@ -6,5 +6,6 @@ import "go.uber.org/fx"
 var Module = fx.Module("execmodel",
 	fx.Provide(
 		New,
+		NewFactory,
 	),
 )
