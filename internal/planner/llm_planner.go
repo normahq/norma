@@ -12,26 +12,24 @@ import (
 	"time"
 
 	"github.com/metalagman/norma/internal/adkrunner"
-	"github.com/metalagman/norma/internal/config"
 	"google.golang.org/adk/agent/llmagent"
-	"google.golang.org/adk/model/gemini"
+	"google.golang.org/adk/model"
 	"google.golang.org/adk/session"
 	"google.golang.org/adk/tool"
 	"google.golang.org/adk/tool/functiontool"
-	"google.golang.org/genai"
 )
 
 // LLMPlanner implements interactive planning using ADK llmagent.
 type LLMPlanner struct {
 	repoRoot string
-	cfg      config.AgentConfig
+	model    model.LLM
 }
 
 // NewLLMPlanner constructs a new LLM planner.
-func NewLLMPlanner(repoRoot string, cfg config.AgentConfig) (*LLMPlanner, error) {
+func NewLLMPlanner(repoRoot string, m model.LLM) (*LLMPlanner, error) {
 	return &LLMPlanner{
 		repoRoot: repoRoot,
-		cfg:      cfg,
+		model:    m,
 	}, nil
 }
 
@@ -40,24 +38,6 @@ func (p *LLMPlanner) Generate(ctx context.Context, req Request) (Decomposition, 
 	planRunDir, err := p.newPlanRunDir()
 	if err != nil {
 		return Decomposition{}, "", err
-	}
-
-	modelName := p.cfg.Model
-	if modelName == "" {
-		modelName = "gemini-2.0-flash-exp"
-	}
-
-	// Create the Gemini LLM
-	var genaiCfg *genai.ClientConfig
-	if p.cfg.APIKey != "" {
-		genaiCfg = &genai.ClientConfig{
-			APIKey: p.cfg.APIKey,
-		}
-	}
-
-	m, err := gemini.NewModel(ctx, modelName, genaiCfg)
-	if err != nil {
-		return Decomposition{}, "", fmt.Errorf("failed to create gemini model: %w", err)
 	}
 
 	// Define tools using functiontool.New
@@ -81,7 +61,7 @@ func (p *LLMPlanner) Generate(ctx context.Context, req Request) (Decomposition, 
 	plannerAgent, err := llmagent.New(llmagent.Config{
 		Name:        "NormaPlanner",
 		Description: "Interactive Norma planning agent that decomposes epics into features and tasks.",
-		Model:       m,
+		Model:       p.model,
 		Tools:       []tool.Tool{humanTool, persistTool},
 		Instruction: buildLLMPlanPrompt(),
 	})

@@ -1,16 +1,18 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
 
+	"github.com/metalagman/norma/internal/adk/modelfactory"
 	"github.com/metalagman/norma/internal/config"
 	"github.com/metalagman/norma/internal/git"
 	"github.com/metalagman/norma/internal/planner"
 	"github.com/metalagman/norma/internal/task"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
+	"go.uber.org/fx"
 )
 
 func planCmd() *cobra.Command {
@@ -28,62 +30,65 @@ func planCmd() *cobra.Command {
 				return fmt.Errorf("current directory is not a git repository")
 			}
 
-			req := planner.Request{
-				EpicDescription: strings.TrimSpace(strings.Join(args, " ")),
-			}
-
 			rawCfg, err := loadRawConfig(repoRoot)
 			if err != nil {
 				return err
 			}
-			plannerAgentCfg, err := resolvePlannerAgent(rawCfg)
-			if err != nil {
-				return err
+
+			req := planner.Request{
+				EpicDescription: strings.TrimSpace(strings.Join(args, " ")),
 			}
 
-			llmPlanner, err := planner.NewLLMPlanner(repoRoot, plannerAgentCfg)
-			if err != nil {
-				return err
-			}
+			app := fx.New(
+				fx.Supply(cmd.Context()),
+				fx.Supply(repoRoot),
+				fx.Supply(rawCfg),
+				fx.Supply(req),
+				fx.Provide(func(cfg config.Config) modelfactory.FactoryConfig {
+					return planner.ToFactoryConfig(cfg)
+				}),
+				modelfactory.Module,
+				task.Module,
+				planner.Module,
+				fx.Invoke(runPlan),
+				fx.NopLogger,
+			)
 
-			plan, runDir, err := llmPlanner.Generate(cmd.Context(), req)
-			if err != nil {
-				return err
-			}
-
-			beadsTool := planner.NewBeadsTool(task.NewBeadsTracker(""))
-			applied, err := beadsTool.Apply(cmd.Context(), plan)
-			if err != nil {
-				return err
-			}
-
-			fmt.Printf("\nPlan generated and persisted to Beads.\n")
-			fmt.Printf("Epic: %s\n", applied.EpicID)
-			for i, feature := range applied.Features {
-				fmt.Printf("Feature %d: %s\n", i+1, feature.FeatureID)
-				for _, taskID := range feature.TaskIDs {
-					fmt.Printf("  - Task: %s\n", taskID)
-				}
-			}
-			fmt.Printf("Planning artifacts: %s\n", runDir)
-			return nil
+			return app.Start(cmd.Context())
 		},
 	}
 
 	return cmd
 }
 
-func resolvePlannerAgent(cfg config.Config) (config.AgentConfig, error) {
-	selectedProfile := viper.GetString("profile")
-
-	_, resolvedAgents, err := cfg.ResolveAgents(selectedProfile)
+func runPlan(
+	ctx context.Context,
+	p *planner.LLMPlanner,
+	bt *planner.BeadsTool,
+	req planner.Request,
+	shutdown fx.Shutdowner,
+) error {
+	plan, runDir, err := p.Generate(ctx, req)
 	if err != nil {
-		return config.AgentConfig{}, err
+		_ = shutdown.Shutdown()
+		return err
 	}
 
-	if plannerCfg, ok := resolvedAgents["planner"]; ok {
-		return plannerCfg, nil
+	applied, err := bt.Apply(ctx, plan)
+	if err != nil {
+		_ = shutdown.Shutdown()
+		return err
 	}
 
-	return config.AgentConfig{}, fmt.Errorf("resolved configuration is missing a 'planner' agent")
+	fmt.Printf("\nPlan generated and persisted to Beads.\n")
+	fmt.Printf("Epic: %s\n", applied.EpicID)
+	for i, feature := range applied.Features {
+		fmt.Printf("Feature %d: %s\n", i+1, feature.FeatureID)
+		for _, taskID := range feature.TaskIDs {
+			fmt.Printf("  - Task: %s\n", taskID)
+		}
+	}
+	fmt.Printf("Planning artifacts: %s\n", runDir)
+
+	return shutdown.Shutdown()
 }

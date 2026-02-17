@@ -29,6 +29,21 @@ type AgentConfig struct {
 	SubAgents     []AgentConfig `json:"sub_agents,omitempty"     mapstructure:"sub_agents"`
 }
 
+// ToModelConfig converts AgentConfig to adk modelfactory.ModelConfig.
+func (c AgentConfig) ToModelConfig() any {
+	// We return any to avoid circular dependency if we imported modelfactory here.
+	// But we can just define a mirror struct or use mapstructure.
+	return map[string]any{
+		"type":     c.Type,
+		"model":    c.Model,
+		"api_key":  c.APIKey,
+		"base_url": c.BaseURL,
+		"cmd":      c.Cmd,
+		"use_tty":  c.UseTTY != nil && *c.UseTTY,
+		"timeout":  c.Timeout,
+	}
+}
+
 // ProfileConfig describes an agent profile.
 type ProfileConfig struct {
 	PDCA    PDCAAgentRefs `json:"pdca,omitempty"    mapstructure:"pdca"`
@@ -113,6 +128,11 @@ func (c Config) ResolveAgents(profile string) (string, map[string]AgentConfig, e
 	}
 
 	return selected, resolved, nil
+}
+
+// ResolveProfile returns the profile configuration for the given profile name.
+func (c Config) ResolveProfile(profile string) (string, ProfileConfig, error) {
+	return c.resolveProfile(profile)
 }
 
 func (c Config) resolveProfile(profile string) (string, ProfileConfig, error) {

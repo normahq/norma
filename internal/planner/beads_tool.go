@@ -20,7 +20,7 @@ type BeadsTool struct {
 	writer BacklogWriter
 }
 
-func NewBeadsTool(writer BacklogWriter) *BeadsTool {
+func newBeadsTool(writer BacklogWriter) *BeadsTool {
 	return &BeadsTool{writer: writer}
 }
 
