@@ -57,7 +57,7 @@ const (
 	AgentTypeExec     = modelfactory.ModelTypeExec
 	AgentTypeCodex    = "codex"
 	AgentTypeOpenCode = "opencode"
-	AgentTypeGemini   = "gemini"
+	AgentTypeGemini   = modelfactory.ModelTypeGeminiAIStudio
 	AgentTypeClaude   = "claude"
 	AgentTypeOpenAI   = modelfactory.ModelTypeOpenAI
 )

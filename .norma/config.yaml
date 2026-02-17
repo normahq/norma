@@ -4,16 +4,17 @@ agents:
   ainvoke_codex_agent:
     type: exec
     cmd: ["./bin/norma-agent-ainvoke-exec", "--provider", "codex"]
-  ainvoke_gemini_agent:
-    type: exec
-    cmd: ["./bin/norma-agent-ainvoke-exec", "--provider", "gemini"]
   ainvoke_opencode_agent:
     type: exec
     cmd: ["./bin/norma-agent-ainvoke-exec", "--provider", "opencode"]
+  gemini_primary:
+    type: gemini_aistudio
+    model: gemini-2.0-flash-exp
+    api_key: ${GOOGLE_API_KEY}
   openai_primary:
     type: openai
-    model: gpt-5
-    api_key: sample
+    model: gpt-4o
+    api_key: ${OPENAI_API_KEY}
     timeout: 60
 
 profiles:
@@ -23,7 +24,7 @@ profiles:
       do: ainvoke_opencode_agent
       check: ainvoke_codex_agent
       act: ainvoke_codex_agent
-    planner: ainvoke_codex_agent
+    planner: gemini_primary
   codex:
     pdca:
       plan: ainvoke_codex_agent
@@ -40,11 +41,11 @@ profiles:
     planner: ainvoke_opencode_agent
   gemini:
     pdca:
-      plan: ainvoke_gemini_agent
-      do: ainvoke_gemini_agent
-      check: ainvoke_gemini_agent
-      act: ainvoke_gemini_agent
-    planner: ainvoke_gemini_agent
+      plan: gemini_primary
+      do: gemini_primary
+      check: gemini_primary
+      act: gemini_primary
+    planner: gemini_primary
   openai:
     pdca:
       plan: openai_primary

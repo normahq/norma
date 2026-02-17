@@ -86,8 +86,9 @@ agents:
     type: codex
     model: gpt-5.1-codex-mini
   gemini_flash:
-    type: gemini
+    type: gemini_aistudio
     model: gemini-3-flash-preview
+    api_key: ${GOOGLE_API_KEY}
   opencode_exec_agent:
     type: opencode
     model: opencode/big-pickle
