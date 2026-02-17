@@ -412,6 +412,9 @@ func agentOutputWriters(debugEnabled bool, stdoutLog io.Writer, stderrLog io.Wri
 	if !debugEnabled {
 		return stdoutLog, stderrLog
 	}
+	if !debugEnabled {
+		return stdoutLog, stderrLog
+	}
 	return io.MultiWriter(os.Stdout, stdoutLog), io.MultiWriter(os.Stderr, stderrLog)
 }
 
