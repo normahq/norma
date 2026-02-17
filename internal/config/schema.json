@@ -109,7 +109,7 @@
           "if": {
             "properties": {
               "type": {
-                "enum": ["codex", "opencode", "gemini", "claude", "openai"]
+                "enum": ["codex", "opencode", "gemini", "claude", "openai", "gemini_aistudio"]
               }
             }
           },

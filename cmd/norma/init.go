@@ -89,12 +89,15 @@ agents:
     type: gemini_aistudio
     model: gemini-3-flash-preview
     api_key: ${GOOGLE_API_KEY}
-  opencode_exec_agent:
+  claude_primary:
+    type: claude
+    model: claude-3-opus
+  opencode_exec_model:
     type: opencode
     model: opencode/big-pickle
   openai_primary:
     type: openai
-    model: gpt-5
+    model: gpt-5.3-codex
     api_key: ${OPENAI_API_KEY}
     timeout: 60
 
@@ -113,6 +116,13 @@ profiles:
       check: codex_fast
       act: codex_primary
     planner: codex_primary
+  claude:
+    pdca:
+      plan: claude_primary
+      do: claude_primary
+      check: claude_primary
+      act: claude_primary
+    planner: claude_primary
   gemini:
     pdca:
       plan: gemini_flash
@@ -122,11 +132,11 @@ profiles:
     planner: gemini_flash
   opencode:
     pdca:
-      plan: opencode_exec_agent
-      do: opencode_exec_agent
-      check: opencode_exec_agent
-      act: opencode_exec_agent
-    planner: opencode_exec_agent
+      plan: opencode_exec_model
+      do: opencode_exec_model
+      check: opencode_exec_model
+      act: opencode_exec_model
+    planner: opencode_exec_model
   openai:
     pdca:
       plan: openai_primary
