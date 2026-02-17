@@ -1,6 +1,7 @@
 package execmodel_test
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -76,4 +77,45 @@ echo '{"output": "hello from exec"}' > output.json
 		count++
 	}
 	assert.Equal(t, 1, count)
+}
+
+func TestModel_GenerateContent_WithOutputs(t *testing.T) {
+	runDir, err := os.MkdirTemp("", "execmodel-outputs-test-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(runDir)
+
+	scriptPath := filepath.Join(runDir, "mock_agent.sh")
+	scriptContent := `#!/bin/sh
+echo "to stdout"
+echo "to stderr" >&2
+echo '{"output": "ok"}' > output.json
+`
+	require.NoError(t, os.WriteFile(scriptPath, []byte(scriptContent), 0755))
+
+	var stdout, stderr bytes.Buffer
+	cfg := execmodel.Config{
+		RunDir: runDir,
+		Cmd:    []string{scriptPath},
+		Stdout: &stdout,
+		Stderr: &stderr,
+	}
+
+	m, err := execmodel.New(cfg)
+	require.NoError(t, err)
+
+	req := &model.LLMRequest{
+		Contents: []*genai.Content{
+			genai.NewContentFromText("hello", genai.RoleUser),
+		},
+	}
+
+	ctx := context.Background()
+	seq := m.GenerateContent(ctx, req, false)
+
+	for _, err := range seq {
+		require.NoError(t, err)
+	}
+
+	assert.Equal(t, "to stdout\n", stdout.String())
+	assert.Equal(t, "to stderr\n", stderr.String())
 }

@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"iter"
 	"os"
 	"path/filepath"
@@ -31,6 +32,8 @@ type Config struct {
 	RunDir       string
 	InputSchema  string
 	OutputSchema string
+	Stdout       io.Writer
+	Stderr       io.Writer
 }
 
 const (
@@ -95,7 +98,15 @@ func (m *Model) GenerateContent(ctx context.Context, req *model.LLMRequest, stre
 			OutputSchema: m.cfg.OutputSchema,
 		}
 
-		outBytes, errBytes, _, err := m.runner.Run(ctx, inv)
+		var runOpts []ainvoke.RunOption
+		if m.cfg.Stdout != nil {
+			runOpts = append(runOpts, ainvoke.WithStdout(m.cfg.Stdout))
+		}
+		if m.cfg.Stderr != nil {
+			runOpts = append(runOpts, ainvoke.WithStderr(m.cfg.Stderr))
+		}
+
+		outBytes, errBytes, _, err := m.runner.Run(ctx, inv, runOpts...)
 		if err != nil {
 			if len(errBytes) == 0 && len(outBytes) > 0 {
 				errBytes = outBytes
