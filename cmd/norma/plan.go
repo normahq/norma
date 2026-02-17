@@ -37,7 +37,7 @@ func planCmd() *cobra.Command {
 			req := planner.Request{}
 
 			app := fx.New(
-				fx.Supply(cmd.Context()),
+				fx.Provide(func() context.Context { return cmd.Context() }),
 				fx.Supply(repoRoot),
 				fx.Supply(rawCfg),
 				fx.Supply(req),

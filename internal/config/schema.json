@@ -54,7 +54,7 @@
       "properties": {
         "type": {
           "type": "string",
-          "enum": ["exec", "codex", "opencode", "gemini", "claude", "openai"]
+          "enum": ["exec", "codex", "opencode", "gemini", "claude", "openai", "gemini_aistudio"]
         },
         "cmd": {
           "type": "array",
