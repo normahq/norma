@@ -27,7 +27,6 @@ type Model struct {
 
 // Config describes how to run the executive model.
 type Config struct {
-	Name         string
 	Cmd          []string
 	UseTTY       bool
 	RunDir       string
@@ -68,9 +67,6 @@ func New(cfg Config) (*Model, error) {
 
 // Name returns the model name.
 func (m *Model) Name() string {
-	if m.cfg.Name != "" {
-		return m.cfg.Name
-	}
 	if len(m.cfg.Cmd) > 0 {
 		return m.cfg.Cmd[0]
 	}
