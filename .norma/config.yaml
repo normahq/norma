@@ -7,13 +7,13 @@ agents:
   ainvoke_opencode_agent:
     type: exec
     cmd: ["./bin/norma-agent-ainvoke-exec", "--provider", "opencode"]
-  gemini_primary:
-    type: gemini_aistudio
-    model: gemini-2.0-flash-exp
-    api_key: ${GOOGLE_API_KEY}
+#  gemini_primary:
+#    type: gemini_aistudio
+#    model: gemini-2.0-flash-exp
+#    api_key: ${GOOGLE_API_KEY}
   openai_primary:
     type: openai
-    model: gpt-4o
+    model: gpt-5.3-codex
     api_key: ${OPENAI_API_KEY}
     timeout: 60
 

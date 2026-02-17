@@ -3,11 +3,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"strings"
 
+	"github.com/joho/godotenv"
 	"github.com/metalagman/norma/internal/git"
 	"github.com/metalagman/norma/internal/logging"
 	"github.com/rs/zerolog/log"
@@ -27,7 +30,7 @@ var (
 
 // Execute runs the root command.
 func Execute() error {
-	cobra.OnInitialize(initConfig)
+	cobra.OnInitialize(initDotEnv, initConfig)
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", defaultConfigPath, "config file path")
 	rootCmd.PersistentFlags().BoolVar(&debug, "debug", false, "enable debug logging")
 	rootCmd.PersistentFlags().StringVar(&profile, "profile", "", "config profile name")
@@ -58,6 +61,12 @@ func Execute() error {
 	rootCmd.AddCommand(initCmd())
 	rootCmd.AddCommand(pruneCmd())
 	return rootCmd.Execute()
+}
+
+func initDotEnv() {
+	if err := godotenv.Load(); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		cobra.CheckErr(fmt.Errorf(".env load: %w", err))
+	}
 }
 
 func initBeads(ctx context.Context) error {

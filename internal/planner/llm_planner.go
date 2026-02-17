@@ -137,16 +137,18 @@ func (p *LLMPlanner) newPlanRunDir() (string, error) {
 
 func buildLLMPlanPrompt() string {
 	return `You are Norma's planning agent.
-Your job is to decompose one global epic into a Beads-ready hierarchy:
+Your job is to decompose a project goal (epic) into a Beads-ready hierarchy:
 1) one epic
 2) multiple features under that epic
 3) multiple executable tasks under each feature
 
 Workflow:
-1. Analyze the epic description provided in the session state: {epic_description}
-2. If you need more information or clarification to create a high-quality, executable plan, use the 'human' tool to ask the user questions.
-3. Once you have a full understanding of the scope and can produce a complete decomposition, use the 'persist_plan' tool to save the plan.
-4. Do NOT finish the session until you have called 'persist_plan' with a valid decomposition.
+1. Check the session state for 'epic_description'. 
+2. If 'epic_description' is missing, empty, or too vague, use the 'human' tool to ask the user what they want to build. 
+3. Once you have a clear understanding, decompose the goal into features and tasks.
+4. If you need more information or clarification to create a high-quality, executable plan, use the 'human' tool again.
+5. Once you have a full understanding of the scope and can produce a complete decomposition, use the 'persist_plan' tool to save the plan.
+6. Do NOT finish the session until you have called 'persist_plan' with a valid decomposition.
 
 Planning Rules:
 - Every task must be executable and include:

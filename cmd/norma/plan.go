@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/metalagman/norma/internal/adk/modelfactory"
 	"github.com/metalagman/norma/internal/config"
@@ -17,9 +16,9 @@ import (
 
 func planCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:          "plan <epic-description>",
-		Short:        "Decompose an epic into features and tasks and persist them to Beads",
-		Args:         cobra.MinimumNArgs(1),
+		Use:          "plan",
+		Short:        "Interactively decompose an epic into features and tasks and persist them to Beads",
+		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			repoRoot, err := os.Getwd()
@@ -35,9 +34,7 @@ func planCmd() *cobra.Command {
 				return err
 			}
 
-			req := planner.Request{
-				EpicDescription: strings.TrimSpace(strings.Join(args, " ")),
-			}
+			req := planner.Request{}
 
 			app := fx.New(
 				fx.Supply(cmd.Context()),
