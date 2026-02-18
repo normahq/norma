@@ -1,7 +1,6 @@
 package planner
 
 import (
-	"bufio"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -12,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/metalagman/norma/internal/adkrunner"
 	"google.golang.org/adk/agent/llmagent"
 	"google.golang.org/adk/model"
@@ -25,13 +25,21 @@ import (
 type LLMPlanner struct {
 	repoRoot string
 	model    model.LLM
+
+	// TUI communication
+	eventChan    chan *session.Event
+	questionChan chan string
+	responseChan chan string
 }
 
 // NewLLMPlanner constructs a new LLM planner.
 func NewLLMPlanner(repoRoot string, m model.LLM) (*LLMPlanner, error) {
 	return &LLMPlanner{
-		repoRoot: repoRoot,
-		model:    m,
+		repoRoot:     repoRoot,
+		model:        m,
+		eventChan:    make(chan *session.Event, 100),
+		questionChan: make(chan string),
+		responseChan: make(chan string),
 	}, nil
 }
 
@@ -46,7 +54,7 @@ func (p *LLMPlanner) Generate(ctx context.Context, req Request) (Decomposition, 
 	humanTool, err := functiontool.New(functiontool.Config{
 		Name:        "human",
 		Description: "Ask the user a question for clarification.",
-	}, handleHumanQuestion)
+	}, p.handleHumanQuestion)
 	if err != nil {
 		return Decomposition{}, "", fmt.Errorf("create human tool: %w", err)
 	}
@@ -71,6 +79,21 @@ func (p *LLMPlanner) Generate(ctx context.Context, req Request) (Decomposition, 
 		return Decomposition{}, "", fmt.Errorf("create llmagent: %w", err)
 	}
 
+	// Start TUI in a goroutine
+	tuiModel, err := newPlannerModel(p.eventChan, p.questionChan, p.responseChan)
+	if err != nil {
+		return Decomposition{}, "", fmt.Errorf("create TUI model: %w", err)
+	}
+	prog := tea.NewProgram(tuiModel, tea.WithAltScreen())
+	
+	tuiErrChan := make(chan error, 1)
+	go func() {
+		if _, err := prog.Run(); err != nil {
+			tuiErrChan <- err
+		}
+		close(tuiErrChan)
+	}()
+
 	// Run the agent using adkrunner
 	initialState := map[string]any{
 		"epic_description": req.EpicDescription,
@@ -84,18 +107,21 @@ func (p *LLMPlanner) Generate(ctx context.Context, req Request) (Decomposition, 
 		InitialState:   initialState,
 		InitialContent: genai.NewContentFromText(fmt.Sprintf("Let's start planning for the following project goal: %s", req.EpicDescription), genai.RoleUser),
 		OnEvent: func(ev *session.Event) {
-			if ev == nil || ev.Content == nil {
-				return
-			}
-			for _, part := range ev.Content.Parts {
-				if part.Text != "" {
-					fmt.Print(part.Text)
-				}
-			}
+			p.eventChan <- ev
 		},
 	})
+
+	// Signal end of session to TUI
+	close(p.eventChan)
+	prog.Quit()
+
 	if err != nil {
 		return Decomposition{}, "", fmt.Errorf("planning run failed: %w", err)
+	}
+
+	// Wait for TUI to finish
+	if tuiErr := <-tuiErrChan; tuiErr != nil {
+		return Decomposition{}, "", fmt.Errorf("TUI error: %w", tuiErr)
 	}
 
 	// Extract decomposition from session state
@@ -184,18 +210,10 @@ type humanArgs struct {
 	Question string `json:"question"`
 }
 
-func handleHumanQuestion(tctx tool.Context, args humanArgs) (string, error) {
-	fmt.Printf(`
-[PLANNER QUESTION]: %s
-> `, args.Question)
-	scanner := bufio.NewScanner(os.Stdin)
-	if scanner.Scan() {
-		return scanner.Text(), nil
-	}
-	if err := scanner.Err(); err != nil {
-		return "", err
-	}
-	return "No answer provided.", nil
+func (p *LLMPlanner) handleHumanQuestion(tctx tool.Context, args humanArgs) (string, error) {
+	p.questionChan <- args.Question
+	ans := <-p.responseChan
+	return ans, nil
 }
 
 func handlePersistPlan(tctx tool.Context, dec Decomposition) (string, error) {
