@@ -3,10 +3,8 @@ package modelfactory
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"iter"
-	"net/http"
 	"strings"
 	"time"
 
@@ -16,8 +14,6 @@ import (
 	"github.com/openai/openai-go/shared"
 	"google.golang.org/adk/model"
 	"google.golang.org/genai"
-	"golang.org/x/text/cases"
-	"golang.org/x/text/language"
 )
 
 var _ model.LLM = (*openAI)(nil)
@@ -101,14 +97,6 @@ func (m *openAI) GenerateContent(ctx context.Context, req *model.LLMRequest, str
 
 		resp, err := m.client.Chat.Completions.New(ctx, params)
 		if err != nil {
-			var apiErr *openai.Error
-			if errors.As(err, &apiErr) {
-				// Detect non-chat model and fallback to legacy completions
-				if apiErr.StatusCode == http.StatusNotFound && strings.Contains(apiErr.Message, "not a chat model") {
-					m.generateLegacyCompletion(ctx, req)(yield)
-					return
-				}
-			}
 			yield(nil, fmt.Errorf("openai chat.completions.new: %w", err))
 			return
 		}
@@ -126,67 +114,6 @@ func (m *openAI) GenerateContent(ctx context.Context, req *model.LLMRequest, str
 		}, nil) {
 			return
 		}
-	}
-}
-
-func (m *openAI) generateLegacyCompletion(ctx context.Context, req *model.LLMRequest) iter.Seq2[*model.LLMResponse, error] {
-	return func(yield func(*model.LLMResponse, error) bool) {
-		var prompt strings.Builder
-		caser := cases.Title(language.English)
-
-		// System Instruction
-		if req.Config != nil && req.Config.SystemInstruction != nil {
-			for _, part := range req.Config.SystemInstruction.Parts {
-				if part.Text != "" {
-					prompt.WriteString("System: ")
-					prompt.WriteString(part.Text)
-					prompt.WriteString("\n\n")
-				}
-			}
-		}
-
-		// Messages
-		for _, content := range req.Contents {
-			role := content.Role
-			if role == "" {
-				role = genai.RoleUser
-			}
-			prompt.WriteString(caser.String(role))
-			prompt.WriteString(": ")
-			for _, part := range content.Parts {
-				if part.Text != "" {
-					prompt.WriteString(part.Text)
-				}
-				if part.FunctionCall != nil {
-					prompt.WriteString(fmt.Sprintf("\n[Function Call: %s(%v)]", part.FunctionCall.Name, part.FunctionCall.Args))
-				}
-				if part.FunctionResponse != nil {
-					prompt.WriteString(fmt.Sprintf("\n[Function Response: %v]", part.FunctionResponse.Response))
-				}
-			}
-			prompt.WriteString("\n\n")
-		}
-		prompt.WriteString("Assistant: ")
-
-		params := openai.CompletionNewParams{
-			Model:  openai.CompletionNewParamsModel(m.model),
-			Prompt: openai.CompletionNewParamsPromptUnion{OfString: param.NewOpt(prompt.String())},
-		}
-
-		resp, err := m.client.Completions.New(ctx, params)
-		if err != nil {
-			yield(nil, fmt.Errorf("openai completions.new fallback: %w", err))
-			return
-		}
-
-		if len(resp.Choices) == 0 {
-			yield(nil, fmt.Errorf("openai fallback returned no choices"))
-			return
-		}
-
-		yield(&model.LLMResponse{
-			Content: genai.NewContentFromText(resp.Choices[0].Text, genai.RoleModel),
-		}, nil)
 	}
 }
 
