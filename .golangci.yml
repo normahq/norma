@@ -44,11 +44,8 @@ linters:
           disabled: true
 
 formatters:
-  enable:
-    - goimports
-  settings:
-    goimports:
-      local-prefixes: []
+  enable: []
+  settings: {}
 
 issues:
   max-issues-per-linter: 0
