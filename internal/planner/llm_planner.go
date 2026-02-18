@@ -99,13 +99,18 @@ func (p *LLMPlanner) Generate(ctx context.Context, req Request) (Decomposition, 
 		"epic_description": req.EpicDescription,
 	}
 
+	initialContent := "Let's start planning."
+	if req.EpicDescription != "" {
+		initialContent = fmt.Sprintf("Let's start planning for the following project goal: %s", req.EpicDescription)
+	}
+
 	finalSession, lastContent, err := adkrunner.Run(ctx, adkrunner.RunInput{
 		AppName:        "norma-plan",
 		UserID:         "norma-user",
 		SessionID:      "plan-" + time.Now().Format("150405"),
 		Agent:          plannerAgent,
 		InitialState:   initialState,
-		InitialContent: genai.NewContentFromText(fmt.Sprintf("Let's start planning for the following project goal: %s", req.EpicDescription), genai.RoleUser),
+		InitialContent: genai.NewContentFromText(initialContent, genai.RoleUser),
 		OnEvent: func(ev *session.Event) {
 			p.eventChan <- ev
 		},
@@ -188,9 +193,9 @@ Your job is to decompose a project goal (epic) into a Beads-ready hierarchy:
 3) multiple executable tasks under each feature
 
 Workflow:
-1. The project goal (epic) is provided in the first message.
-2. Decompose the goal into features and tasks.
-3. If 'epic_description' is missing, empty, or too vague, use the 'human' tool to ask the user what they want to build. 
+1. If the project goal (epic) is provided in the first message, proceed to decomposition.
+2. If the goal is missing or too vague, use the 'human' tool to ask the user what they want to build.
+3. Decompose the goal into features and tasks.
 4. If you need more information or clarification to create a high-quality, executable plan, use the 'human' tool again.
 5. Once you have a full understanding of the scope and can produce a complete decomposition, use the 'persist_plan' tool to save the plan.
 6. Do NOT finish the session until you have called 'persist_plan' with a valid decomposition.

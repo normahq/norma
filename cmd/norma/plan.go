@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"os"
@@ -37,16 +36,6 @@ func planCmd() *cobra.Command {
 			epicDescription := ""
 			if len(args) > 0 {
 				epicDescription = args[0]
-			} else {
-				fmt.Print("What do you want to build? Please describe the project goal (the epic): ")
-				var scanner = bufio.NewScanner(os.Stdin)
-				if scanner.Scan() {
-					epicDescription = scanner.Text()
-				}
-			}
-
-			if epicDescription == "" {
-				return fmt.Errorf("epic description is required")
 			}
 
 			req := planner.Request{
