@@ -25,13 +25,21 @@ func newBeadsTool(writer BacklogWriter) *BeadsTool {
 }
 
 type ApplyResult struct {
-	EpicID   string
-	Features []AppliedFeature
+	EpicID    string
+	EpicTitle string
+	Features  []AppliedFeature
 }
 
 type AppliedFeature struct {
-	FeatureID string
-	TaskIDs   []string
+	FeatureID    string
+	FeatureTitle string
+	Tasks        []AppliedTask
+}
+
+type AppliedTask struct {
+	TaskID    string
+	TaskTitle string
+	TaskGoal  string // Maps to Objective
 }
 
 func (b *BeadsTool) Apply(ctx context.Context, plan Decomposition) (ApplyResult, error) {
@@ -53,8 +61,9 @@ func (b *BeadsTool) Apply(ctx context.Context, plan Decomposition) (ApplyResult,
 	}
 
 	res := ApplyResult{
-		EpicID:   epicID,
-		Features: make([]AppliedFeature, 0, len(plan.Features)),
+		EpicID:    epicID,
+		EpicTitle: plan.Epic.Title,
+		Features:  make([]AppliedFeature, 0, len(plan.Features)),
 	}
 
 	for _, feature := range plan.Features {
@@ -64,8 +73,9 @@ func (b *BeadsTool) Apply(ctx context.Context, plan Decomposition) (ApplyResult,
 		}
 
 		appliedFeature := AppliedFeature{
-			FeatureID: featureID,
-			TaskIDs:   make([]string, 0, len(feature.Tasks)),
+			FeatureID:    featureID,
+			FeatureTitle: feature.Title,
+			Tasks:        make([]AppliedTask, 0, len(feature.Tasks)),
 		}
 		for _, t := range feature.Tasks {
 			goal := readyContract(t)
@@ -73,7 +83,11 @@ func (b *BeadsTool) Apply(ctx context.Context, plan Decomposition) (ApplyResult,
 			if err != nil {
 				return ApplyResult{}, fmt.Errorf("create task %q: %w", t.Title, err)
 			}
-			appliedFeature.TaskIDs = append(appliedFeature.TaskIDs, taskID)
+			appliedFeature.Tasks = append(appliedFeature.Tasks, AppliedTask{
+				TaskID:    taskID,
+				TaskTitle: t.Title,
+				TaskGoal:  t.Objective,
+			})
 		}
 
 		res.Features = append(res.Features, appliedFeature)

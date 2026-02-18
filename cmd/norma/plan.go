@@ -93,11 +93,12 @@ func runPlan(
 	}
 
 	fmt.Printf("\nPlan generated and persisted to Beads.\n")
-	fmt.Printf("Epic: %s\n", applied.EpicID)
+	fmt.Printf("Epic: %s (%s)\n", applied.EpicID, applied.EpicTitle)
 	for i, feature := range applied.Features {
-		fmt.Printf("Feature %d: %s\n", i+1, feature.FeatureID)
-		for _, taskID := range feature.TaskIDs {
-			fmt.Printf("  - Task: %s\n", taskID)
+		fmt.Printf("Feature %d: %s (%s)\n", i+1, feature.FeatureID, feature.FeatureTitle)
+		for _, task := range feature.Tasks {
+			fmt.Printf("  - Task: %s: %s\n", task.TaskID, task.TaskTitle)
+			fmt.Printf("    Goal: %s\n", task.TaskGoal)
 		}
 	}
 	fmt.Printf("Planning artifacts: %s\n", runDir)

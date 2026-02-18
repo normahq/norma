@@ -47,7 +47,7 @@ func TestBeadsTool_ApplyCreatesHierarchy(t *testing.T) {
 	if len(res.Features) != 1 {
 		t.Fatalf("features created = %d, want %d", len(res.Features), 1)
 	}
-	if got := len(res.Features[0].TaskIDs); got != 1 {
+	if got := len(res.Features[0].Tasks); got != 1 {
 		t.Fatalf("tasks created = %d, want %d", got, 1)
 	}
 	if len(writer.createTaskCalls) != 1 {
