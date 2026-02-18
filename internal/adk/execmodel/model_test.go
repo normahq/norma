@@ -37,7 +37,7 @@ func TestModel_Name(t *testing.T) {
 func TestModel_GenerateContent(t *testing.T) {
 	runDir, err := os.MkdirTemp("", "execmodel-test-*")
 	require.NoError(t, err)
-	defer os.RemoveAll(runDir)
+	defer func() { _ = os.RemoveAll(runDir) }()
 
 	// Create a script that produces output.json as required by ainvoke
 	// We use the default output schema format here
@@ -82,7 +82,7 @@ echo '{"output": "hello from exec"}' > output.json
 func TestModel_GenerateContent_WithOutputs(t *testing.T) {
 	runDir, err := os.MkdirTemp("", "execmodel-outputs-test-*")
 	require.NoError(t, err)
-	defer os.RemoveAll(runDir)
+	defer func() { _ = os.RemoveAll(runDir) }()
 
 	scriptPath := filepath.Join(runDir, "mock_agent.sh")
 	scriptContent := `#!/bin/sh

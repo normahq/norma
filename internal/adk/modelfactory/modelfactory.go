@@ -121,7 +121,7 @@ func (f *Factory) CreateModel(name string) (model.LLM, error) {
 	}
 
 	// Some models (like execmodel) can have their name overridden by the config key.
-	if nm, ok := m.(interface{ SetName(string) }); ok {
+	if nm, ok := m.(interface{ SetName(name string) }); ok {
 		nm.SetName(name)
 	}
 

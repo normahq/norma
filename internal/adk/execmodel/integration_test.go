@@ -18,7 +18,7 @@ import (
 func TestIntegration_LLMAgent(t *testing.T) {
 	runDir, err := os.MkdirTemp("", "execmodel-integration-*")
 	require.NoError(t, err)
-	defer os.RemoveAll(runDir)
+	defer func() { _ = os.RemoveAll(runDir) }()
 
 	scriptPath := filepath.Join(runDir, "mock_agent.sh")
 	scriptContent := `#!/bin/sh

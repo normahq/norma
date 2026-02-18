@@ -6,7 +6,6 @@ import (
 	"os"
 
 	"github.com/metalagman/norma/internal/adk/modelfactory"
-	"github.com/metalagman/norma/internal/config"
 	"github.com/metalagman/norma/internal/git"
 	"github.com/metalagman/norma/internal/planner"
 	"github.com/metalagman/norma/internal/task"
@@ -41,9 +40,7 @@ func planCmd() *cobra.Command {
 				fx.Supply(repoRoot),
 				fx.Supply(rawCfg),
 				fx.Supply(req),
-				fx.Provide(func(cfg config.Config) modelfactory.FactoryConfig {
-					return planner.ToFactoryConfig(cfg)
-				}),
+				fx.Provide(planner.ToFactoryConfig),
 				modelfactory.Module,
 				task.Module,
 				planner.Module,

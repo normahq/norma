@@ -2,17 +2,17 @@ profile: default
 
 agents:
   ainvoke_codex_agent:
-    type: exec
-    cmd: ["./bin/norma-agent-ainvoke-exec", "--provider", "codex"]
+    type: codex
+    model: gpt-5.3-codex
   ainvoke_claude_agent:
-    type: exec
-    cmd: ["./bin/norma-agent-ainvoke-exec", "--provider", "claude"]
+    type: claude
+    model: opus-4.6
   ainvoke_gemini_agent:
-    type: exec
-    cmd: ["./bin/norma-agent-ainvoke-exec", "--provider", "gemini"]
+    type: gemini
+    model: gemini-3-flash-preview
   ainvoke_opencode_agent:
-    type: exec
-    cmd: ["./bin/norma-agent-ainvoke-exec", "--provider", "opencode"]
+    type: opencode
+    model: opencode/big-pickle
   gemini_primary:
     type: gemini_aistudio
     model: gemini-3-flash-preview
