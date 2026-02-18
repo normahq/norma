@@ -54,7 +54,7 @@
       "properties": {
         "type": {
           "type": "string",
-          "enum": ["exec", "codex", "opencode", "gemini", "claude", "openai", "gemini_aistudio"]
+          "enum": ["exec", "codex", "opencode", "gemini", "claude", "gemini_aistudio"]
         },
         "cmd": {
           "type": "array",
@@ -109,7 +109,7 @@
           "if": {
             "properties": {
               "type": {
-                "enum": ["codex", "opencode", "gemini", "claude", "openai", "gemini_aistudio"]
+                "enum": ["codex", "opencode", "gemini", "claude", "gemini_aistudio"]
               }
             }
           },
@@ -117,18 +117,6 @@
             "not": {
               "required": ["cmd"]
             }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "type": {
-                "const": "openai"
-              }
-            }
-          },
-          "then": {
-            "required": ["model", "api_key"]
           }
         }
       ]

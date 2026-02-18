@@ -18,8 +18,6 @@ type FactoryConfig map[string]ModelConfig
 const (
 	// ModelTypeGeminiAIStudio is the type for Gemini AI Studio models.
 	ModelTypeGeminiAIStudio = "gemini_aistudio"
-	// ModelTypeOpenAI is the type for OpenAI models.
-	ModelTypeOpenAI = "openai"
 	// ModelTypeExec is the type for executive models.
 	ModelTypeExec = "exec"
 

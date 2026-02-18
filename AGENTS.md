@@ -414,7 +414,6 @@ The OpenAI provider is a separate ADK provider path and is NOT an `ainvoke` prov
 
 ### 6.1 Agent types (MVP)
 - `exec`  : ADK agent adapter that spawns a local binary, JSON on stdin/stdout
-- `openai` : ADK-native OpenAI provider integration
 - `ainvoke-exec` profile: `exec`-based adapter configuration that delegates CLI provider calls (Codex/OpenCode/Gemini/Claude) to `ainvoke`
 
 ### 6.2 Agent configuration (MVP)
@@ -431,10 +430,6 @@ agents:
   ainvoke_codex_agent:
     type: exec
     cmd: ["./bin/norma-agent-ainvoke-exec", "--provider", "codex", "--model", "gpt-5-codex"]
-  openai_primary:
-    type: openai
-    model: gpt-5-mini
-    api_key: ${OPENAI_API_KEY}
 
 profiles:
   default:
@@ -457,10 +452,8 @@ retention:
 Notes:
 - `cmd` is an argv array for safety.
 - CLI providers (`codex`, `opencode`, `gemini`, `claude`) MUST be called through `ainvoke` via the `exec` agent.
-- The `openai` provider MUST be configured as a separate ADK provider integration, not routed via `ainvoke`.
 - Do not configure active profiles with direct CLI provider types (`type: codex|opencode|gemini|claude`); use `type: exec` + `ainvoke`.
 - Provider-specific path/context constraints should be configured in the `ainvoke` invocation/options.
-- OpenAI-specific settings (`model`, `base_url`, `api_key`, `timeout`) belong on the `type: openai` agent config.
 - Every configured role agent MUST be instantiated and executed through ADK (`agent.Agent` + ADK runner); non-ADK standalone agents are out of scope.
 - `profiles.<name>.features.*.agents.*` must reference keys defined in top-level `agents`.
 - `retention.keep_last` and `retention.keep_days` control auto-pruning on each run (optional).
@@ -803,7 +796,6 @@ Common types:
 - AgentResponse JSON must be written to `stdout`.
 - Invocation MUST be driven by an ADK agent implementation.
 - For Codex/OpenCode/Gemini/Claude usage, invocation MUST go through `ainvoke` using this exec adapter.
-- OpenAI provider usage does not use this adapter; it uses `type: openai`.
 - norma captures `stdout` and `stderr` into:
   - `logs/stdout.txt`
   - `logs/stderr.txt`
@@ -886,25 +878,6 @@ norma (via `ainvoke`) generates a role-specific prompt that instructs Claude to:
 - if parse fails → protocol error
 - terminal mirroring of agent stdout/stderr is debug-only
 - Invocation MUST be driven by an ADK `exec` agent via `ainvoke`.
-
----
-
-## 15.1) ADK OpenAI provider profile (MVP)
-
-OpenAI provider runs through the ADK-native `openai` agent type (not `ainvoke`).
-
-### OpenAI config policy (MUST)
-Configure OpenAI agents with:
-- `type: openai`
-- `model`
-- authentication via `api_key_env` (preferred) or `api_key`
-- optional `base_url` and `timeout`
-
-### Capturing
-- norma stores raw stdout/stderr to logs
-- norma parses the resulting output as AgentResponse JSON
-- if parse fails → protocol error
-- terminal mirroring of agent stdout/stderr is debug-only
 
 ---
 

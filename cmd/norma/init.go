@@ -95,11 +95,6 @@ agents:
   opencode_exec_model:
     type: opencode
     model: opencode/big-pickle
-  openai_primary:
-    type: openai
-    model: gpt-5.3-codex
-    api_key: ${OPENAI_API_KEY}
-    timeout: 60
 
 profiles:
   default:
@@ -137,13 +132,6 @@ profiles:
       check: opencode_exec_model
       act: opencode_exec_model
     planner: opencode_exec_model
-  openai:
-    pdca:
-      plan: openai_primary
-      do: openai_primary
-      check: openai_primary
-      act: openai_primary
-    planner: openai_primary
 budgets:
   max_iterations: 5
 retention:

@@ -8,10 +8,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/metalagman/ainvoke/adk"
-	"github.com/metalagman/norma/internal/agent/openaiapi"
 	"github.com/metalagman/norma/internal/agents/pdca/contracts"
 	"github.com/metalagman/norma/internal/config"
 	"github.com/rs/zerolog/log"
@@ -27,63 +25,33 @@ type Runner interface {
 	Run(ctx context.Context, req contracts.AgentRequest, stdout, stderr io.Writer) (outBytes, errBytes []byte, exitCode int, err error)
 }
 
-type completionClient interface {
-	Complete(ctx context.Context, req openaiapi.CompletionRequest) (openaiapi.CompletionResponse, error)
-}
-
-var newOpenAICompletionClient = func(cfg openaiapi.Config) (completionClient, error) {
-	return openaiapi.NewClient(cfg, nil)
-}
-
 // NewRunner constructs a runner for the given agent config and role.
 func NewRunner(cfg config.AgentConfig, role contracts.Role) (Runner, error) {
 	var agentFactory func(ctx context.Context, req contracts.AgentRequest, stdout, stderr io.Writer) (agent.Agent, error)
 
-	if cfg.Type == config.AgentTypeOpenAI {
-		agentFactory = func(ctx context.Context, req contracts.AgentRequest, stdout, stderr io.Writer) (agent.Agent, error) {
-			prompt, err := role.Prompt(req)
-			if err != nil {
-				return nil, fmt.Errorf("generate prompt: %w", err)
-			}
+	cmd, err := ResolveCmd(cfg)
+	if err != nil {
+		return nil, err
+	}
 
-			openAICfg := openaiapi.Config{
-				Model:   cfg.Model,
-				BaseURL: cfg.BaseURL,
-				APIKey:  cfg.APIKey,
-				Timeout: time.Duration(cfg.Timeout) * time.Second,
-			}
-			client, err := newOpenAICompletionClient(openAICfg)
-			if err != nil {
-				return nil, fmt.Errorf("create openai client: %w", err)
-			}
-
-			return NewOpenAIAgent(client, cfg.Model, req.Step.Name, "Norma OpenAI agent", prompt)
-		}
-	} else {
-		cmd, err := ResolveCmd(cfg)
+	agentFactory = func(ctx context.Context, req contracts.AgentRequest, stdout, stderr io.Writer) (agent.Agent, error) {
+		prompt, err := role.Prompt(req)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("generate prompt: %w", err)
 		}
 
-		agentFactory = func(ctx context.Context, req contracts.AgentRequest, stdout, stderr io.Writer) (agent.Agent, error) {
-			prompt, err := role.Prompt(req)
-			if err != nil {
-				return nil, fmt.Errorf("generate prompt: %w", err)
-			}
-
-			return adk.NewExecAgent(
-				req.Step.Name,
-				"Norma agent",
-				cmd,
-				adk.WithExecAgentPrompt(prompt),
-				adk.WithExecAgentInputSchema(role.InputSchema()),
-				adk.WithExecAgentOutputSchema(role.OutputSchema()),
-				adk.WithExecAgentRunDir(req.Paths.RunDir),
-				adk.WithExecAgentUseTTY(cfg.UseTTY != nil && *cfg.UseTTY),
-				adk.WithExecAgentStdout(stdout),
-				adk.WithExecAgentStderr(stderr),
-			)
-		}
+		return adk.NewExecAgent(
+			req.Step.Name,
+			"Norma agent",
+			cmd,
+			adk.WithExecAgentPrompt(prompt),
+			adk.WithExecAgentInputSchema(role.InputSchema()),
+			adk.WithExecAgentOutputSchema(role.OutputSchema()),
+			adk.WithExecAgentRunDir(req.Paths.RunDir),
+			adk.WithExecAgentUseTTY(cfg.UseTTY != nil && *cfg.UseTTY),
+			adk.WithExecAgentStdout(stdout),
+			adk.WithExecAgentStderr(stderr),
+		)
 	}
 
 	return &adkRunner{
@@ -122,8 +90,6 @@ func ResolveCmd(cfg config.AgentConfig) ([]string, error) {
 			if cfg.Model != "" {
 				cmd = append(cmd, "--model", cfg.Model)
 			}
-		case config.AgentTypeOpenAI:
-			return nil, fmt.Errorf("openai agent does not support command execution")
 		default:
 			return nil, fmt.Errorf("unknown agent type %q", cfg.Type)
 		}

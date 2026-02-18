@@ -59,7 +59,6 @@ const (
 	AgentTypeOpenCode = modelfactory.ModelTypeOpenCode
 	AgentTypeGemini   = modelfactory.ModelTypeGemini
 	AgentTypeClaude   = modelfactory.ModelTypeClaude
-	AgentTypeOpenAI   = modelfactory.ModelTypeOpenAI
 )
 
 // ResolveAgents returns the agents for the selected profile.

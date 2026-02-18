@@ -11,10 +11,10 @@ Example:
 
 ```yaml
 agents:
-  openai_primary:
-    type: openai
-    model: gpt-5
-    api_key_env: ${OPENAI_API_KEY}
+  gemini_primary:
+    type: gemini_aistudio
+    model: gemini-1.5-flash
+    api_key: ${GOOGLE_API_KEY}
 ```
 
 If any referenced variable is missing, config expansion fails and reports the missing variable name(s).

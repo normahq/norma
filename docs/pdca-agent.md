@@ -104,7 +104,6 @@ Stop reason must be represented in step output (`status=stop` with concrete `sto
 ## Provider Routing Policy
 
 - CLI providers (`codex`, `opencode`, `gemini`, `claude`) run via ADK `exec` + `ainvoke`.
-- OpenAI provider runs as ADK-native `type: openai` (not via `ainvoke`).
 
 ## References
 

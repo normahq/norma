@@ -19,7 +19,7 @@ Built for transparency and reliability, norma ensures every agent action is logg
 - **AUTHORITATIVE Backlog (Beads):** Deeply integrated with [Beads](https://github.com/metalagman/beads). Task state, structured work plans, and full run journals are persisted in Beads `notes`, synchronized via Git.
 - **Intelligent Resumption:** Using granular labels like `norma-has-plan` and `norma-has-do`, norma can resume interrupted runs or skip already completed steps across different machines.
 - **Pure-Go & CGO-Free:** Authoritative run state is managed via SQLite using the `modernc.org/sqlite` driver. Portable, fast, and easy to build.
-- **Pluggable Agent Ecosystem:** Seamlessly mix and match agents using `exec` binaries, CLI wrappers (`codex`, `opencode`, `gemini`, `claude`), or direct OpenAI API agents.
+- **Pluggable Agent Ecosystem:** Seamlessly mix and match agents using `exec` binaries, CLI wrappers (`codex`, `opencode`, `gemini`, `claude`).
 - **Ralph-Style Run Journal:** Automatically reconstructs and maintains `artifacts/progress.md`, providing a human-readable timeline of every step taken.
 
 ---
@@ -44,7 +44,6 @@ Norma speaks a normalized JSON contract, allowing you to use any tool as an agen
 | **Claude** | `claude` | Native support for the Claude CLI (Claude Code) for advanced reasoning and coding. |
 | **OpenCode** | `opencode` | Deep integration with OpenCode for high-performance coding tasks. |
 | **Codex** | `codex` | Optimized wrapper for OpenAI Codex-style CLI tools. |
-| **OpenAI API** | `openai` | Direct API-based agent backend using the official `openai-go` SDK. |
 
 ---
 
@@ -79,11 +78,6 @@ agents:
   gemini_flash:
     type: gemini
     model: gemini-3-flash-preview
-  openai_primary:
-    type: openai
-    model: gpt-5
-    api_key: ${OPENAI_API_KEY}
-    timeout: 60
 
 profiles:
   default:
@@ -93,13 +87,6 @@ profiles:
       check: codex_primary
       act: codex_primary
     planner: codex_primary
-  openai:
-    pdca:
-      plan: openai_primary
-      do: openai_primary
-      check: openai_primary
-      act: openai_primary
-    planner: openai_primary
 
 budgets:
   max_iterations: 5
@@ -109,8 +96,6 @@ retention:
 ```
 
 You can override config values through environment variables with the `NORMA_` prefix.
-Example: `NORMA_PROFILE=openai`.  
-For OpenAI agents, set the API key environment variable (default: `OPENAI_API_KEY`).
 
 ### 4. Create a Task & Run
 ```bash

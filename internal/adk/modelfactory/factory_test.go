@@ -26,17 +26,6 @@ func TestFactory_CreateModel(t *testing.T) {
 			target: "g1",
 		},
 		{
-			name: "openai_ok",
-			config: modelfactory.FactoryConfig{
-				"o1": {
-					Type:   modelfactory.ModelTypeOpenAI,
-					Model:  "gpt-4o",
-					APIKey: "key",
-				},
-			},
-			target: "o1",
-		},
-		{
 			name: "exec_ok",
 			config: modelfactory.FactoryConfig{
 				"e1": {

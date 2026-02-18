@@ -19,7 +19,6 @@ var defaultAliasArgs = map[string][]string{
 
 var constructors = map[string]constructor{
 	ModelTypeGeminiAIStudio: NewGeminiAIStudio,
-	ModelTypeOpenAI:         NewOpenAI,
 	ModelTypeExec: func(cfg ModelConfig) (model.LLM, error) {
 		cmd := append([]string(nil), cfg.Cmd...)
 		cmd = append(cmd, cfg.ExtraArgs...)
