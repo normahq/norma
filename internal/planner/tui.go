@@ -31,6 +31,7 @@ var (
 type eventMsg *session.Event
 type humanRequestMsg string
 type planFinishedMsg Decomposition
+type planFailedMsg string
 
 type plannerModel struct {
 	viewport    viewport.Model
@@ -46,10 +47,17 @@ type plannerModel struct {
 
 	waitingForHuman bool
 	finishedPlan    *Decomposition
+	failedRunError  string
 	err             error
+	onAbort         func()
 }
 
-func newPlannerModel(eventChan <-chan *session.Event, questionChan <-chan string, responseChan chan<- string) (*plannerModel, error) {
+func newPlannerModel(
+	eventChan <-chan *session.Event,
+	questionChan <-chan string,
+	responseChan chan<- string,
+	onAbort func(),
+) (*plannerModel, error) {
 	r, err := glamour.NewTermRenderer(
 		glamour.WithAutoStyle(),
 		glamour.WithWordWrap(100),
@@ -75,6 +83,7 @@ func newPlannerModel(eventChan <-chan *session.Event, questionChan <-chan string
 		eventChan:    eventChan,
 		questionChan: questionChan,
 		responseChan: responseChan,
+		onAbort:      onAbort,
 	}, nil
 }
 
@@ -117,8 +126,14 @@ func (m *plannerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.finishedPlan != nil {
 			return m, tea.Quit
 		}
+		if m.failedRunError != "" {
+			return m, tea.Quit
+		}
 		switch msg.Type {
 		case tea.KeyCtrlC, tea.KeyEsc:
+			if m.onAbort != nil {
+				m.onAbort()
+			}
 			return m, tea.Quit
 		case tea.KeyEnter:
 			if m.waitingForHuman {
@@ -165,12 +180,12 @@ func (m *plannerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		plan := Decomposition(msg)
 		m.finishedPlan = &plan
 		m.waitingForHuman = false
-		
+
 		// Render final plan into history
 		var sb strings.Builder
 		sb.WriteString("\n# Final Plan Generated and Persisted\n\n")
 		sb.WriteString(fmt.Sprintf("## Epic: %s\n\n%s\n\n", plan.Epic.Title, plan.Epic.Description))
-		
+
 		for _, f := range plan.Features {
 			sb.WriteString(fmt.Sprintf("### Feature: %s\n\n%s\n\n", f.Title, f.Description))
 			for _, t := range f.Tasks {
@@ -188,6 +203,18 @@ func (m *plannerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+		rendered, _ := m.renderer.Render(sb.String())
+		m.history.WriteString(rendered)
+		m.updateViewport()
+		return m, nil
+
+	case planFailedMsg:
+		m.waitingForHuman = false
+		m.failedRunError = strings.TrimSpace(string(msg))
+		var sb strings.Builder
+		sb.WriteString("\n# Planner Error\n\n")
+		sb.WriteString(m.failedRunError)
+		sb.WriteString("\n")
 		rendered, _ := m.renderer.Render(sb.String())
 		m.history.WriteString(rendered)
 		m.updateViewport()
@@ -226,6 +253,8 @@ func (m *plannerModel) View() string {
 	switch {
 	case m.finishedPlan != nil:
 		s += titleStyle.Render("Plan persisted! Press any key to exit.")
+	case m.failedRunError != "":
+		s += titleStyle.Render("Planner failed. Press any key to exit.")
 	case m.waitingForHuman:
 		s += m.textinput.View()
 	default:

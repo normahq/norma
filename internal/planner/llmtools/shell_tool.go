@@ -1,4 +1,4 @@
-package planner
+package llmtools
 
 import (
 	"bytes"
@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"google.golang.org/adk/tool"
+	"google.golang.org/adk/tool/functiontool"
 )
 
 // ShellTool provides a way to execute shell commands.
@@ -19,7 +20,10 @@ type ShellTool struct {
 
 // ShellArgs defines the arguments for the run_shell_command tool.
 type ShellArgs struct {
-	Command string `json:"command"`
+	Command      string `json:"command"`
+	Cmd          string `json:"cmd,omitempty"`
+	Input        string `json:"input,omitempty"`
+	ShellCommand string `json:"shell_command,omitempty"`
 }
 
 // ShellResponse defines the response from the run_shell_command tool.
@@ -40,14 +44,22 @@ func NewShellTool(repoRoot string) *ShellTool {
 	}
 }
 
+// NewShellCommandTool creates the planner run_shell_command tool.
+func NewShellCommandTool(repoRoot string) (tool.Tool, error) {
+	shell := NewShellTool(repoRoot)
+	return functiontool.New(functiontool.Config{
+		Name:        ShellToolName,
+		Description: ShellToolDescription,
+	}, shell.Run)
+}
+
 // Run executes a shell command.
 func (s *ShellTool) Run(tctx tool.Context, args ShellArgs) (ShellResponse, error) {
-	cmdStr := strings.TrimSpace(args.Command)
+	cmdStr := normalizeShellCommandArg(args)
 	if cmdStr == "" {
 		return ShellResponse{Error: "empty command"}, nil
 	}
 
-	// Basic security check: only allow certain base commands
 	parts := strings.Fields(cmdStr)
 	if len(parts) == 0 {
 		return ShellResponse{Error: "invalid command"}, nil
@@ -68,27 +80,12 @@ func (s *ShellTool) Run(tctx tool.Context, args ShellArgs) (ShellResponse, error
 		}, nil
 	}
 
-	// More security: block dangerous patterns
-	dangerous := []string{"rm", ">", ">>", "|", ";", "&", "&&", "||", "`", "$(", ">&"}
-	for _, d := range dangerous {
-		// Only check if it's a separate token or at the start/end to avoid false positives with flags
-		// This is a very basic check.
-		if strings.Contains(cmdStr, d) && baseCmd != "grep" {
-             // Grep might use some of these in patterns, but we should be careful.
-             // For MVP, we'll just block them if they are not inside grep.
-             // Actually, let's just block them for now to be safe.
-             if d != "|" || !strings.Contains(cmdStr, "grep") {
-                  // Allow pipe only if it's followed by grep? Too complex for now.
-             }
+	// Keep it simple for MVP: no shell metacharacters or command chaining.
+	for _, d := range []string{";", "&", "&&", "||", "`", "$(", ">", ">>", "|"} {
+		if strings.Contains(cmdStr, d) {
+			return ShellResponse{Error: fmt.Sprintf("shell metacharacter %q is not allowed", d)}, nil
 		}
 	}
-
-    // Let's keep it simple for now: no pipes or redirects.
-    for _, d := range []string{";", "&", "&&", "||", "`", "$(", ">", ">>", "|"} {
-        if strings.Contains(cmdStr, d) {
-             return ShellResponse{Error: fmt.Sprintf("shell metacharacter %q is not allowed", d)}, nil
-        }
-    }
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -115,4 +112,26 @@ func (s *ShellTool) Run(tctx tool.Context, args ShellArgs) (ShellResponse, error
 		Stderr:   stderr.String(),
 		ExitCode: exitCode,
 	}, nil
+}
+
+func normalizeShellCommandArg(args ShellArgs) string {
+	candidates := []string{args.Command, args.Cmd, args.Input, args.ShellCommand}
+	for _, candidate := range candidates {
+		cmd := strings.TrimSpace(candidate)
+		cmd = trimMatchingQuotes(cmd)
+		if cmd != "" {
+			return cmd
+		}
+	}
+	return ""
+}
+
+func trimMatchingQuotes(s string) string {
+	if len(s) < 2 {
+		return s
+	}
+	if (s[0] == '\'' && s[len(s)-1] == '\'') || (s[0] == '"' && s[len(s)-1] == '"') {
+		return s[1 : len(s)-1]
+	}
+	return s
 }

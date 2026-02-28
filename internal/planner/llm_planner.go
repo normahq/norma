@@ -5,19 +5,21 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/metalagman/norma/internal/adkrunner"
+	"github.com/metalagman/norma/internal/planner/llmtools"
 	"google.golang.org/adk/agent/llmagent"
 	"google.golang.org/adk/model"
 	"google.golang.org/adk/session"
 	"google.golang.org/adk/tool"
-	"google.golang.org/adk/tool/functiontool"
 	"google.golang.org/genai"
 )
 
@@ -25,53 +27,56 @@ import (
 type LLMPlanner struct {
 	repoRoot string
 	model    model.LLM
-
-	// TUI communication
-	eventChan    chan *session.Event
-	questionChan chan string
-	responseChan chan string
 }
+
+// ErrHandledInTUI indicates planner failure was already presented to the user in TUI.
+var ErrHandledInTUI = errors.New("planner failure handled in tui")
 
 // NewLLMPlanner constructs a new LLM planner.
 func NewLLMPlanner(repoRoot string, m model.LLM) (*LLMPlanner, error) {
 	return &LLMPlanner{
-		repoRoot:     repoRoot,
-		model:        m,
-		eventChan:    make(chan *session.Event, 100),
-		questionChan: make(chan string),
-		responseChan: make(chan string),
+		repoRoot: repoRoot,
+		model:    m,
 	}, nil
 }
 
 // Generate runs an interactive planning session.
 func (p *LLMPlanner) Generate(ctx context.Context, req Request) (Decomposition, string, error) {
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	planRunDir, err := p.newPlanRunDir()
 	if err != nil {
 		return Decomposition{}, "", err
 	}
+	eventChan := make(chan *session.Event, 100)
+	questionChan := make(chan string)
+	responseChan := make(chan string)
 
-	// Define tools using functiontool.New
-	humanTool, err := functiontool.New(functiontool.Config{
-		Name:        "human",
-		Description: "Ask the user a question for clarification.",
-	}, p.handleHumanQuestion)
+	humanTool, err := llmtools.NewHumanTool(func(question string) (string, error) {
+		select {
+		case questionChan <- question:
+		case <-runCtx.Done():
+			return "", runCtx.Err()
+		}
+
+		select {
+		case answer := <-responseChan:
+			return answer, nil
+		case <-runCtx.Done():
+			return "", runCtx.Err()
+		}
+	})
 	if err != nil {
 		return Decomposition{}, "", fmt.Errorf("create human tool: %w", err)
 	}
 
-	persistTool, err := functiontool.New(functiontool.Config{
-		Name:        "persist_plan",
-		Description: "Persist the final decomposition and finish the planning session.",
-	}, handlePersistPlan)
+	persistTool, err := llmtools.NewPersistPlanTool(p.handlePersistPlan)
 	if err != nil {
 		return Decomposition{}, "", fmt.Errorf("create persist tool: %w", err)
 	}
 
-	shell := NewShellTool(p.repoRoot)
-	shellTool, err := functiontool.New(functiontool.Config{
-		Name:        "run_shell_command",
-		Description: "Run a shell command for project inspection. Available commands: ls, grep, cat, find, tree, git, go, bd, echo. No pipes or redirects allowed.",
-	}, shell.Run)
+	shellTool, err := llmtools.NewShellCommandTool(p.repoRoot)
 	if err != nil {
 		return Decomposition{}, "", fmt.Errorf("create shell tool: %w", err)
 	}
@@ -89,12 +94,12 @@ func (p *LLMPlanner) Generate(ctx context.Context, req Request) (Decomposition, 
 	}
 
 	// Start TUI in a goroutine
-	tuiModel, err := newPlannerModel(p.eventChan, p.questionChan, p.responseChan)
+	tuiModel, err := newPlannerModel(eventChan, questionChan, responseChan, cancel)
 	if err != nil {
 		return Decomposition{}, "", fmt.Errorf("create TUI model: %w", err)
 	}
 	prog := tea.NewProgram(tuiModel, tea.WithAltScreen())
-	
+
 	tuiErrChan := make(chan error, 1)
 	go func() {
 		if _, err := prog.Run(); err != nil {
@@ -102,18 +107,38 @@ func (p *LLMPlanner) Generate(ctx context.Context, req Request) (Decomposition, 
 		}
 		close(tuiErrChan)
 	}()
+	var waitTUIOnce sync.Once
+	var waitTUIErr error
+	waitTUI := func() error {
+		waitTUIOnce.Do(func() {
+			if err, ok := <-tuiErrChan; ok {
+				waitTUIErr = err
+			}
+		})
+		return waitTUIErr
+	}
+	quitAndWaitTUI := func() error {
+		prog.Quit()
+		return waitTUI()
+	}
+	var closeEventOnce sync.Once
+	closeEvent := func() {
+		closeEventOnce.Do(func() { close(eventChan) })
+	}
 
 	// Run the agent using adkrunner
 	initialState := map[string]any{
 		"epic_description": req.EpicDescription,
+		"decomposition":    Decomposition{},
 	}
 
 	initialContent := "Let's start planning."
 	if req.EpicDescription != "" {
 		initialContent = fmt.Sprintf("Let's start planning for the following project goal: %s", req.EpicDescription)
 	}
+	var eventDecompositions []Decomposition
 
-	finalSession, lastContent, err := adkrunner.Run(ctx, adkrunner.RunInput{
+	finalSession, lastContent, err := adkrunner.Run(runCtx, adkrunner.RunInput{
 		AppName:        "norma-plan",
 		UserID:         "norma-user",
 		SessionID:      "plan-" + time.Now().Format("150405"),
@@ -121,56 +146,71 @@ func (p *LLMPlanner) Generate(ctx context.Context, req Request) (Decomposition, 
 		InitialState:   initialState,
 		InitialContent: genai.NewContentFromText(initialContent, genai.RoleUser),
 		OnEvent: func(ev *session.Event) {
-			p.eventChan <- ev
+			if ev != nil && ev.Content != nil {
+				if dec, parseErr := extractDecompositionFromContent(ev.Content); parseErr == nil {
+					eventDecompositions = append(eventDecompositions, dec)
+				}
+			}
+			select {
+			case eventChan <- ev:
+			case <-runCtx.Done():
+			}
 		},
 	})
 
 	// Signal end of session to TUI
-	close(p.eventChan)
+	closeEvent()
 
 	if err != nil {
-		prog.Quit()
-		return Decomposition{}, "", fmt.Errorf("planning run failed: %w", err)
+		if errors.Is(err, context.Canceled) {
+			_ = quitAndWaitTUI()
+			return Decomposition{}, "", context.Canceled
+		}
+		closeEvent()
+		prog.Send(planFailedMsg(formatPlannerRunError(err)))
+		if tuiErr := waitTUI(); tuiErr != nil {
+			return Decomposition{}, "", fmt.Errorf("TUI error: %w", tuiErr)
+		}
+		return Decomposition{}, "", ErrHandledInTUI
 	}
 
-	// Extract decomposition from session state
+	// Extract decomposition from session state.
 	var dec Decomposition
-	decVal, err := finalSession.State().Get("decomposition")
-	if err == nil {
+	decVal, stateErr := finalSession.State().Get("decomposition")
+	if stateErr == nil {
 		decBytes, err := json.Marshal(decVal)
 		if err != nil {
-			prog.Quit()
+			_ = quitAndWaitTUI()
 			return Decomposition{}, "", fmt.Errorf("marshal decomposition from state: %w", err)
 		}
 		if err := json.Unmarshal(decBytes, &dec); err != nil {
-			prog.Quit()
+			_ = quitAndWaitTUI()
 			return Decomposition{}, "", fmt.Errorf("unmarshal decomposition: %w", err)
 		}
-	} else {
-		// Fallback: try to parse from the last content received
+		// Default seeded state is an empty placeholder; recover from model output instead.
+		if strings.TrimSpace(dec.Epic.Title) == "" {
+			stateErr = fmt.Errorf("decomposition in session state is empty")
+		}
+	}
+	if stateErr != nil && len(eventDecompositions) > 0 {
+		// Fallback 1: decode from persist_plan tool call observed in event stream.
+		dec = eventDecompositions[len(eventDecompositions)-1]
+	} else if stateErr != nil {
+		// Fallback 2: parse from last content (function call or JSON text).
 		if lastContent == nil {
-			prog.Quit()
-			return Decomposition{}, "", fmt.Errorf("decomposition not found in session state and no model response received: %w", err)
+			_ = quitAndWaitTUI()
+			return Decomposition{}, "", fmt.Errorf("decomposition not found in session state and no model response received: %w", stateErr)
 		}
-		found := false
-		for _, part := range lastContent.Parts {
-			if part.Text != "" {
-				// Try to find JSON in the text
-				if jsonDec, parseErr := parseJSONFromText(part.Text); parseErr == nil {
-					dec = jsonDec
-					found = true
-					break
-				}
-			}
-		}
-		if !found {
-			prog.Quit()
-			return Decomposition{}, "", fmt.Errorf("decomposition not found in session state and could not parse from last model response: %w", err)
+		if contentDec, parseErr := extractDecompositionFromContent(lastContent); parseErr == nil {
+			dec = contentDec
+		} else {
+			_ = quitAndWaitTUI()
+			return Decomposition{}, "", fmt.Errorf("decomposition not found in session state and could not parse from last model response (%v): %w", parseErr, stateErr)
 		}
 	}
 
 	if err := dec.Validate(); err != nil {
-		prog.Quit()
+		_ = quitAndWaitTUI()
 		return Decomposition{}, "", fmt.Errorf("invalid decomposition: %w", err)
 	}
 
@@ -178,7 +218,7 @@ func (p *LLMPlanner) Generate(ctx context.Context, req Request) (Decomposition, 
 	prog.Send(planFinishedMsg(dec))
 
 	// Wait for TUI to finish
-	if tuiErr := <-tuiErrChan; tuiErr != nil {
+	if tuiErr := waitTUI(); tuiErr != nil {
 		return Decomposition{}, "", fmt.Errorf("TUI error: %w", tuiErr)
 	}
 
@@ -241,17 +281,7 @@ Planning Rules:
 `
 }
 
-type humanArgs struct {
-	Question string `json:"question"`
-}
-
-func (p *LLMPlanner) handleHumanQuestion(tctx tool.Context, args humanArgs) (string, error) {
-	p.questionChan <- args.Question
-	ans := <-p.responseChan
-	return ans, nil
-}
-
-func handlePersistPlan(tctx tool.Context, dec Decomposition) (string, error) {
+func (p *LLMPlanner) handlePersistPlan(tctx tool.Context, dec Decomposition) (string, error) {
 	if err := dec.Validate(); err != nil {
 		return "", fmt.Errorf("validation failed: %w", err)
 	}
@@ -290,4 +320,65 @@ func parseJSONFromText(text string) (Decomposition, error) {
 		return Decomposition{}, err
 	}
 	return dec, nil
+}
+
+func extractDecompositionFromContent(content *genai.Content) (Decomposition, error) {
+	if content == nil {
+		return Decomposition{}, fmt.Errorf("content is nil")
+	}
+
+	var lastErr error
+	for _, part := range content.Parts {
+		if part.FunctionCall != nil {
+			if dec, err := extractDecompositionFromFunctionCall(part.FunctionCall); err == nil {
+				return dec, nil
+			} else {
+				lastErr = err
+			}
+		}
+		if strings.TrimSpace(part.Text) == "" {
+			continue
+		}
+		if dec, err := parseJSONFromText(part.Text); err == nil {
+			return dec, nil
+		} else {
+			lastErr = err
+		}
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("no decomposition found in content")
+	}
+	return Decomposition{}, lastErr
+}
+
+func extractDecompositionFromFunctionCall(call *genai.FunctionCall) (Decomposition, error) {
+	if call == nil {
+		return Decomposition{}, fmt.Errorf("function call is nil")
+	}
+	if !strings.EqualFold(call.Name, llmtools.PersistPlanToolName) {
+		return Decomposition{}, fmt.Errorf("function call %q is not %q", call.Name, llmtools.PersistPlanToolName)
+	}
+	raw, err := json.Marshal(call.Args)
+	if err != nil {
+		return Decomposition{}, fmt.Errorf("marshal function args: %w", err)
+	}
+	var dec Decomposition
+	if err := json.Unmarshal(raw, &dec); err != nil {
+		return Decomposition{}, fmt.Errorf("unmarshal function args: %w", err)
+	}
+	if err := dec.Validate(); err != nil {
+		return Decomposition{}, fmt.Errorf("invalid decomposition in function args: %w", err)
+	}
+	return dec, nil
+}
+
+func formatPlannerRunError(err error) string {
+	msg := strings.TrimSpace(err.Error())
+	if msg == "" {
+		return "Planner run failed due to an unexpected error."
+	}
+	if strings.Contains(msg, "RESOURCE_EXHAUSTED") || strings.Contains(msg, "Error 429") {
+		return "Planner model quota/rate limit exceeded.\n\n" + msg + "\n\nTry again later or switch planner model/provider in .norma/config.yaml."
+	}
+	return "Planner run failed.\n\n" + msg
 }

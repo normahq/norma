@@ -9,7 +9,7 @@ agents:
     model: opus-4.6
   ainvoke_gemini_agent:
     type: gemini
-    model: gemini-3-flash-preview
+    model: gemini-2.5-flash-lite
   ainvoke_opencode_agent:
     type: opencode
     model: opencode/big-pickle

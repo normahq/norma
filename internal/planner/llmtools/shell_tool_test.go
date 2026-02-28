@@ -1,4 +1,4 @@
-package planner
+package llmtools
 
 import (
 	"testing"
@@ -21,6 +21,27 @@ func TestShellTool(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, 0, resp.ExitCode)
 		assert.Contains(t, resp.Stdout, "hello")
+	})
+
+	t.Run("Alias cmd", func(t *testing.T) {
+		resp, err := s.Run(nil, ShellArgs{Cmd: "echo alias-cmd"})
+		assert.NoError(t, err)
+		assert.Equal(t, 0, resp.ExitCode)
+		assert.Contains(t, resp.Stdout, "alias-cmd")
+	})
+
+	t.Run("Alias input", func(t *testing.T) {
+		resp, err := s.Run(nil, ShellArgs{Input: "echo alias-input"})
+		assert.NoError(t, err)
+		assert.Equal(t, 0, resp.ExitCode)
+		assert.Contains(t, resp.Stdout, "alias-input")
+	})
+
+	t.Run("Alias shell_command with quotes", func(t *testing.T) {
+		resp, err := s.Run(nil, ShellArgs{ShellCommand: "\"echo alias-shell\""})
+		assert.NoError(t, err)
+		assert.Equal(t, 0, resp.ExitCode)
+		assert.Contains(t, resp.Stdout, "alias-shell")
 	})
 
 	t.Run("Disallowed command", func(t *testing.T) {

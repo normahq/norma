@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 
@@ -15,9 +16,9 @@ import (
 
 func planCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "plan [epic goal]",
-		Short: "Interactively decompose an epic into features and tasks and persist them to Beads",
-		Args:  cobra.MaximumNArgs(1),
+		Use:          "plan [epic goal]",
+		Short:        "Interactively decompose an epic into features and tasks and persist them to Beads",
+		Args:         cobra.MaximumNArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			repoRoot, err := os.Getwd()
@@ -72,6 +73,12 @@ func runPlan(
 	plan, runDir, err := p.Generate(ctx, req)
 	if err != nil {
 		_ = shutdown.Shutdown()
+		if errors.Is(err, context.Canceled) {
+			return nil
+		}
+		if errors.Is(err, planner.ErrHandledInTUI) {
+			return nil
+		}
 		return err
 	}
 
