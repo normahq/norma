@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"iter"
 	"strings"
-	"time"
 
 	"github.com/metalagman/norma/internal/task"
 
@@ -14,7 +13,7 @@ import (
 	"google.golang.org/adk/session"
 )
 
-var errNoTasks = errors.New("no tasks")
+var ErrNoTasks = errors.New("no tasks")
 
 func (w *Loop) newSelectorAgent() (agent.Agent, error) {
 	return agent.New(agent.Config{
@@ -37,10 +36,10 @@ func (w *Loop) runSelector(ctx agent.InvocationContext) iter.Seq2[*session.Event
 
 		selected, reason, err := w.selectNextTask(ctx)
 		if err != nil {
-			if errors.Is(err, errNoTasks) {
-				l.Debug().Msg("no runnable tasks left, sleeping 10s...")
+			if errors.Is(err, ErrNoTasks) {
+				l.Info().Msg("no runnable tasks left, exiting loop")
 				_ = ctx.Session().State().Set("selected_task_id", "")
-				time.Sleep(10 * time.Second)
+				yield(nil, ErrNoTasks)
 				return
 			}
 			yield(nil, err)
@@ -72,7 +71,7 @@ func (w *Loop) selectNextTask(ctx context.Context) (task.Task, string, error) {
 
 	items = filterRunnableTasks(items)
 	if len(items) == 0 {
-		return task.Task{}, "", errNoTasks
+		return task.Task{}, "", ErrNoTasks
 	}
 
 	selected, reason, err := task.SelectNextReady(ctx, w.tracker, items, w.policy)

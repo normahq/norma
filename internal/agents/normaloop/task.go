@@ -155,6 +155,11 @@ func (w *Loop) runTaskByID(ctx context.Context, id string) error {
 		}
 		if err := w.tracker.MarkStatus(ctx, id, "done"); err != nil {
 			w.logger.Warn().Err(err).Msg("failed to mark task as done in tracker")
+		} else {
+			// Try to finalize parent feature/epic if all children are done.
+			if err := w.finalizeAncestors(ctx, item.ParentID); err != nil {
+				w.logger.Warn().Err(err).Str("parent_id", item.ParentID).Msg("failed to finalize ancestors")
+			}
 		}
 		w.logger.Info().Str("task_id", id).Str("run_id", runID).Str("duration", time.Since(startedAt).String()).Msg("task passed")
 		return nil
@@ -168,6 +173,50 @@ func (w *Loop) runTaskByID(ctx context.Context, id string) error {
 	_ = w.tracker.MarkStatus(ctx, id, runpkg.StatusStopped)
 	return fmt.Errorf("task %s stopped (run %s)", id, runID)
 }
+
+func (w *Loop) finalizeAncestors(ctx context.Context, parentID string) error {
+	if strings.TrimSpace(parentID) == "" {
+		return nil
+	}
+
+	parent, err := w.tracker.Task(ctx, parentID)
+	if err != nil {
+		return fmt.Errorf("fetch parent %s: %w", parentID, err)
+	}
+
+	// Completion Rules (AGENTS.md):
+	// - Feature complete: All descendant leaf issues are closed.
+	// - Epic complete: All features under it are complete.
+	// We only auto-close features and epics.
+	if parent.Type != "feature" && parent.Type != "epic" {
+		return nil
+	}
+
+	children, err := w.tracker.Children(ctx, parentID)
+	if err != nil {
+		return fmt.Errorf("list children for parent %s: %w", parentID, err)
+	}
+
+	allDone := true
+	for _, child := range children {
+		if child.Status != "done" {
+			allDone = false
+			break
+		}
+	}
+
+	if allDone && len(children) > 0 {
+		w.logger.Info().Str("id", parentID).Str("type", parent.Type).Msg("all children completed, closing parent")
+		if err := w.tracker.MarkStatus(ctx, parentID, "done"); err != nil {
+			return fmt.Errorf("mark parent %s as done: %w", parentID, err)
+		}
+		// Recurse to parent of parent
+		return w.finalizeAncestors(ctx, parent.ParentID)
+	}
+
+	return nil
+}
+
 
 func (w *Loop) applyChanges(ctx context.Context, runID, goal, taskID string) error {
 	if w.repoRoot == "" {

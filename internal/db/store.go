@@ -140,7 +140,7 @@ func (s *Store) insertEvent(ctx context.Context, tx *sql.Tx, runID, typ, message
 
 func (s *Store) nextSeq(ctx context.Context, tx *sql.Tx, runID string) (int, error) {
 	var seq int
-	row := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq), 0) FROM events WHERE run_id=?`, runID)
+	row := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq), 0) + 1 FROM events WHERE run_id=?`, runID)
 	if err := row.Scan(&seq); err != nil {
 		return 0, fmt.Errorf("read event seq: %w", err)
 	}

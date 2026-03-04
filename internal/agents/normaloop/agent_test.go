@@ -155,8 +155,8 @@ func TestSelectNextTaskNoRunnableTasks(t *testing.T) {
 	w := &Loop{logger: zerolog.Nop(), tracker: tracker}
 
 	_, _, err := w.selectNextTask(context.Background())
-	if !errors.Is(err, errNoTasks) {
-		t.Fatalf("selectNextTask() error = %v, want %v", err, errNoTasks)
+	if !errors.Is(err, ErrNoTasks) {
+		t.Fatalf("selectNextTask() error = %v, want %v", err, ErrNoTasks)
 	}
 }
 
