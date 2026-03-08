@@ -147,7 +147,7 @@ func (a *Agent) run(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, er
 						partialEmitted = true
 					}
 				}
-				ev, ok := mapACPUpdateToEvent(ctx.InvocationID(), note.Update)
+				ev, ok := mapACPUpdateToEvent(a.logger, ctx.InvocationID(), note.Update)
 				if !ok {
 					continue
 				}
@@ -227,10 +227,10 @@ func updateText(update acp.SessionUpdate) string {
 	return content.Text.Text
 }
 
-func mapACPUpdateToEvent(invocationID string, update acp.SessionUpdate) (*session.Event, bool) {
+func mapACPUpdateToEvent(logger zerolog.Logger, invocationID string, update acp.SessionUpdate) (*session.Event, bool) {
 	switch {
 	case update.AgentMessageChunk != nil:
-		part, ok := mapACPContentBlockToPart(update.AgentMessageChunk.Content)
+		part, ok := mapACPContentBlockToPart(logger, update.AgentMessageChunk.Content)
 		if !ok {
 			return nil, false
 		}
@@ -239,7 +239,7 @@ func mapACPUpdateToEvent(invocationID string, update acp.SessionUpdate) (*sessio
 		ev.Partial = true
 		return ev, true
 	case update.UserMessageChunk != nil:
-		part, ok := mapACPContentBlockToPart(update.UserMessageChunk.Content)
+		part, ok := mapACPContentBlockToPart(logger, update.UserMessageChunk.Content)
 		if !ok {
 			return nil, false
 		}
@@ -248,7 +248,7 @@ func mapACPUpdateToEvent(invocationID string, update acp.SessionUpdate) (*sessio
 		ev.Partial = true
 		return ev, true
 	case update.AgentThoughtChunk != nil:
-		part, ok := mapACPContentBlockToPart(update.AgentThoughtChunk.Content)
+		part, ok := mapACPContentBlockToPart(logger, update.AgentThoughtChunk.Content)
 		if !ok {
 			return nil, false
 		}
@@ -304,48 +304,138 @@ func mapACPUpdateToEvent(invocationID string, update acp.SessionUpdate) (*sessio
 		}
 		return ev, true
 	case update.Plan != nil:
-		payload := map[string]any{"entries": update.Plan.Entries}
-		return newACPTextEvent(invocationID, genai.RoleModel, marshalACPUpdatePayload(payload), false), true
+		logIgnoredACPUpdate(logger, "plan", map[string]any{"entries": update.Plan.Entries})
+		return nil, false
 	case update.AvailableCommandsUpdate != nil:
-		payload := map[string]any{"availableCommands": update.AvailableCommandsUpdate.AvailableCommands}
-		return newACPTextEvent(invocationID, genai.RoleModel, marshalACPUpdatePayload(payload), false), true
+		logIgnoredACPUpdate(logger, "available_commands_update", map[string]any{
+			"availableCommands": update.AvailableCommandsUpdate.AvailableCommands,
+		})
+		return nil, false
 	case update.CurrentModeUpdate != nil:
-		payload := map[string]any{"currentModeId": update.CurrentModeUpdate.CurrentModeId}
-		return newACPTextEvent(invocationID, genai.RoleModel, marshalACPUpdatePayload(payload), false), true
+		logIgnoredACPUpdate(logger, "current_mode_update", map[string]any{
+			"currentModeId": update.CurrentModeUpdate.CurrentModeId,
+		})
+		return nil, false
 	default:
-		return newACPTextEvent(invocationID, genai.RoleModel, marshalACPUpdatePayload(update), false), true
+		logUnsupportedACPUpdate(logger, update)
+		return nil, false
 	}
 }
 
-func mapACPContentBlockToPart(block acp.ContentBlock) (*genai.Part, bool) {
+func mapACPContentBlockToPart(logger zerolog.Logger, block acp.ContentBlock) (*genai.Part, bool) {
 	if block.Text != nil {
 		if block.Text.Text == "" {
 			return nil, false
 		}
 		return genai.NewPartFromText(block.Text.Text), true
 	}
-	payload := marshalACPUpdatePayload(block)
-	if payload == "" {
-		return nil, false
-	}
-	return genai.NewPartFromText(payload), true
+	logIgnoredACPContentBlock(logger, block)
+	return nil, false
 }
 
-func newACPTextEvent(invocationID string, role genai.Role, text string, partial bool) *session.Event {
-	ev := session.NewEvent(invocationID)
-	ev.Content = genai.NewContentFromText(text, role)
-	ev.Partial = partial
-	return ev
-}
-
-func marshalACPUpdatePayload(v any) string {
+func marshalACPUpdatePayload(logger zerolog.Logger, payloadType string, v any) (string, bool) {
 	raw, err := json.Marshal(v)
 	if err != nil {
-		return fmt.Sprintf(`{"marshalError":%q}`, err.Error())
+		logger.Debug().
+			Err(err).
+			Str("acp_payload_type", payloadType).
+			Msg("ignoring acp payload that failed to marshal")
+		return "", false
 	}
-	return string(raw)
+	return string(raw), true
 }
 
 func isACPToolStatusLongRunning(status acp.ToolCallStatus) bool {
 	return status == acp.ToolCallStatusPending || status == acp.ToolCallStatusInProgress
+}
+
+func logUnsupportedACPUpdate(logger zerolog.Logger, update acp.SessionUpdate) {
+	logEvent := logger.Debug().
+		Str("acp_update_type", sessionUpdateType(update))
+
+	if payload, ok := marshalACPUpdatePayload(logger, "session_update_"+sessionUpdateType(update), update); ok {
+		logEvent = logEvent.Str("acp_update_payload", payload)
+	}
+	logEvent.Msg("ignoring unsupported acp session update")
+}
+
+func logIgnoredACPUpdate(logger zerolog.Logger, updateType string, payload any) {
+	logEvent := logger.Debug().
+		Str("acp_update_type", updateType)
+
+	if marshaled, ok := marshalACPUpdatePayload(logger, "session_update_"+updateType, payload); ok {
+		logEvent = logEvent.Str("acp_update_payload", marshaled)
+	}
+	logEvent.Msg("ignoring non-user-visible acp session update")
+}
+
+func logIgnoredACPContentBlock(logger zerolog.Logger, block acp.ContentBlock) {
+	blockType := contentBlockType(block)
+	logEvent := logger.Debug().
+		Str("acp_content_block_type", blockType)
+
+	switch blockType {
+	case "image":
+		if payload, ok := marshalACPUpdatePayload(logger, "content_block_image", block.Image); ok {
+			logEvent = logEvent.Str("acp_content_block_payload", payload)
+		}
+	case "audio":
+		if payload, ok := marshalACPUpdatePayload(logger, "content_block_audio", block.Audio); ok {
+			logEvent = logEvent.Str("acp_content_block_payload", payload)
+		}
+	case "resource_link":
+		if payload, ok := marshalACPUpdatePayload(logger, "content_block_resource_link", block.ResourceLink); ok {
+			logEvent = logEvent.Str("acp_content_block_payload", payload)
+		}
+	case "resource":
+		if payload, ok := marshalACPUpdatePayload(logger, "content_block_resource", block.Resource); ok {
+			logEvent = logEvent.Str("acp_content_block_payload", payload)
+		}
+	}
+
+	if blockType == unknownValue {
+		logEvent.Msg("ignoring unsupported acp content block")
+		return
+	}
+	logEvent.Msg("ignoring non-text acp content block")
+}
+
+func sessionUpdateType(update acp.SessionUpdate) string {
+	switch {
+	case update.UserMessageChunk != nil:
+		return "user_message_chunk"
+	case update.AgentMessageChunk != nil:
+		return "agent_message_chunk"
+	case update.AgentThoughtChunk != nil:
+		return "agent_thought_chunk"
+	case update.ToolCall != nil:
+		return "tool_call"
+	case update.ToolCallUpdate != nil:
+		return "tool_call_update"
+	case update.Plan != nil:
+		return "plan"
+	case update.CurrentModeUpdate != nil:
+		return "current_mode_update"
+	case update.AvailableCommandsUpdate != nil:
+		return "available_commands_update"
+	default:
+		return unknownValue
+	}
+}
+
+func contentBlockType(block acp.ContentBlock) string {
+	switch {
+	case block.Text != nil:
+		return "text"
+	case block.Image != nil:
+		return "image"
+	case block.Audio != nil:
+		return "audio"
+	case block.ResourceLink != nil:
+		return "resource_link"
+	case block.Resource != nil:
+		return "resource"
+	default:
+		return unknownValue
+	}
 }

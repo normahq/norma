@@ -29,6 +29,9 @@ func runACPInfo(
 	stdout io.Writer,
 	stderr io.Writer,
 ) error {
+	restoreLogLevel := forceGlobalDebugLogging()
+	defer restoreLogLevel()
+
 	lockedStderr := &syncWriter{writer: stderr}
 	logger := zerolog.New(zerolog.ConsoleWriter{Out: lockedStderr, TimeFormat: time.RFC3339}).
 		Level(zerolog.DebugLevel).

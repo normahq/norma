@@ -273,6 +273,9 @@ func runStandardACP(
 	stdout io.Writer,
 	stderr io.Writer,
 ) error {
+	restoreLogLevel := forceGlobalDebugLogging()
+	defer restoreLogLevel()
+
 	lockedStderr := &syncWriter{writer: stderr}
 	logger := zerolog.New(zerolog.ConsoleWriter{Out: lockedStderr, TimeFormat: time.RFC3339}).
 		Level(zerolog.DebugLevel).
@@ -345,6 +348,9 @@ func runACPWeb(
 	webArgs []string,
 	stderr io.Writer,
 ) error {
+	restoreLogLevel := forceGlobalDebugLogging()
+	defer restoreLogLevel()
+
 	lockedStderr := &syncWriter{writer: stderr}
 	logger := zerolog.New(zerolog.ConsoleWriter{Out: lockedStderr, TimeFormat: time.RFC3339}).
 		Level(zerolog.DebugLevel).
@@ -386,6 +392,14 @@ func runACPWeb(
 		return fmt.Errorf("run web launcher: %w\n\n%s", err, l.CommandLineSyntax())
 	}
 	return nil
+}
+
+func forceGlobalDebugLogging() func() {
+	prev := zerolog.GlobalLevel()
+	zerolog.SetGlobalLevel(zerolog.DebugLevel)
+	return func() {
+		zerolog.SetGlobalLevel(prev)
+	}
 }
 
 func buildWebLauncherArgs(webArgs []string) []string {

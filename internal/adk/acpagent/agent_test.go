@@ -2,6 +2,7 @@ package acpagent
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -25,6 +26,12 @@ const (
 	testACPCallID = "call-1"
 	testACPToolID = "tool-1"
 )
+
+type badJSONMarshaler struct{}
+
+func (badJSONMarshaler) MarshalJSON() ([]byte, error) {
+	return []byte("{"), nil
+}
 
 func TestClientPromptReceivesUpdates(t *testing.T) {
 	client, err := NewClient(context.Background(), ClientConfig{
@@ -419,7 +426,7 @@ func TestAgentRunDoesNotDuplicatePartialInFinalEvent(t *testing.T) {
 }
 
 func TestMapACPUpdateToEventAgentMessageChunk(t *testing.T) {
-	ev, ok := mapACPUpdateToEvent("inv-1", acp.UpdateAgentMessageText("hello"))
+	ev, ok := mapACPUpdateToEvent(zerolog.Nop(), "inv-1", acp.UpdateAgentMessageText("hello"))
 	if !ok || ev == nil {
 		t.Fatalf("mapACPUpdateToEvent() returned no event")
 	}
@@ -432,7 +439,7 @@ func TestMapACPUpdateToEventAgentMessageChunk(t *testing.T) {
 }
 
 func TestMapACPUpdateToEventToolCall(t *testing.T) {
-	ev, ok := mapACPUpdateToEvent("inv-1", acp.StartToolCall(
+	ev, ok := mapACPUpdateToEvent(zerolog.Nop(), "inv-1", acp.StartToolCall(
 		acp.ToolCallId(testACPCallID),
 		"run shell",
 		acp.WithStartKind(acp.ToolKindExecute),
@@ -458,7 +465,7 @@ func TestMapACPUpdateToEventToolCall(t *testing.T) {
 }
 
 func TestMapACPUpdateToEventToolCallUpdate(t *testing.T) {
-	ev, ok := mapACPUpdateToEvent("inv-1", acp.UpdateToolCall(
+	ev, ok := mapACPUpdateToEvent(zerolog.Nop(), "inv-1", acp.UpdateToolCall(
 		acp.ToolCallId(testACPCallID),
 		acp.WithUpdateStatus(acp.ToolCallStatusCompleted),
 		acp.WithUpdateRawOutput(map[string]any{"ok": true}),
@@ -478,6 +485,97 @@ func TestMapACPUpdateToEventToolCallUpdate(t *testing.T) {
 	}
 	if len(ev.LongRunningToolIDs) != 0 {
 		t.Fatalf("long running ids = %v, want empty", ev.LongRunningToolIDs)
+	}
+}
+
+func TestMapACPUpdateToEventIgnoresUnknownUpdate(t *testing.T) {
+	var logBuf bytes.Buffer
+	logger := zerolog.New(&logBuf).Level(zerolog.DebugLevel)
+
+	ev, ok := mapACPUpdateToEvent(logger, "inv-1", acp.SessionUpdate{})
+	if ok || ev != nil {
+		t.Fatalf("mapACPUpdateToEvent() = (%v, %v), want no event", ev, ok)
+	}
+	if got := logBuf.String(); !strings.Contains(got, "ignoring unsupported acp session update") {
+		t.Fatalf("debug log = %q, want unsupported update message", got)
+	}
+}
+
+func TestMapACPUpdateToEventIgnoresAvailableCommandsUpdate(t *testing.T) {
+	var logBuf bytes.Buffer
+	logger := zerolog.New(&logBuf).Level(zerolog.DebugLevel)
+
+	ev, ok := mapACPUpdateToEvent(logger, "inv-1", acp.SessionUpdate{
+		AvailableCommandsUpdate: &acp.SessionAvailableCommandsUpdate{
+			AvailableCommands: []acp.AvailableCommand{
+				{Name: "compact", Description: "compact the session"},
+			},
+		},
+	})
+	if ok || ev != nil {
+		t.Fatalf("mapACPUpdateToEvent() = (%v, %v), want no event", ev, ok)
+	}
+	got := logBuf.String()
+	if !strings.Contains(got, "available_commands_update") {
+		t.Fatalf("debug log = %q, want available_commands_update marker", got)
+	}
+	if !strings.Contains(got, "ignoring non-user-visible acp session update") {
+		t.Fatalf("debug log = %q, want ignored update message", got)
+	}
+}
+
+func TestMapACPUpdateToEventIgnoresUnmarshalableContentBlock(t *testing.T) {
+	var logBuf bytes.Buffer
+	logger := zerolog.New(&logBuf).Level(zerolog.DebugLevel)
+
+	update := acp.SessionUpdate{
+		UserMessageChunk: &acp.SessionUpdateUserMessageChunk{
+			Content: acp.ContentBlock{
+				ResourceLink: &acp.ContentBlockResourceLink{
+					Meta: badJSONMarshaler{},
+					Name: "doc",
+					Uri:  "file:///tmp/doc.txt",
+				},
+			},
+		},
+	}
+
+	ev, ok := mapACPUpdateToEvent(logger, "inv-1", update)
+	if ok || ev != nil {
+		t.Fatalf("mapACPUpdateToEvent() = (%v, %v), want no event", ev, ok)
+	}
+	got := logBuf.String()
+	if !strings.Contains(got, "resource_link") {
+		t.Fatalf("debug log = %q, want resource_link marker", got)
+	}
+	if !strings.Contains(got, "ignoring non-text acp content block") {
+		t.Fatalf("debug log = %q, want ignored non-text block message", got)
+	}
+	if !strings.Contains(got, "ignoring acp payload that failed to marshal") {
+		t.Fatalf("debug log = %q, want marshal failure debug context", got)
+	}
+}
+
+func TestMapACPUpdateToEventIgnoresUnknownContentBlockWithoutMarshalAttempt(t *testing.T) {
+	var logBuf bytes.Buffer
+	logger := zerolog.New(&logBuf).Level(zerolog.DebugLevel)
+
+	update := acp.SessionUpdate{
+		UserMessageChunk: &acp.SessionUpdateUserMessageChunk{
+			Content: acp.ContentBlock{},
+		},
+	}
+
+	ev, ok := mapACPUpdateToEvent(logger, "inv-1", update)
+	if ok || ev != nil {
+		t.Fatalf("mapACPUpdateToEvent() = (%v, %v), want no event", ev, ok)
+	}
+	got := logBuf.String()
+	if !strings.Contains(got, "ignoring unsupported acp content block") {
+		t.Fatalf("debug log = %q, want unsupported content block message", got)
+	}
+	if strings.Contains(got, "failed to marshal") {
+		t.Fatalf("debug log = %q, want no marshal failure", got)
 	}
 }
 
