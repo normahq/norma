@@ -280,7 +280,7 @@ func (m *plannerModel) View() string {
 	case m.waitingForHuman:
 		s += m.textinput.View()
 	default:
-		s += infoStyle.Render("Thinking...")
+		s += infoStyle.Render("What do you want to build? Ctrl+C to exit.")
 	}
 	return s
 }
