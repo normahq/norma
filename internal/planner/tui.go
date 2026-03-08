@@ -34,6 +34,8 @@ type planFinishedMsg Decomposition
 type planCompletedMsg string
 type planFailedMsg string
 
+const plannerIntroPrompt = "What do you want to build? Ctrl+C to exit."
+
 type plannerModel struct {
 	viewport    viewport.Model
 	textinput   textinput.Model
@@ -92,7 +94,7 @@ func newPlannerModel(
 }
 
 func (m *plannerModel) Init() tea.Cmd {
-	m.history.WriteString(infoStyle.Render("What do you want to build? Ctrl+C to exit.\n\n"))
+	m.history.WriteString(infoStyle.Render(plannerIntroPrompt + "\n\n"))
 	m.status = "Waiting for agent updates..."
 	m.updateViewport()
 	return tea.Batch(
@@ -185,7 +187,11 @@ func (m *plannerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case humanRequestMsg:
 		m.waitingForHuman = true
 		m.status = "Waiting for your input..."
-		m.history.WriteString(questionStyle.Render(fmt.Sprintf("\n%s\n", strings.TrimSpace(string(msg)))))
+		question := strings.TrimSpace(string(msg))
+		// Keep the fixed intro line only once in the viewport; render all other questions.
+		if question != "" && question != plannerIntroPrompt {
+			m.history.WriteString(questionStyle.Render(fmt.Sprintf("\n%s\n", question)))
+		}
 		m.updateViewport()
 		return m, m.waitForQuestion()
 

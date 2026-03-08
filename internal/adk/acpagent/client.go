@@ -16,12 +16,21 @@ import (
 	"github.com/rs/zerolog"
 )
 
-var errPromptAlreadyActive = errors.New("acp prompt already active")
+var (
+	// ErrPromptAlreadyActive is returned when a prompt is already in progress for
+	// the same ACP session ID.
+	ErrPromptAlreadyActive = errors.New("acp prompt already active")
+
+	errSessionIDRequired = errors.New("acp session id is required")
+	errPromptRequired    = errors.New("acp prompt is required")
+)
 
 const unknownValue = "unknown"
 
+// PermissionHandler decides how ACP permission requests should be handled.
 type PermissionHandler func(context.Context, acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error)
 
+// ClientConfig configures an ACP subprocess client.
 type ClientConfig struct {
 	Command           []string
 	WorkingDir        string
@@ -32,6 +41,7 @@ type ClientConfig struct {
 	Logger            *zerolog.Logger
 }
 
+// Client manages a single ACP subprocess and implements acp.Client callbacks.
 type Client struct {
 	cmd               *exec.Cmd
 	stdin             io.WriteCloser
@@ -56,6 +66,7 @@ type activePrompt struct {
 	signal    chan struct{}
 }
 
+// PromptResult contains the terminal Prompt RPC response or an error.
 type PromptResult struct {
 	Response acp.PromptResponse
 	Err      error
@@ -63,6 +74,7 @@ type PromptResult struct {
 
 var _ acp.Client = (*Client)(nil)
 
+// NewClient starts an ACP subprocess and returns a protocol client over stdio.
 func NewClient(ctx context.Context, cfg ClientConfig) (*Client, error) {
 	if len(cfg.Command) == 0 {
 		return nil, fmt.Errorf("acp command is required")
@@ -133,6 +145,8 @@ func NewClient(ctx context.Context, cfg ClientConfig) (*Client, error) {
 	return c, nil
 }
 
+// Initialize performs ACP protocol initialization and validates protocol
+// compatibility.
 func (c *Client) Initialize(ctx context.Context) (acp.InitializeResponse, error) {
 	c.logger.Debug().Msg("sending acp initialize")
 	resp, err := c.conn.Initialize(ctx, acp.InitializeRequest{
@@ -152,6 +166,7 @@ func (c *Client) Initialize(ctx context.Context) (acp.InitializeResponse, error)
 	return resp, nil
 }
 
+// Authenticate requests ACP authentication for a specific method.
 func (c *Client) Authenticate(ctx context.Context, methodID string) error {
 	if strings.TrimSpace(methodID) == "" {
 		return nil
@@ -165,6 +180,7 @@ func (c *Client) Authenticate(ctx context.Context, methodID string) error {
 	return nil
 }
 
+// NewSession creates a new ACP session in the provided working directory.
 func (c *Client) NewSession(ctx context.Context, cwd string) (acp.NewSessionResponse, error) {
 	c.logger.Debug().Str("cwd", cwd).Msg("sending acp session/new")
 	resp, err := c.conn.NewSession(ctx, acp.NewSessionRequest{Cwd: cwd, McpServers: []acp.McpServer{}})
@@ -178,12 +194,20 @@ func (c *Client) NewSession(ctx context.Context, cwd string) (acp.NewSessionResp
 	return resp, nil
 }
 
+// Prompt sends a prompt to an ACP session and streams session updates.
 func (c *Client) Prompt(ctx context.Context, sessionID, prompt string) (<-chan acp.SessionNotification, <-chan PromptResult, error) {
+	if strings.TrimSpace(sessionID) == "" {
+		return nil, nil, errSessionIDRequired
+	}
+	if strings.TrimSpace(prompt) == "" {
+		return nil, nil, errPromptRequired
+	}
+
 	c.stateMu.Lock()
 	activeSessionID := acp.SessionId(sessionID)
 	if c.activeBySession[activeSessionID] != nil {
 		c.stateMu.Unlock()
-		return nil, nil, errPromptAlreadyActive
+		return nil, nil, ErrPromptAlreadyActive
 	}
 	updates := make(chan acp.SessionNotification, 64)
 	active := &activePrompt{sessionID: activeSessionID, updates: updates, signal: make(chan struct{}, 1)}
@@ -218,6 +242,7 @@ func (c *Client) Prompt(ctx context.Context, sessionID, prompt string) (<-chan a
 	return updates, resultCh, nil
 }
 
+// Close stops the ACP subprocess and waits for cleanup to finish.
 func (c *Client) Close() error {
 	_ = c.stdin.Close()
 	if c.cmd.Process != nil {
@@ -241,6 +266,7 @@ func (c *Client) waitLoop() {
 	c.failAll(io.EOF)
 }
 
+// RequestPermission handles ACP permission callbacks.
 func (c *Client) RequestPermission(ctx context.Context, params acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error) {
 	title := ""
 	if params.ToolCall.Title != nil {
@@ -282,6 +308,7 @@ func (c *Client) RequestPermission(ctx context.Context, params acp.RequestPermis
 	return resp, nil
 }
 
+// SessionUpdate is part of the ACP client callback contract.
 func (c *Client) SessionUpdate(_ context.Context, params acp.SessionNotification) error {
 	c.logger.Debug().
 		Str("session_id", string(params.SessionId)).
@@ -290,30 +317,37 @@ func (c *Client) SessionUpdate(_ context.Context, params acp.SessionNotification
 	return nil
 }
 
+// ReadTextFile reports unsupported file read for this ACP client.
 func (c *Client) ReadTextFile(_ context.Context, _ acp.ReadTextFileRequest) (acp.ReadTextFileResponse, error) {
 	return acp.ReadTextFileResponse{}, acp.NewMethodNotFound(acp.ClientMethodFsReadTextFile)
 }
 
+// WriteTextFile reports unsupported file write for this ACP client.
 func (c *Client) WriteTextFile(_ context.Context, _ acp.WriteTextFileRequest) (acp.WriteTextFileResponse, error) {
 	return acp.WriteTextFileResponse{}, acp.NewMethodNotFound(acp.ClientMethodFsWriteTextFile)
 }
 
+// CreateTerminal reports unsupported terminal creation for this ACP client.
 func (c *Client) CreateTerminal(_ context.Context, _ acp.CreateTerminalRequest) (acp.CreateTerminalResponse, error) {
 	return acp.CreateTerminalResponse{}, acp.NewMethodNotFound(acp.ClientMethodTerminalCreate)
 }
 
+// KillTerminalCommand reports unsupported terminal command control for this ACP client.
 func (c *Client) KillTerminalCommand(_ context.Context, _ acp.KillTerminalCommandRequest) (acp.KillTerminalCommandResponse, error) {
 	return acp.KillTerminalCommandResponse{}, acp.NewMethodNotFound(acp.ClientMethodTerminalKill)
 }
 
+// TerminalOutput reports unsupported terminal output streaming for this ACP client.
 func (c *Client) TerminalOutput(_ context.Context, _ acp.TerminalOutputRequest) (acp.TerminalOutputResponse, error) {
 	return acp.TerminalOutputResponse{}, acp.NewMethodNotFound(acp.ClientMethodTerminalOutput)
 }
 
+// ReleaseTerminal reports unsupported terminal release for this ACP client.
 func (c *Client) ReleaseTerminal(_ context.Context, _ acp.ReleaseTerminalRequest) (acp.ReleaseTerminalResponse, error) {
 	return acp.ReleaseTerminalResponse{}, acp.NewMethodNotFound(acp.ClientMethodTerminalRelease)
 }
 
+// WaitForTerminalExit reports unsupported terminal wait operations for this ACP client.
 func (c *Client) WaitForTerminalExit(_ context.Context, _ acp.WaitForTerminalExitRequest) (acp.WaitForTerminalExitResponse, error) {
 	return acp.WaitForTerminalExitResponse{}, acp.NewMethodNotFound(acp.ClientMethodTerminalWaitForExit)
 }

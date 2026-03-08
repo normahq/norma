@@ -15,6 +15,7 @@ import (
 	"google.golang.org/genai"
 )
 
+// Config configures an ACP-backed ADK agent.
 type Config struct {
 	Context           context.Context
 	Name              string
@@ -28,6 +29,7 @@ type Config struct {
 	Logger            *zerolog.Logger
 }
 
+// Agent adapts an ACP runtime to the ADK agent interface.
 type Agent struct {
 	adkagent.Agent
 
@@ -40,6 +42,7 @@ type Agent struct {
 
 var _ adkagent.Agent = (*Agent)(nil)
 
+// New creates an ADK agent backed by an ACP client process.
 func New(cfg Config) (*Agent, error) {
 	ctx := cfg.Context
 	if ctx == nil {
@@ -93,6 +96,7 @@ func New(cfg Config) (*Agent, error) {
 	return a, nil
 }
 
+// Close shuts down the underlying ACP client process.
 func (a *Agent) Close() error {
 	return a.client.Close()
 }
@@ -127,6 +131,9 @@ func (a *Agent) run(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, er
 		var promptResult *PromptResult
 		for updates != nil || resultCh != nil {
 			select {
+			case <-ctx.Done():
+				yield(nil, ctx.Err())
+				return
 			case note, ok := <-updates:
 				if !ok {
 					updates = nil

@@ -207,13 +207,56 @@ func TestClientPromptRejectsConcurrentSameSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Prompt(first) error = %v", err)
 	}
-	if _, _, err := client.Prompt(context.Background(), string(sess.SessionId), "two"); !errors.Is(err, errPromptAlreadyActive) {
-		t.Fatalf("Prompt(second) error = %v, want %v", err, errPromptAlreadyActive)
+	if _, _, err := client.Prompt(context.Background(), string(sess.SessionId), "two"); !errors.Is(err, ErrPromptAlreadyActive) {
+		t.Fatalf("Prompt(second) error = %v, want %v", err, ErrPromptAlreadyActive)
 	}
 
 	got1 := readPromptOutput(t, updates1, resultCh1)
 	if got1 != wantSession1 {
 		t.Fatalf("session output = %q, want %q", got1, wantSession1)
+	}
+}
+
+func TestClientPromptValidatesInputs(t *testing.T) {
+	client, err := NewClient(context.Background(), ClientConfig{
+		Command: helperCommand(t),
+	})
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	if _, err := client.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+
+	testCases := []struct {
+		name      string
+		sessionID string
+		prompt    string
+		wantErr   error
+	}{
+		{
+			name:      "missing session id",
+			sessionID: " ",
+			prompt:    "prompt",
+			wantErr:   errSessionIDRequired,
+		},
+		{
+			name:      "missing prompt",
+			sessionID: "session-1",
+			prompt:    " ",
+			wantErr:   errPromptRequired,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, _, gotErr := client.Prompt(context.Background(), tc.sessionID, tc.prompt)
+			if !errors.Is(gotErr, tc.wantErr) {
+				t.Fatalf("Prompt() error = %v, want %v", gotErr, tc.wantErr)
+			}
+		})
 	}
 }
 

@@ -1,6 +1,7 @@
 package planner
 
 import (
+	"strings"
 	"testing"
 
 	"google.golang.org/genai"
@@ -50,6 +51,35 @@ func TestExtractTextFromContent_ConcatenatesTextParts(t *testing.T) {
 	got := extractTextFromContent(content)
 	if got != "alphabeta" {
 		t.Fatalf("extractTextFromContent = %q, want %q", got, "alphabeta")
+	}
+}
+
+func TestPlannerInstruction_ContainsClarificationAndNoImplementationRules(t *testing.T) {
+	t.Parallel()
+
+	instruction := PlannerInstruction()
+	requiredSnippets := []string{
+		"Ask clarification questions first",
+		"Do NOT implement code",
+		"Use the 'beads' tool",
+	}
+	for _, snippet := range requiredSnippets {
+		if !strings.Contains(instruction, snippet) {
+			t.Fatalf("PlannerInstruction missing %q", snippet)
+		}
+	}
+}
+
+func TestPlannerPromptForUserInput_WrapsInstructionAndMessage(t *testing.T) {
+	t.Parallel()
+
+	msg := "build task breakdown for auth"
+	prompt := PlannerPromptForUserInput(msg)
+	if !strings.Contains(prompt, PlannerInstruction()) {
+		t.Fatalf("wrapped prompt does not include planner instruction")
+	}
+	if !strings.Contains(prompt, "User request:\n"+msg) {
+		t.Fatalf("wrapped prompt does not include user request")
 	}
 }
 

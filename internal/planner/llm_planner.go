@@ -77,16 +77,11 @@ func (p *LLMPlanner) RunInteractive(ctx context.Context, req Request) (string, e
 		return "", fmt.Errorf("create beads tool: %w", err)
 	}
 
-	shellTool, err := llmtools.NewShellCommandTool(p.repoRoot)
-	if err != nil {
-		return "", fmt.Errorf("create shell tool: %w", err)
-	}
-
 	plannerAgent, err := llmagent.New(llmagent.Config{
 		Name:        "NormaPlanner",
 		Description: "Interactive Norma planning agent that decomposes epics into features and tasks.",
 		Model:       p.model,
-		Tools:       []tool.Tool{humanTool, shellTool, beadsTool},
+		Tools:       []tool.Tool{humanTool, beadsTool},
 		Instruction: buildLLMPlanPrompt(),
 	})
 	if err != nil {
@@ -206,17 +201,12 @@ func (p *LLMPlanner) Generate(ctx context.Context, req Request) (Decomposition, 
 		return Decomposition{}, "", fmt.Errorf("create beads tool: %w", err)
 	}
 
-	shellTool, err := llmtools.NewShellCommandTool(p.repoRoot)
-	if err != nil {
-		return Decomposition{}, "", fmt.Errorf("create shell tool: %w", err)
-	}
-
 	// Create the llmagent
 	plannerAgent, err := llmagent.New(llmagent.Config{
 		Name:        "NormaPlanner",
 		Description: "Interactive Norma planning agent that decomposes epics into features and tasks.",
 		Model:       p.model,
-		Tools:       []tool.Tool{humanTool, shellTool, beadsTool},
+		Tools:       []tool.Tool{humanTool, beadsTool},
 		Instruction: buildLLMPlanPrompt(),
 	})
 	if err != nil {
@@ -388,42 +378,29 @@ func (p *LLMPlanner) newPlanRunDir() (string, error) {
 
 func buildLLMPlanPrompt() string {
 	return `You are Norma's planning agent.
-Your job is to decompose a project goal (epic) into a Beads-ready hierarchy:
-1) one epic
-2) multiple features under that epic
-3) multiple executable tasks under each feature
+You only do planning and task decomposition in Beads.
 
-Workflow:
-1. If the project goal (epic) is provided in the first message, proceed to decomposition.
-2. If the goal is missing, empty, or too vague, you MUST use the 'human' tool to ask the user what they want to build.
-3. Use the 'beads' tool to inspect the issue tracker (list, show, ready) and understand existing epics, features, and tasks.
-4. Use 'run_shell_command' to inspect the current project state (files, structure, code) to make informed planning decisions.
-5. Decompose the goal into features and tasks.
-6. MANDATORY CONFIRMATION: Once you have a final plan, you MUST present it to the user using the 'human' tool and ask for approval.
-7. REFINEMENT: If the user rejects the plan or provides feedback, you MUST refine the plan and ask for approval again.
-8. PERSISTENCE: After the user explicitly approves the plan, use the 'beads' tool ('create' operation) to persist the epic, features, and tasks.
-   - Use 'beads create --type epic --title ... --description ... --json' to create the epic and get its ID.
-   - Use 'beads create --type feature --parent <epic_id> ...' for features.
-   - Use 'beads create --type task --parent <feature_id> ...' for tasks.
-9. FINISH: Once all artifacts are created in Beads, provide a concise final summary in plain text and finish the session.
+MANDATORY BEHAVIOR:
+1. Ask clarification questions first until requirements are clear.
+2. Do NOT implement code, edit files, or run implementation work.
+3. Use the 'beads' tool to inspect/create issues.
+4. After user approval, create a Beads hierarchy:
+   - one epic
+   - features under epic
+   - executable tasks under each feature
+5. Keep scope practical and actionable.
+6. End with a concise planning summary.
 
 CRITICAL RULES:
 - NEVER ask the user a question using plain text.
 - ALWAYS use the 'human' tool for ANY interaction with the user (including plan approval).
 - ALWAYS use the 'beads' tool for ANY interaction with the issue tracker.
-- Use 'run_shell_command' to understand the codebase before planning.
-- If you just output text without calling a tool, the session will terminate and the plan will be lost.
-
-Tool: run_shell_command
-- Allowed commands: ls, grep, cat, find, tree, git, go, echo.
-- NO pipes (|), redirects (>, >>), or command chaining (&&, ||, ;, &) allowed.
-- Use this to explore the project structure and existing code.
+- If you just output text without calling a tool, the session may terminate and the plan will be lost.
 
 Tool: beads
 - Operations: list, show, create, update, close, reopen, delete, ready.
 - Use this tool for ALL issue tracker operations.
 - Enforce --reason for close, reopen, and delete operations.
-- Always prefer this tool over running 'bd' via 'run_shell_command'.
 
 Planning Rules:
 - Every task must be executable and include:
@@ -438,6 +415,15 @@ Planning Rules:
 // PlannerInstruction returns the canonical planner prompt used by Norma planner agents.
 func PlannerInstruction() string {
 	return buildLLMPlanPrompt()
+}
+
+// PlannerPromptForUserInput wraps a user message with the planner instruction for ACP runtimes.
+func PlannerPromptForUserInput(message string) string {
+	msg := strings.TrimSpace(message)
+	if msg == "" {
+		return PlannerInstruction()
+	}
+	return PlannerInstruction() + "\n\nUser request:\n" + msg
 }
 
 func randomHex(bytesLen int) (string, error) {

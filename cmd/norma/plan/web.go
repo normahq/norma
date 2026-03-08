@@ -2,8 +2,10 @@ package plancmd
 
 import (
 	"fmt"
+	"io"
 	"os"
 
+	"github.com/metalagman/norma/internal/adk/acpagent"
 	adkagent "google.golang.org/adk/agent"
 	"google.golang.org/adk/agent/llmagent"
 	"google.golang.org/adk/artifact"
@@ -13,6 +15,7 @@ import (
 	"google.golang.org/adk/tool"
 
 	"github.com/metalagman/norma/internal/adk/modelfactory"
+	normaagent "github.com/metalagman/norma/internal/agent"
 	"github.com/metalagman/norma/internal/config"
 	"github.com/metalagman/norma/internal/planner"
 	"github.com/metalagman/norma/internal/planner/llmtools"
@@ -34,54 +37,76 @@ func webCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if plannerCfg, ok := cfg.Agents["planner"]; ok {
-				if config.IsACPType(plannerCfg.Type) {
-					return fmt.Errorf("planner web launcher does not support ACP planner type %q", plannerCfg.Type)
+			plannerCfg, ok := cfg.Agents["planner"]
+			if !ok {
+				return fmt.Errorf("planner agent not configured in selected profile %q", cfg.Profile)
+			}
+			if !config.IsPlannerSupportedType(plannerCfg.Type) {
+				return fmt.Errorf("planner web launcher supports only llm and acp planner agents, got %q", plannerCfg.Type)
+			}
+
+			var plannerDebugAgent adkagent.Agent
+			if config.IsACPType(plannerCfg.Type) {
+				acpCmd, resolveErr := normaagent.ResolveACPCommand(plannerCfg)
+				if resolveErr != nil {
+					return resolveErr
 				}
-				if !config.IsLLMType(plannerCfg.Type) {
-					return fmt.Errorf("planner web launcher supports only llm planner agents, got %q", plannerCfg.Type)
+				acpRuntime, newErr := acpagent.New(acpagent.Config{
+					Context:           cmd.Context(),
+					Name:              "NormaPlannerACP",
+					Description:       "Norma planner via ACP runtime",
+					Command:           acpCmd,
+					WorkingDir:        repoRoot,
+					Stderr:            io.Discard,
+					PermissionHandler: planner.PlannerACPPermissionHandler,
+				})
+				if newErr != nil {
+					return fmt.Errorf("create planner ACP runtime: %w", newErr)
 				}
-			}
+				defer func() { _ = acpRuntime.Close() }()
+				wrappedAgent, wrapErr := planner.WrapAgentWithPlannerPrompt(acpRuntime)
+				if wrapErr != nil {
+					return fmt.Errorf("create planner ACP wrapper agent: %w", wrapErr)
+				}
+				plannerDebugAgent = wrappedAgent
+			} else {
+				factoryCfg := make(modelfactory.FactoryConfig, len(cfg.Agents))
+				for name, agentCfg := range cfg.Agents {
+					factoryCfg[name] = agentCfg
+				}
+				factory := modelfactory.NewFactory(factoryCfg)
 
-			factoryCfg := make(modelfactory.FactoryConfig, len(cfg.Agents))
-			for name, agentCfg := range cfg.Agents {
-				factoryCfg[name] = agentCfg
-			}
-			factory := modelfactory.NewFactory(factoryCfg)
+				modelName := "planner"
+				if _, ok := cfg.Agents[modelName]; !ok {
+					modelName = "plan"
+				}
+				m, modelErr := factory.CreateModel(modelName)
+				if modelErr != nil {
+					return fmt.Errorf("create planner model %q: %w", modelName, modelErr)
+				}
 
-			modelName := "planner"
-			if _, ok := cfg.Agents[modelName]; !ok {
-				modelName = "plan"
-			}
-			m, err := factory.CreateModel(modelName)
-			if err != nil {
-				return fmt.Errorf("create planner model %q: %w", modelName, err)
-			}
+				humanTool, humanErr := llmtools.NewHumanTool(func(_ string) (string, error) {
+					return "No additional clarification provided.", nil
+				})
+				if humanErr != nil {
+					return fmt.Errorf("create human tool: %w", humanErr)
+				}
+				beadsTool, beadsErr := llmtools.NewBeadsCommandTool(repoRoot)
+				if beadsErr != nil {
+					return fmt.Errorf("create beads tool: %w", beadsErr)
+				}
 
-			humanTool, err := llmtools.NewHumanTool(func(_ string) (string, error) {
-				return "No additional clarification provided.", nil
-			})
-			if err != nil {
-				return fmt.Errorf("create human tool: %w", err)
-			}
-			shellTool, err := llmtools.NewShellCommandTool(repoRoot)
-			if err != nil {
-				return fmt.Errorf("create shell tool: %w", err)
-			}
-			beadsTool, err := llmtools.NewBeadsCommandTool(repoRoot)
-			if err != nil {
-				return fmt.Errorf("create beads tool: %w", err)
-			}
-
-			plannerDebugAgent, err := llmagent.New(llmagent.Config{
-				Name:        "NormaPlanner",
-				Model:       m,
-				Description: "Interactive Norma planning agent that decomposes epics into features and tasks.",
-				Tools:       []tool.Tool{humanTool, shellTool, beadsTool},
-				Instruction: planner.PlannerInstruction(),
-			})
-			if err != nil {
-				return fmt.Errorf("create planner debug agent: %w", err)
+				llmPlannerAgent, newErr := llmagent.New(llmagent.Config{
+					Name:        "NormaPlanner",
+					Model:       m,
+					Description: "Interactive Norma planning agent that decomposes epics into features and tasks.",
+					Tools:       []tool.Tool{humanTool, beadsTool},
+					Instruction: planner.PlannerInstruction(),
+				})
+				if newErr != nil {
+					return fmt.Errorf("create planner debug agent: %w", newErr)
+				}
+				plannerDebugAgent = llmPlannerAgent
 			}
 
 			launchCfg := &launcher.Config{

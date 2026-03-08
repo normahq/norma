@@ -97,7 +97,7 @@ func (p *ACPPlanner) RunInteractive(ctx context.Context, req Request) (string, e
 		Command:           acpCmd,
 		WorkingDir:        p.repoRoot,
 		Stderr:            io.Discard,
-		PermissionHandler: allowACPPermissions,
+		PermissionHandler: PlannerACPPermissionHandler,
 	})
 	if err != nil {
 		closeEvents()
@@ -105,11 +105,17 @@ func (p *ACPPlanner) RunInteractive(ctx context.Context, req Request) (string, e
 		return "", fmt.Errorf("create ACP planner runtime: %w", err)
 	}
 	defer func() { _ = acpRuntime.Close() }()
+	plannerAgent, err := WrapAgentWithPlannerPrompt(acpRuntime)
+	if err != nil {
+		closeEvents()
+		_ = waitTUI()
+		return "", fmt.Errorf("create planner ACP wrapper agent: %w", err)
+	}
 
 	sessionService := session.InMemoryService()
 	adkRunner, err := runner.New(runner.Config{
 		AppName:        "norma-plan-acp",
-		Agent:          acpRuntime,
+		Agent:          plannerAgent,
 		SessionService: sessionService,
 	})
 	if err != nil {
@@ -153,12 +159,7 @@ func (p *ACPPlanner) RunInteractive(ctx context.Context, req Request) (string, e
 	}
 
 	if goal := strings.TrimSpace(req.EpicDescription); goal != "" {
-		initialPrompt := strings.TrimSpace(fmt.Sprintf(
-			"You are Norma planner. Create and refine a project plan conversationally. JSON formatting is not required. "+
-				"If needed, run beads and shell commands directly through your ACP runtime.\n\nProject goal:\n%s",
-			goal,
-		))
-		if turnErr := runTurn(initialPrompt); turnErr != nil {
+		if turnErr := runTurn(goal); turnErr != nil {
 			if errors.Is(turnErr, context.Canceled) {
 				closeEvents()
 				_ = waitTUI()
@@ -234,20 +235,36 @@ func newPlanRunDir(repoRoot string) (string, error) {
 	return runDir, nil
 }
 
-func allowACPPermissions(_ context.Context, req acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error) {
-	for _, option := range req.Options {
-		if option.Kind == acp.PermissionOptionKindAllowOnce || option.Kind == acp.PermissionOptionKindAllowAlways {
-			return acp.RequestPermissionResponse{
-				Outcome: acp.NewRequestPermissionOutcomeSelected(option.OptionId),
-			}, nil
+// PlannerACPPermissionHandler enforces planner-safe ACP permissions.
+func PlannerACPPermissionHandler(_ context.Context, req acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error) {
+	if req.ToolCall.Kind != nil {
+		switch *req.ToolCall.Kind {
+		case acp.ToolKindEdit, acp.ToolKindDelete, acp.ToolKindMove:
+			if resp, ok := selectPermissionOption(req.Options, acp.PermissionOptionKindRejectOnce, acp.PermissionOptionKindRejectAlways); ok {
+				return resp, nil
+			}
+			return acp.RequestPermissionResponse{Outcome: acp.NewRequestPermissionOutcomeCancelled()}, nil
 		}
 	}
-	for _, option := range req.Options {
-		if option.Kind == acp.PermissionOptionKindRejectOnce || option.Kind == acp.PermissionOptionKindRejectAlways {
-			return acp.RequestPermissionResponse{
-				Outcome: acp.NewRequestPermissionOutcomeSelected(option.OptionId),
-			}, nil
-		}
+	if resp, ok := selectPermissionOption(req.Options, acp.PermissionOptionKindAllowOnce, acp.PermissionOptionKindAllowAlways); ok {
+		return resp, nil
+	}
+	if resp, ok := selectPermissionOption(req.Options, acp.PermissionOptionKindRejectOnce, acp.PermissionOptionKindRejectAlways); ok {
+		return resp, nil
 	}
 	return acp.RequestPermissionResponse{Outcome: acp.NewRequestPermissionOutcomeCancelled()}, nil
+}
+
+func selectPermissionOption(options []acp.PermissionOption, preferredKinds ...acp.PermissionOptionKind) (acp.RequestPermissionResponse, bool) {
+	for _, kind := range preferredKinds {
+		for _, option := range options {
+			if option.Kind != kind {
+				continue
+			}
+			return acp.RequestPermissionResponse{
+				Outcome: acp.NewRequestPermissionOutcomeSelected(option.OptionId),
+			}, true
+		}
+	}
+	return acp.RequestPermissionResponse{}, false
 }

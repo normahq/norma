@@ -20,6 +20,9 @@ agents:
     type: gemini_aistudio
     model: gemini-2.5-flash-lite
     api_key: ${GOOGLE_API_KEY}
+  codex_acp:
+    type: codex_acp
+    model: gpt-5.4
 
 profiles:
   default:
@@ -28,7 +31,7 @@ profiles:
       do: ainvoke_opencode_agent
       check: ainvoke_codex_agent
       act: ainvoke_codex_agent
-    planner: gemini_primary
+    planner: codex_acp
   codex:
     pdca:
       plan: ainvoke_codex_agent
