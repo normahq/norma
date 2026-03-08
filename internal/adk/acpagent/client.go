@@ -25,6 +25,8 @@ type PermissionHandler func(context.Context, acp.RequestPermissionRequest) (acp.
 type ClientConfig struct {
 	Command           []string
 	WorkingDir        string
+	ClientName        string
+	ClientVersion     string
 	Stderr            io.Writer
 	PermissionHandler PermissionHandler
 	Logger            *zerolog.Logger
@@ -35,11 +37,13 @@ type Client struct {
 	stdin             io.WriteCloser
 	conn              *acp.ClientSideConnection
 	permissionHandler PermissionHandler
+	clientName        string
+	clientVersion     string
 	logger            zerolog.Logger
 
-	stateMu sync.Mutex
-	active  *activePrompt
-	updates chan acp.SessionNotification
+	stateMu         sync.Mutex
+	activeBySession map[acp.SessionId]*activePrompt
+	updates         chan acp.SessionNotification
 
 	closed    chan struct{}
 	closeOnce sync.Once
@@ -67,6 +71,14 @@ func NewClient(ctx context.Context, cfg ClientConfig) (*Client, error) {
 	l := zerolog.Nop()
 	if cfg.Logger != nil {
 		l = cfg.Logger.With().Str("subcomponent", "acpagent.client").Logger()
+	}
+	clientName := strings.TrimSpace(cfg.ClientName)
+	if clientName == "" {
+		clientName = "norma-acpagent"
+	}
+	clientVersion := strings.TrimSpace(cfg.ClientVersion)
+	if clientVersion == "" {
+		clientVersion = "dev"
 	}
 
 	stderr := cfg.Stderr
@@ -104,7 +116,10 @@ func NewClient(ctx context.Context, cfg ClientConfig) (*Client, error) {
 		cmd:               cmd,
 		stdin:             stdin,
 		permissionHandler: cfg.PermissionHandler,
+		clientName:        clientName,
+		clientVersion:     clientVersion,
 		logger:            l,
+		activeBySession:   make(map[acp.SessionId]*activePrompt),
 		updates:           make(chan acp.SessionNotification, 256),
 		closed:            make(chan struct{}),
 	}
@@ -123,8 +138,8 @@ func (c *Client) Initialize(ctx context.Context) (acp.InitializeResponse, error)
 	resp, err := c.conn.Initialize(ctx, acp.InitializeRequest{
 		ProtocolVersion: acp.ProtocolVersionNumber,
 		ClientInfo: &acp.Implementation{
-			Name:    "norma-playground",
-			Version: "dev",
+			Name:    c.clientName,
+			Version: c.clientVersion,
 		},
 	})
 	if err != nil {
@@ -165,14 +180,14 @@ func (c *Client) NewSession(ctx context.Context, cwd string) (acp.NewSessionResp
 
 func (c *Client) Prompt(ctx context.Context, sessionID, prompt string) (<-chan acp.SessionNotification, <-chan PromptResult, error) {
 	c.stateMu.Lock()
-	if c.active != nil {
+	activeSessionID := acp.SessionId(sessionID)
+	if c.activeBySession[activeSessionID] != nil {
 		c.stateMu.Unlock()
 		return nil, nil, errPromptAlreadyActive
 	}
 	updates := make(chan acp.SessionNotification, 64)
-	activeSessionID := acp.SessionId(sessionID)
 	active := &activePrompt{sessionID: activeSessionID, updates: updates, signal: make(chan struct{}, 1)}
-	c.active = active
+	c.activeBySession[activeSessionID] = active
 	c.stateMu.Unlock()
 
 	c.logger.Debug().Str("session_id", sessionID).Int("prompt_len", len(prompt)).Msg("sending acp session/prompt")
@@ -226,7 +241,7 @@ func (c *Client) waitLoop() {
 	c.failAll(io.EOF)
 }
 
-func (c *Client) RequestPermission(_ context.Context, params acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error) {
+func (c *Client) RequestPermission(ctx context.Context, params acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error) {
 	title := ""
 	if params.ToolCall.Title != nil {
 		title = *params.ToolCall.Title
@@ -238,7 +253,7 @@ func (c *Client) RequestPermission(_ context.Context, params acp.RequestPermissi
 		Msg("received acp permission request")
 
 	if c.permissionHandler != nil {
-		resp, err := c.permissionHandler(context.Background(), params)
+		resp, err := c.permissionHandler(ctx, params)
 		if err != nil {
 			c.logger.Error().Err(err).Str("session_id", string(params.SessionId)).Msg("permission handler failed")
 			return acp.RequestPermissionResponse{}, err
@@ -306,9 +321,7 @@ func (c *Client) WaitForTerminalExit(_ context.Context, _ acp.WaitForTerminalExi
 func (c *Client) clearActive(sessionID acp.SessionId) {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
-	if c.active != nil && c.active.sessionID == sessionID {
-		c.active = nil
-	}
+	delete(c.activeBySession, sessionID)
 }
 
 func (c *Client) failAll(err error) {
@@ -316,7 +329,7 @@ func (c *Client) failAll(err error) {
 		c.closeErr = err
 		close(c.closed)
 		c.stateMu.Lock()
-		c.active = nil
+		clear(c.activeBySession)
 		c.stateMu.Unlock()
 	})
 }
@@ -347,9 +360,9 @@ func (c *Client) dispatchSessionUpdate(note acp.SessionNotification) {
 		Msg("received acp session update")
 
 	c.stateMu.Lock()
-	active := c.active
+	active := c.activeBySession[note.SessionId]
 	c.stateMu.Unlock()
-	if active == nil || active.sessionID != note.SessionId {
+	if active == nil {
 		return
 	}
 	select {

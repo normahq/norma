@@ -4,13 +4,17 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"iter"
 	"os"
+	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	acp "github.com/coder/acp-go-sdk"
+	"github.com/rs/zerolog"
 	"google.golang.org/adk/agent"
 	runnerpkg "google.golang.org/adk/runner"
 	"google.golang.org/adk/session"
@@ -99,6 +103,146 @@ func TestClientHandlesPermissionRequest(t *testing.T) {
 	}
 }
 
+func TestClientInitializeUsesDefaultIdentity(t *testing.T) {
+	client, err := NewClient(context.Background(), ClientConfig{
+		Command: helperCommandWithEnv(t, map[string]string{
+			"GO_EXPECT_CLIENT_NAME":    "norma-acpagent",
+			"GO_EXPECT_CLIENT_VERSION": "dev",
+		}),
+	})
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	if _, err := client.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+}
+
+func TestClientInitializeUsesConfiguredIdentity(t *testing.T) {
+	client, err := NewClient(context.Background(), ClientConfig{
+		Command: helperCommandWithEnv(t, map[string]string{
+			"GO_EXPECT_CLIENT_NAME":    "custom-acp-client",
+			"GO_EXPECT_CLIENT_VERSION": "1.2.3",
+		}),
+		ClientName:    "custom-acp-client",
+		ClientVersion: "1.2.3",
+	})
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	if _, err := client.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+}
+
+func TestClientPromptAllowsConcurrentDifferentSessions(t *testing.T) {
+	const (
+		wantSession1 = "session-1:one"
+		wantSession2 = "session-2:two"
+	)
+
+	client, err := NewClient(context.Background(), ClientConfig{
+		Command: helperCommand(t),
+	})
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	if _, err := client.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	sess1, err := client.NewSession(context.Background(), t.TempDir())
+	if err != nil {
+		t.Fatalf("NewSession() error = %v", err)
+	}
+	sess2, err := client.NewSession(context.Background(), t.TempDir())
+	if err != nil {
+		t.Fatalf("NewSession() error = %v", err)
+	}
+
+	updates1, resultCh1, err := client.Prompt(context.Background(), string(sess1.SessionId), "slow:one")
+	if err != nil {
+		t.Fatalf("Prompt(session1) error = %v", err)
+	}
+	updates2, resultCh2, err := client.Prompt(context.Background(), string(sess2.SessionId), "two")
+	if err != nil {
+		t.Fatalf("Prompt(session2) error = %v", err)
+	}
+
+	got1 := readPromptOutput(t, updates1, resultCh1)
+	got2 := readPromptOutput(t, updates2, resultCh2)
+	if got1 != wantSession1 {
+		t.Fatalf("session1 output = %q, want %q", got1, wantSession1)
+	}
+	if got2 != wantSession2 {
+		t.Fatalf("session2 output = %q, want %q", got2, wantSession2)
+	}
+}
+
+func TestClientPromptRejectsConcurrentSameSession(t *testing.T) {
+	const wantSession1 = "session-1:one"
+
+	client, err := NewClient(context.Background(), ClientConfig{
+		Command: helperCommand(t),
+	})
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	if _, err := client.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	sess, err := client.NewSession(context.Background(), t.TempDir())
+	if err != nil {
+		t.Fatalf("NewSession() error = %v", err)
+	}
+
+	updates1, resultCh1, err := client.Prompt(context.Background(), string(sess.SessionId), "slow:one")
+	if err != nil {
+		t.Fatalf("Prompt(first) error = %v", err)
+	}
+	if _, _, err := client.Prompt(context.Background(), string(sess.SessionId), "two"); !errors.Is(err, errPromptAlreadyActive) {
+		t.Fatalf("Prompt(second) error = %v, want %v", err, errPromptAlreadyActive)
+	}
+
+	got1 := readPromptOutput(t, updates1, resultCh1)
+	if got1 != wantSession1 {
+		t.Fatalf("session output = %q, want %q", got1, wantSession1)
+	}
+}
+
+func TestRequestPermissionPassesContextToHandler(t *testing.T) {
+	type key string
+	const ctxKey key = "ctx-key"
+	const ctxVal = "ctx-value"
+
+	var seen string
+	c := &Client{
+		logger: zerolog.Nop(),
+		permissionHandler: func(ctx context.Context, req acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error) {
+			seen, _ = ctx.Value(ctxKey).(string)
+			return acp.RequestPermissionResponse{Outcome: acp.NewRequestPermissionOutcomeCancelled()}, nil
+		},
+	}
+
+	_, err := c.RequestPermission(context.WithValue(context.Background(), ctxKey, ctxVal), acp.RequestPermissionRequest{
+		SessionId: "session-1",
+		Options:   []acp.PermissionOption{},
+	})
+	if err != nil {
+		t.Fatalf("RequestPermission() error = %v", err)
+	}
+	if seen != ctxVal {
+		t.Fatalf("permission handler context value = %q, want %q", seen, ctxVal)
+	}
+}
+
 func TestAgentReusesRemoteSession(t *testing.T) {
 	a, err := New(Config{
 		Context:    context.Background(),
@@ -151,8 +295,24 @@ func collectFinalText(t *testing.T, events iter.Seq2[*session.Event, error]) str
 }
 
 func helperCommand(t *testing.T) []string {
+	return helperCommandWithEnv(t, nil)
+}
+
+func helperCommandWithEnv(t *testing.T, env map[string]string) []string {
 	t.Helper()
-	return []string{"env", "GO_WANT_ACP_HELPER=1", os.Args[0], "-test.run=TestACPHelperProcess", "--"}
+	cmd := []string{"env", "GO_WANT_ACP_HELPER=1"}
+	if len(env) > 0 {
+		keys := make([]string, 0, len(env))
+		for k := range env {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			cmd = append(cmd, key+"="+env[key])
+		}
+	}
+	cmd = append(cmd, os.Args[0], "-test.run=TestACPHelperProcess", "--")
+	return cmd
 }
 
 func TestACPHelperProcess(t *testing.T) {
@@ -167,12 +327,32 @@ func runACPHelper(stdin *os.File, stdout *os.File) {
 	scanner := bufio.NewScanner(stdin)
 	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
 	sessionCount := 0
+	expectedClientName := os.Getenv("GO_EXPECT_CLIENT_NAME")
+	expectedClientVersion := os.Getenv("GO_EXPECT_CLIENT_VERSION")
 
 	for scanner.Scan() {
 		var msg helperEnvelope
 		must(json.Unmarshal(scanner.Bytes(), &msg))
 		switch msg.Method {
 		case acp.AgentMethodInitialize:
+			var req helperInitializeRequest
+			must(json.Unmarshal(msg.Params, &req))
+			if expectedClientName != "" && req.ClientInfo.Name != expectedClientName {
+				writeEnvelope(stdout, helperEnvelope{
+					JSONRPC: "2.0",
+					ID:      msg.ID,
+					Error:   &helperError{Code: -32000, Message: fmt.Sprintf("unexpected client name: %s", req.ClientInfo.Name)},
+				})
+				continue
+			}
+			if expectedClientVersion != "" && req.ClientInfo.Version != expectedClientVersion {
+				writeEnvelope(stdout, helperEnvelope{
+					JSONRPC: "2.0",
+					ID:      msg.ID,
+					Error:   &helperError{Code: -32000, Message: fmt.Sprintf("unexpected client version: %s", req.ClientInfo.Version)},
+				})
+				continue
+			}
 			writeEnvelope(stdout, helperEnvelope{JSONRPC: "2.0", ID: msg.ID, Result: mustJSON(helperInitializeResponse{ProtocolVersion: acp.ProtocolVersionNumber})})
 		case acp.AgentMethodSessionNew:
 			sessionCount++
@@ -182,6 +362,10 @@ func runACPHelper(stdin *os.File, stdout *os.File) {
 			var req helperPromptRequest
 			must(json.Unmarshal(msg.Params, &req))
 			prompt := req.Prompt[0].Text
+			if strings.HasPrefix(prompt, "slow:") {
+				time.Sleep(150 * time.Millisecond)
+				prompt = strings.TrimPrefix(prompt, "slow:")
+			}
 			if prompt == "permission" {
 				title := "Edit file"
 				writeEnvelope(stdout, helperEnvelope{JSONRPC: "2.0", ID: json.RawMessage(`"perm-1"`), Method: acp.ClientMethodSessionRequestPermission, Params: mustJSON(helperPermissionRequest{
@@ -263,6 +447,15 @@ type helperInitializeResponse struct {
 	ProtocolVersion int `json:"protocolVersion"`
 }
 
+type helperInitializeRequest struct {
+	ClientInfo helperImplementation `json:"clientInfo"`
+}
+
+type helperImplementation struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
+}
+
 type helperNewSessionResponse struct {
 	SessionID string `json:"sessionId"`
 }
@@ -314,4 +507,19 @@ type helperPermissionResponse struct {
 type helperPermissionOutcome struct {
 	Outcome  string `json:"outcome"`
 	OptionID string `json:"optionId,omitempty"`
+}
+
+func readPromptOutput(t *testing.T, updates <-chan acp.SessionNotification, resultCh <-chan PromptResult) string {
+	t.Helper()
+	var chunks []string
+	for note := range updates {
+		if text := updateText(note.Update); text != "" {
+			chunks = append(chunks, text)
+		}
+	}
+	result := <-resultCh
+	if result.Err != nil {
+		t.Fatalf("PromptResult.Err = %v", result.Err)
+	}
+	return strings.Join(chunks, "")
 }

@@ -19,6 +19,8 @@ type Config struct {
 	Context           context.Context
 	Name              string
 	Description       string
+	ClientName        string
+	ClientVersion     string
 	Command           []string
 	WorkingDir        string
 	Stderr            io.Writer
@@ -36,16 +38,18 @@ type Agent struct {
 	remoteByADK map[string]string
 }
 
+var _ adkagent.Agent = (*Agent)(nil)
+
 func New(cfg Config) (*Agent, error) {
 	ctx := cfg.Context
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if strings.TrimSpace(cfg.Name) == "" {
-		cfg.Name = "GeminiACP"
+		cfg.Name = "ACPAgent"
 	}
 	if strings.TrimSpace(cfg.Description) == "" {
-		cfg.Description = "Gemini CLI exposed through ACP"
+		cfg.Description = "ACP runtime exposed through ADK"
 	}
 
 	l := zerolog.Nop()
@@ -56,6 +60,8 @@ func New(cfg Config) (*Agent, error) {
 	client, err := NewClient(ctx, ClientConfig{
 		Command:           cfg.Command,
 		WorkingDir:        cfg.WorkingDir,
+		ClientName:        cfg.ClientName,
+		ClientVersion:     cfg.ClientVersion,
 		Stderr:            cfg.Stderr,
 		PermissionHandler: cfg.PermissionHandler,
 		Logger:            cfg.Logger,
@@ -101,7 +107,7 @@ func (a *Agent) run(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, er
 
 		prompt := extractPromptText(ctx.UserContent())
 		if strings.TrimSpace(prompt) == "" {
-			yield(nil, fmt.Errorf("playground prompt is empty"))
+			yield(nil, fmt.Errorf("prompt is empty"))
 			return
 		}
 
