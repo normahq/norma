@@ -40,6 +40,136 @@ func NewLLMPlanner(repoRoot string, m model.LLM) (*LLMPlanner, error) {
 	}, nil
 }
 
+// RunInteractive runs planner conversation without JSON output parsing.
+func (p *LLMPlanner) RunInteractive(ctx context.Context, req Request) (string, error) {
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	planRunDir, err := newPlanRunDir(p.repoRoot)
+	if err != nil {
+		return "", err
+	}
+
+	eventChan := make(chan *session.Event, 100)
+	questionChan := make(chan string)
+	responseChan := make(chan string)
+
+	humanTool, err := llmtools.NewHumanTool(func(question string) (string, error) {
+		select {
+		case questionChan <- question:
+		case <-runCtx.Done():
+			return "", runCtx.Err()
+		}
+
+		select {
+		case answer := <-responseChan:
+			return answer, nil
+		case <-runCtx.Done():
+			return "", runCtx.Err()
+		}
+	})
+	if err != nil {
+		return "", fmt.Errorf("create human tool: %w", err)
+	}
+
+	beadsTool, err := llmtools.NewBeadsCommandTool(p.repoRoot)
+	if err != nil {
+		return "", fmt.Errorf("create beads tool: %w", err)
+	}
+
+	shellTool, err := llmtools.NewShellCommandTool(p.repoRoot)
+	if err != nil {
+		return "", fmt.Errorf("create shell tool: %w", err)
+	}
+
+	plannerAgent, err := llmagent.New(llmagent.Config{
+		Name:        "NormaPlanner",
+		Description: "Interactive Norma planning agent that decomposes epics into features and tasks.",
+		Model:       p.model,
+		Tools:       []tool.Tool{humanTool, shellTool, beadsTool},
+		Instruction: buildLLMPlanPrompt(),
+	})
+	if err != nil {
+		return "", fmt.Errorf("create llmagent: %w", err)
+	}
+
+	tuiModel, err := newPlannerModel(eventChan, questionChan, responseChan, cancel)
+	if err != nil {
+		return "", fmt.Errorf("create TUI model: %w", err)
+	}
+	prog := tea.NewProgram(tuiModel, tea.WithAltScreen())
+
+	tuiErrChan := make(chan error, 1)
+	go func() {
+		if _, runErr := prog.Run(); runErr != nil {
+			tuiErrChan <- runErr
+		}
+		close(tuiErrChan)
+	}()
+
+	var waitTUIOnce sync.Once
+	var waitTUIErr error
+	waitTUI := func() error {
+		waitTUIOnce.Do(func() {
+			if runErr, ok := <-tuiErrChan; ok {
+				waitTUIErr = runErr
+			}
+		})
+		return waitTUIErr
+	}
+
+	var closeEventOnce sync.Once
+	closeEvent := func() {
+		closeEventOnce.Do(func() {
+			close(eventChan)
+			close(questionChan)
+		})
+	}
+
+	initialState := map[string]any{
+		"epic_description": req.EpicDescription,
+	}
+
+	initialContent := "Let's start planning."
+	if req.EpicDescription != "" {
+		initialContent = fmt.Sprintf("Let's start planning for the following project goal: %s", req.EpicDescription)
+	}
+
+	_, _, err = adkrunner.Run(runCtx, adkrunner.RunInput{
+		AppName:        "norma-plan",
+		UserID:         "norma-user",
+		SessionID:      "plan-" + time.Now().Format("150405"),
+		Agent:          plannerAgent,
+		InitialState:   initialState,
+		InitialContent: genai.NewContentFromText(initialContent, genai.RoleUser),
+		OnEvent: func(ev *session.Event) {
+			select {
+			case eventChan <- ev:
+			case <-runCtx.Done():
+			}
+		},
+	})
+	closeEvent()
+
+	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			_ = waitTUI()
+			return "", context.Canceled
+		}
+		prog.Send(planFailedMsg(formatPlannerRunError(err)))
+		if tuiErr := waitTUI(); tuiErr != nil {
+			return "", fmt.Errorf("TUI error: %w", tuiErr)
+		}
+		return "", ErrHandledInTUI
+	}
+
+	prog.Send(planCompletedMsg("Planner session completed."))
+	if tuiErr := waitTUI(); tuiErr != nil {
+		return "", fmt.Errorf("TUI error: %w", tuiErr)
+	}
+	return planRunDir, nil
+}
+
 // Generate runs an interactive planning session.
 func (p *LLMPlanner) Generate(ctx context.Context, req Request) (Decomposition, string, error) {
 	runCtx, cancel := context.WithCancel(ctx)
@@ -253,16 +383,7 @@ func (p *LLMPlanner) Generate(ctx context.Context, req Request) (Decomposition, 
 }
 
 func (p *LLMPlanner) newPlanRunDir() (string, error) {
-	sfx, err := randomHex(3)
-	if err != nil {
-		return "", fmt.Errorf("generate planning run id: %w", err)
-	}
-	runID := fmt.Sprintf("%s-%s", time.Now().UTC().Format("20060102-150405"), sfx)
-	runDir := filepath.Join(p.repoRoot, ".norma", "plans", runID)
-	if err := os.MkdirAll(filepath.Join(runDir, "logs"), 0o700); err != nil {
-		return "", fmt.Errorf("create planning logs dir: %w", err)
-	}
-	return runDir, nil
+	return newPlanRunDir(p.repoRoot)
 }
 
 func buildLLMPlanPrompt() string {
@@ -284,7 +405,7 @@ Workflow:
    - Use 'beads create --type epic --title ... --description ... --json' to create the epic and get its ID.
    - Use 'beads create --type feature --parent <epic_id> ...' for features.
    - Use 'beads create --type task --parent <feature_id> ...' for tasks.
-9. FINISH: Once all artifacts are created in Beads, output the final decomposition as a single JSON code block and finish the session.
+9. FINISH: Once all artifacts are created in Beads, provide a concise final summary in plain text and finish the session.
 
 CRITICAL RULES:
 - NEVER ask the user a question using plain text.

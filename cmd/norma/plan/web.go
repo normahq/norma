@@ -34,8 +34,13 @@ func webCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if plannerCfg, ok := cfg.Agents["planner"]; ok && config.IsACPType(plannerCfg.Type) {
-				return fmt.Errorf("planner web launcher does not support ACP planner type %q", plannerCfg.Type)
+			if plannerCfg, ok := cfg.Agents["planner"]; ok {
+				if config.IsACPType(plannerCfg.Type) {
+					return fmt.Errorf("planner web launcher does not support ACP planner type %q", plannerCfg.Type)
+				}
+				if !config.IsLLMType(plannerCfg.Type) {
+					return fmt.Errorf("planner web launcher supports only llm planner agents, got %q", plannerCfg.Type)
+				}
 			}
 
 			factoryCfg := make(modelfactory.FactoryConfig, len(cfg.Agents))

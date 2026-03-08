@@ -10,7 +10,6 @@ import (
 	"github.com/metalagman/norma/internal/config"
 	"github.com/metalagman/norma/internal/git"
 	"github.com/metalagman/norma/internal/planner"
-	"github.com/metalagman/norma/internal/task"
 	"github.com/spf13/cobra"
 )
 
@@ -48,6 +47,9 @@ func Command() *cobra.Command {
 			if !ok {
 				return fmt.Errorf("planner agent not configured in selected profile %q", cfg.Profile)
 			}
+			if !config.IsPlannerSupportedType(plannerCfg.Type) {
+				return fmt.Errorf("planner mode supports only llm and acp agent types, got %q", plannerCfg.Type)
+			}
 			if config.IsACPType(plannerCfg.Type) {
 				return runACPPlanner(cmd, repoRoot, plannerCfg, req)
 			}
@@ -69,23 +71,16 @@ func runLLMPlanner(cmd *cobra.Command, repoRoot string, cfg config.Config, req p
 	if err != nil {
 		return fmt.Errorf("create planner runtime: %w", err)
 	}
-	bt := planner.NewBeadsTool(task.NewBeadsTracker(""))
 
 	ctx := cmd.Context()
-	plan, runDir, err := p.Generate(ctx, req)
+	runDir, err := p.RunInteractive(ctx, req)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, planner.ErrHandledInTUI) {
 			return nil
 		}
 		return err
 	}
-
-	applied, err := bt.Apply(ctx, plan)
-	if err != nil {
-		return err
-	}
-
-	fmt.Printf("\nPlan confirmed and artifacts tracked: %s\n", applied.EpicID)
+	fmt.Printf("\nPlanner session complete.\n")
 	fmt.Printf("Planning run directory: %s\n", runDir)
 	return nil
 }

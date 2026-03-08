@@ -31,6 +31,7 @@ var (
 type eventMsg *session.Event
 type humanRequestMsg string
 type planFinishedMsg Decomposition
+type planCompletedMsg string
 type planFailedMsg string
 
 type plannerModel struct {
@@ -47,6 +48,7 @@ type plannerModel struct {
 
 	waitingForHuman bool
 	finishedPlan    *Decomposition
+	completedRunMsg string
 	failedRunError  string
 	err             error
 	onAbort         func()
@@ -126,6 +128,9 @@ func (m *plannerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.finishedPlan != nil {
 			return m, tea.Quit
 		}
+		if m.completedRunMsg != "" {
+			return m, tea.Quit
+		}
 		if m.failedRunError != "" {
 			return m, tea.Quit
 		}
@@ -174,7 +179,7 @@ func (m *plannerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.waitingForHuman = true
 		m.history.WriteString(questionStyle.Render(fmt.Sprintf("\n[PLANNER QUESTION]: %s\n", string(msg))))
 		m.updateViewport()
-		return m, nil
+		return m, m.waitForQuestion()
 
 	case planFinishedMsg:
 		plan := Decomposition(msg)
@@ -203,6 +208,21 @@ func (m *plannerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+		rendered, _ := m.renderer.Render(sb.String())
+		m.history.WriteString(rendered)
+		m.updateViewport()
+		return m, nil
+
+	case planCompletedMsg:
+		m.waitingForHuman = false
+		m.completedRunMsg = strings.TrimSpace(string(msg))
+		if m.completedRunMsg == "" {
+			m.completedRunMsg = "Planner session complete."
+		}
+		var sb strings.Builder
+		sb.WriteString("\n# Planner Session Complete\n\n")
+		sb.WriteString(m.completedRunMsg)
+		sb.WriteString("\n")
 		rendered, _ := m.renderer.Render(sb.String())
 		m.history.WriteString(rendered)
 		m.updateViewport()
@@ -253,6 +273,8 @@ func (m *plannerModel) View() string {
 	switch {
 	case m.finishedPlan != nil:
 		s += titleStyle.Render("Plan persisted! Press any key to exit.")
+	case m.completedRunMsg != "":
+		s += titleStyle.Render("Planner session complete. Press any key to exit.")
 	case m.failedRunError != "":
 		s += titleStyle.Render("Planner failed. Press any key to exit.")
 	case m.waitingForHuman:

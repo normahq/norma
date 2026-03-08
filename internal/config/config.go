@@ -54,15 +54,16 @@ const defaultProfile = "default"
 
 // Supported agent types.
 const (
-	AgentTypeExec        = modelfactory.ModelTypeExec
-	AgentTypeACPExec     = modelfactory.ModelTypeACPExec
-	AgentTypeCodex       = modelfactory.ModelTypeCodex
-	AgentTypeCodexACP    = modelfactory.ModelTypeCodexACP
-	AgentTypeOpenCode    = modelfactory.ModelTypeOpenCode
-	AgentTypeOpenCodeACP = modelfactory.ModelTypeOpenCodeACP
-	AgentTypeGemini      = modelfactory.ModelTypeGemini
-	AgentTypeGeminiACP   = modelfactory.ModelTypeGeminiACP
-	AgentTypeClaude      = modelfactory.ModelTypeClaude
+	AgentTypeExec           = modelfactory.ModelTypeExec
+	AgentTypeACPExec        = modelfactory.ModelTypeACPExec
+	AgentTypeCodex          = modelfactory.ModelTypeCodex
+	AgentTypeCodexACP       = modelfactory.ModelTypeCodexACP
+	AgentTypeOpenCode       = modelfactory.ModelTypeOpenCode
+	AgentTypeOpenCodeACP    = modelfactory.ModelTypeOpenCodeACP
+	AgentTypeGemini         = modelfactory.ModelTypeGemini
+	AgentTypeGeminiACP      = modelfactory.ModelTypeGeminiACP
+	AgentTypeClaude         = modelfactory.ModelTypeClaude
+	AgentTypeGeminiAIStudio = modelfactory.ModelTypeGeminiAIStudio
 )
 
 // IsACPType reports whether an agent type uses the ACP runtime.
@@ -73,6 +74,21 @@ func IsACPType(agentType string) bool {
 	default:
 		return false
 	}
+}
+
+// IsLLMType reports whether an agent type uses a direct LLM model runtime.
+func IsLLMType(agentType string) bool {
+	switch strings.TrimSpace(agentType) {
+	case AgentTypeCodex, AgentTypeOpenCode, AgentTypeGemini, AgentTypeClaude, AgentTypeGeminiAIStudio:
+		return true
+	default:
+		return false
+	}
+}
+
+// IsPlannerSupportedType reports whether planner mode supports the agent type.
+func IsPlannerSupportedType(agentType string) bool {
+	return IsLLMType(agentType) || IsACPType(agentType)
 }
 
 // ResolveAgents returns the agents for the selected profile.

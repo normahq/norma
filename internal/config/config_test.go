@@ -99,3 +99,53 @@ func TestIsACPType(t *testing.T) {
 		})
 	}
 }
+
+func TestIsLLMType(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		typ  string
+		want bool
+	}{
+		{typ: AgentTypeCodex, want: true},
+		{typ: AgentTypeOpenCode, want: true},
+		{typ: AgentTypeGemini, want: true},
+		{typ: AgentTypeClaude, want: true},
+		{typ: AgentTypeGeminiAIStudio, want: true},
+		{typ: AgentTypeACPExec, want: false},
+		{typ: AgentTypeExec, want: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.typ, func(t *testing.T) {
+			t.Parallel()
+			if got := IsLLMType(tc.typ); got != tc.want {
+				t.Fatalf("IsLLMType(%q) = %t, want %t", tc.typ, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestIsPlannerSupportedType(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		typ  string
+		want bool
+	}{
+		{typ: AgentTypeCodex, want: true},
+		{typ: AgentTypeCodexACP, want: true},
+		{typ: AgentTypeACPExec, want: true},
+		{typ: AgentTypeExec, want: false},
+		{typ: "unknown", want: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.typ, func(t *testing.T) {
+			t.Parallel()
+			if got := IsPlannerSupportedType(tc.typ); got != tc.want {
+				t.Fatalf("IsPlannerSupportedType(%q) = %t, want %t", tc.typ, got, tc.want)
+			}
+		})
+	}
+}
