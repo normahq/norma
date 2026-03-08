@@ -90,6 +90,8 @@ func newPlannerModel(
 }
 
 func (m *plannerModel) Init() tea.Cmd {
+	m.history.WriteString(infoStyle.Render("What do you want to build? Ctrl+C to exit.\n\n"))
+	m.updateViewport()
 	return tea.Batch(
 		m.waitForEvent(),
 		m.waitForQuestion(),
@@ -280,7 +282,7 @@ func (m *plannerModel) View() string {
 	case m.waitingForHuman:
 		s += m.textinput.View()
 	default:
-		s += infoStyle.Render("What do you want to build? Ctrl+C to exit.")
+		s += infoStyle.Render("Thinking...")
 	}
 	return s
 }
