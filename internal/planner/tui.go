@@ -177,7 +177,7 @@ func (m *plannerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case humanRequestMsg:
 		m.waitingForHuman = true
-		m.history.WriteString(questionStyle.Render(fmt.Sprintf("\n[PLANNER QUESTION]: %s\n", string(msg))))
+		m.history.WriteString(questionStyle.Render(fmt.Sprintf("\n%s\n", strings.TrimSpace(string(msg)))))
 		m.updateViewport()
 		return m, m.waitForQuestion()
 

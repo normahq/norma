@@ -175,7 +175,7 @@ func (p *ACPPlanner) RunInteractive(ctx context.Context, req Request) (string, e
 
 	for {
 		select {
-		case questionChan <- "Enter planner message (`exit` to finish):":
+		case questionChan <- "What do you want to build? Ctrl+C to exit.":
 		case <-runCtx.Done():
 			closeEvents()
 			_ = waitTUI()
