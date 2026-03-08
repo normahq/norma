@@ -119,6 +119,22 @@ Use `norma plan` to break a high-level epic into Beads epic/feature/task hierarc
 norma plan "Build multi-tenant billing and subscription management"
 ```
 
+### 6. Experimental Gemini ACP Playground
+Use the playground command to talk to Gemini CLI through ACP and Go ADK without changing your normal Norma agent configuration.
+
+```bash
+# One-shot prompt
+norma playground gemini-acp --prompt "summarize this repository"
+
+# Interactive REPL
+norma playground gemini-acp
+```
+
+Notes:
+- This command is experimental and does not use `.norma/config.yaml` profiles.
+- It starts Gemini CLI as `gemini --experimental-acp`.
+- V1 is text-first: normal text responses are rendered in the terminal, while richer ACP events are mainly for debugging via `--debug-events`.
+
 ---
 
 ## 📊 State & Persistence
