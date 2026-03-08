@@ -57,6 +57,22 @@ func OpenCodeInfoCommand() *cobra.Command {
 	})
 }
 
+func OpenCodeWebCommand() *cobra.Command {
+	opts := OpenCodeOptions{OpenCodeBin: "opencode"}
+	return newACPWebCommand(
+		"opencode [-- <web launcher args...>]",
+		"Run OpenCode ACP with the ADK web launcher",
+		func(cmd *cobra.Command) {
+			cmd.Flags().StringVar(&opts.Model, "model", "", "OpenCode model name")
+			cmd.Flags().StringVar(&opts.OpenCodeBin, "opencode-bin", opts.OpenCodeBin, "OpenCode executable path")
+			cmd.Flags().StringArrayVar(&opts.OpenCodeArgs, "opencode-arg", nil, "extra OpenCode ACP argument (repeatable)")
+		},
+		func(ctx context.Context, repoRoot string, launcherArgs []string, stderr io.Writer) error {
+			return RunOpenCodeACPWeb(ctx, repoRoot, opts, launcherArgs, stderr)
+		},
+	)
+}
+
 func RunOpenCodeACP(ctx context.Context, repoRoot string, opts OpenCodeOptions, stdin io.Reader, stdout, stderr io.Writer) error {
 	return runStandardACP(ctx, repoRoot, opts.Prompt, BuildOpenCodeACPCommand(opts), runtimeSpec{
 		component:   "playground.opencode_acp",
@@ -94,4 +110,19 @@ func RunOpenCodeACPInfo(
 		stdout,
 		stderr,
 	)
+}
+
+func RunOpenCodeACPWeb(
+	ctx context.Context,
+	repoRoot string,
+	opts OpenCodeOptions,
+	launcherArgs []string,
+	stderr io.Writer,
+) error {
+	return runACPWeb(ctx, repoRoot, BuildOpenCodeACPCommand(opts), runtimeSpec{
+		component:   "playground.opencode_acp_web",
+		name:        "OpenCodeACPWeb",
+		description: "OpenCode CLI playground agent via ACP (web launcher)",
+		startMsg:    "starting OpenCode ACP web launcher",
+	}, launcherArgs, stderr)
 }

@@ -21,6 +21,11 @@ import (
 	"google.golang.org/genai"
 )
 
+const (
+	testACPCallID = "call-1"
+	testACPToolID = "tool-1"
+)
+
 func TestClientPromptReceivesUpdates(t *testing.T) {
 	client, err := NewClient(context.Background(), ClientConfig{
 		Command: helperCommand(t),
@@ -324,17 +329,229 @@ func TestAgentReusesRemoteSession(t *testing.T) {
 
 func collectFinalText(t *testing.T, events iter.Seq2[*session.Event, error]) string {
 	t.Helper()
+	var partial strings.Builder
 	final := ""
+	turnCompleteSeen := false
 	for ev, err := range events {
 		if err != nil {
 			t.Fatalf("runner event error = %v", err)
 		}
-		if ev == nil || ev.Content == nil || ev.Partial {
+		if ev == nil {
 			continue
 		}
-		final = extractPromptText(ev.Content)
+		if ev.TurnComplete {
+			turnCompleteSeen = true
+		}
+		text := extractPromptText(ev.Content)
+		if text == "" {
+			continue
+		}
+		if ev.Partial {
+			partial.WriteString(text)
+			continue
+		}
+		final = text
+	}
+	if final == "" {
+		final = partial.String()
+	}
+	if !turnCompleteSeen {
+		t.Fatalf("expected turn complete event")
 	}
 	return final
+}
+
+func TestAgentRunDoesNotDuplicatePartialInFinalEvent(t *testing.T) {
+	a, err := New(Config{
+		Context:    context.Background(),
+		Command:    helperCommand(t),
+		WorkingDir: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = a.Close() }()
+
+	sessionService := session.InMemoryService()
+	r, err := runnerpkg.New(runnerpkg.Config{
+		AppName:        "test-app",
+		Agent:          a,
+		SessionService: sessionService,
+	})
+	if err != nil {
+		t.Fatalf("runner.New() error = %v", err)
+	}
+	sess, err := sessionService.Create(context.Background(), &session.CreateRequest{AppName: "test-app", UserID: "test-user"})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	var partialText strings.Builder
+	var finalText strings.Builder
+	turnCompleteSeen := false
+	for ev, err := range r.Run(context.Background(), "test-user", sess.Session.ID(), genai.NewContentFromText("hello", genai.RoleUser), agent.RunConfig{}) {
+		if err != nil {
+			t.Fatalf("runner event error = %v", err)
+		}
+		if ev == nil {
+			continue
+		}
+		if ev.TurnComplete {
+			turnCompleteSeen = true
+		}
+		text := extractPromptText(ev.Content)
+		if text == "" {
+			continue
+		}
+		if ev.Partial {
+			partialText.WriteString(text)
+			continue
+		}
+		finalText.WriteString(text)
+	}
+	if !turnCompleteSeen {
+		t.Fatalf("expected turn complete event")
+	}
+	got := partialText.String() + finalText.String()
+	if got != "session-1:hello" {
+		t.Fatalf("combined streamed text = %q, want %q", got, "session-1:hello")
+	}
+}
+
+func TestMapACPUpdateToEventAgentMessageChunk(t *testing.T) {
+	ev, ok := mapACPUpdateToEvent("inv-1", acp.UpdateAgentMessageText("hello"))
+	if !ok || ev == nil {
+		t.Fatalf("mapACPUpdateToEvent() returned no event")
+	}
+	if !ev.Partial {
+		t.Fatalf("event.Partial = false, want true")
+	}
+	if got := extractPromptText(ev.Content); got != "hello" {
+		t.Fatalf("event text = %q, want %q", got, "hello")
+	}
+}
+
+func TestMapACPUpdateToEventToolCall(t *testing.T) {
+	ev, ok := mapACPUpdateToEvent("inv-1", acp.StartToolCall(
+		acp.ToolCallId(testACPCallID),
+		"run shell",
+		acp.WithStartKind(acp.ToolKindExecute),
+		acp.WithStartStatus(acp.ToolCallStatusInProgress),
+		acp.WithStartRawInput(map[string]any{"cmd": "ls"}),
+	))
+	if !ok || ev == nil {
+		t.Fatalf("mapACPUpdateToEvent() returned no event")
+	}
+	if ev.Content == nil || len(ev.Content.Parts) != 1 || ev.Content.Parts[0].FunctionCall == nil {
+		t.Fatalf("event content = %+v, want single function call part", ev.Content)
+	}
+	call := ev.Content.Parts[0].FunctionCall
+	if call.ID != testACPCallID {
+		t.Fatalf("function call id = %q, want %q", call.ID, testACPCallID)
+	}
+	if call.Name != "acp_tool_call" {
+		t.Fatalf("function call name = %q, want %q", call.Name, "acp_tool_call")
+	}
+	if len(ev.LongRunningToolIDs) != 1 || ev.LongRunningToolIDs[0] != testACPCallID {
+		t.Fatalf("long running ids = %v, want [%s]", ev.LongRunningToolIDs, testACPCallID)
+	}
+}
+
+func TestMapACPUpdateToEventToolCallUpdate(t *testing.T) {
+	ev, ok := mapACPUpdateToEvent("inv-1", acp.UpdateToolCall(
+		acp.ToolCallId(testACPCallID),
+		acp.WithUpdateStatus(acp.ToolCallStatusCompleted),
+		acp.WithUpdateRawOutput(map[string]any{"ok": true}),
+	))
+	if !ok || ev == nil {
+		t.Fatalf("mapACPUpdateToEvent() returned no event")
+	}
+	if ev.Content == nil || len(ev.Content.Parts) != 1 || ev.Content.Parts[0].FunctionResponse == nil {
+		t.Fatalf("event content = %+v, want single function response part", ev.Content)
+	}
+	resp := ev.Content.Parts[0].FunctionResponse
+	if resp.ID != testACPCallID {
+		t.Fatalf("function response id = %q, want %q", resp.ID, testACPCallID)
+	}
+	if resp.Name != "acp_tool_call_update" {
+		t.Fatalf("function response name = %q, want %q", resp.Name, "acp_tool_call_update")
+	}
+	if len(ev.LongRunningToolIDs) != 0 {
+		t.Fatalf("long running ids = %v, want empty", ev.LongRunningToolIDs)
+	}
+}
+
+func TestAgentRunMapsACPEventsToADKEvents(t *testing.T) {
+	a, err := New(Config{
+		Context:    context.Background(),
+		Command:    helperCommand(t),
+		WorkingDir: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = a.Close() }()
+
+	sessionService := session.InMemoryService()
+	r, err := runnerpkg.New(runnerpkg.Config{
+		AppName:        "test-app",
+		Agent:          a,
+		SessionService: sessionService,
+	})
+	if err != nil {
+		t.Fatalf("runner.New() error = %v", err)
+	}
+	sess, err := sessionService.Create(context.Background(), &session.CreateRequest{AppName: "test-app", UserID: "test-user"})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	seenCall := false
+	seenUpdate := false
+	seenMessage := false
+	seenTurnComplete := false
+
+	for ev, err := range r.Run(context.Background(), "test-user", sess.Session.ID(), genai.NewContentFromText("tooling", genai.RoleUser), agent.RunConfig{}) {
+		if err != nil {
+			t.Fatalf("runner event error = %v", err)
+		}
+		if ev == nil {
+			continue
+		}
+		if ev.TurnComplete {
+			seenTurnComplete = true
+		}
+		if ev.Content == nil {
+			continue
+		}
+		if ev.Partial && extractPromptText(ev.Content) == "tooling-done" {
+			seenMessage = true
+		}
+		for _, part := range ev.Content.Parts {
+			if part == nil {
+				continue
+			}
+			if part.FunctionCall != nil && part.FunctionCall.ID == testACPToolID && part.FunctionCall.Name == "acp_tool_call" {
+				seenCall = true
+			}
+			if part.FunctionResponse != nil && part.FunctionResponse.ID == testACPToolID && part.FunctionResponse.Name == "acp_tool_call_update" {
+				seenUpdate = true
+			}
+		}
+	}
+
+	if !seenCall {
+		t.Fatalf("expected mapped tool call event")
+	}
+	if !seenUpdate {
+		t.Fatalf("expected mapped tool call update event")
+	}
+	if !seenMessage {
+		t.Fatalf("expected mapped agent message chunk event")
+	}
+	if !seenTurnComplete {
+		t.Fatalf("expected final turn complete event")
+	}
 }
 
 func helperCommand(t *testing.T) []string {
@@ -434,6 +651,13 @@ func runACPHelper(stdin *os.File, stdout *os.File) {
 				writeEnvelope(stdout, helperEnvelope{JSONRPC: "2.0", ID: msg.ID, Result: mustJSON(helperPromptResponse{StopReason: string(acp.StopReasonEndTurn)})})
 				continue
 			}
+			if prompt == "tooling" {
+				writeToolCall(stdout, req.SessionID, testACPToolID, "run shell", acp.ToolCallStatusInProgress)
+				writeToolCallUpdate(stdout, req.SessionID, testACPToolID, acp.ToolCallStatusCompleted, map[string]any{"ok": true})
+				writeUpdate(stdout, req.SessionID, "tooling-done")
+				writeEnvelope(stdout, helperEnvelope{JSONRPC: "2.0", ID: msg.ID, Result: mustJSON(helperPromptResponse{StopReason: string(acp.StopReasonEndTurn)})})
+				continue
+			}
 			prefix := req.SessionID + ":"
 			writeUpdate(stdout, req.SessionID, prefix)
 			writeUpdate(stdout, req.SessionID, prompt)
@@ -447,13 +671,46 @@ func runACPHelper(stdin *os.File, stdout *os.File) {
 }
 
 func writeUpdate(stdout *os.File, sessionID, text string) {
-	writeEnvelope(stdout, helperEnvelope{JSONRPC: "2.0", Method: acp.ClientMethodSessionUpdate, Params: mustJSON(helperSessionNotification{
-		SessionID: sessionID,
-		Update: helperSessionUpdate{
-			SessionUpdate: "agent_message_chunk",
-			Content:       &helperContentPart{Type: "text", Text: text},
+	writeSessionUpdate(stdout, sessionID, map[string]any{
+		"sessionUpdate": "agent_message_chunk",
+		"content": map[string]any{
+			"type": "text",
+			"text": text,
 		},
-	})})
+	})
+}
+
+func writeToolCall(stdout *os.File, sessionID, toolCallID, title string, status acp.ToolCallStatus) {
+	writeSessionUpdate(stdout, sessionID, map[string]any{
+		"sessionUpdate": "tool_call",
+		"toolCallId":    toolCallID,
+		"title":         title,
+		"kind":          acp.ToolKindExecute,
+		"status":        status,
+		"rawInput": map[string]any{
+			"cmd": "ls",
+		},
+	})
+}
+
+func writeToolCallUpdate(stdout *os.File, sessionID, toolCallID string, status acp.ToolCallStatus, rawOutput map[string]any) {
+	writeSessionUpdate(stdout, sessionID, map[string]any{
+		"sessionUpdate": "tool_call_update",
+		"toolCallId":    toolCallID,
+		"status":        status,
+		"rawOutput":     rawOutput,
+	})
+}
+
+func writeSessionUpdate(stdout *os.File, sessionID string, update map[string]any) {
+	writeEnvelope(stdout, helperEnvelope{
+		JSONRPC: "2.0",
+		Method:  acp.ClientMethodSessionUpdate,
+		Params: mustJSON(map[string]any{
+			"sessionId": sessionID,
+			"update":    update,
+		}),
+	})
 }
 
 func writeEnvelope(stdout *os.File, msg helperEnvelope) {
@@ -515,16 +772,6 @@ type helperPromptRequest struct {
 type helperContentPart struct {
 	Type string `json:"type"`
 	Text string `json:"text,omitempty"`
-}
-
-type helperSessionNotification struct {
-	SessionID string              `json:"sessionId"`
-	Update    helperSessionUpdate `json:"update"`
-}
-
-type helperSessionUpdate struct {
-	SessionUpdate string             `json:"sessionUpdate"`
-	Content       *helperContentPart `json:"content,omitempty"`
 }
 
 type helperPermissionRequest struct {

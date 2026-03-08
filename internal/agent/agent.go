@@ -149,9 +149,10 @@ func ResolveACPCommand(cfg config.AgentConfig) ([]string, error) {
 		if err != nil {
 			return nil, fmt.Errorf("resolve executable path: %w", err)
 		}
-		cmd := []string{exePath, "playground", "codex-acp-bridge"}
-		for _, arg := range cfg.ExtraArgs {
-			cmd = append(cmd, "--codex-arg", arg)
+		cmd := []string{exePath, "proxy", "codex-acp"}
+		if len(cfg.ExtraArgs) > 0 {
+			cmd = append(cmd, "--")
+			cmd = append(cmd, cfg.ExtraArgs...)
 		}
 		return cmd, nil
 	default:

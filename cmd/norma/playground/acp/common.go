@@ -17,6 +17,9 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 	"google.golang.org/adk/agent"
+	"google.golang.org/adk/artifact"
+	"google.golang.org/adk/cmd/launcher"
+	"google.golang.org/adk/cmd/launcher/full"
 	runnerpkg "google.golang.org/adk/runner"
 	"google.golang.org/adk/session"
 	"google.golang.org/genai"
@@ -72,6 +75,31 @@ func newACPInfoCommand(
 		bindFlags(cmd)
 	}
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "print output as JSON")
+	return cmd
+}
+
+func newACPWebCommand(
+	use string,
+	short string,
+	bindFlags func(*cobra.Command),
+	runFunc func(context.Context, string, []string, io.Writer) error,
+) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:          use,
+		Short:        short,
+		SilenceUsage: true,
+		Args:         cobra.ArbitraryArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			repoRoot, err := os.Getwd()
+			if err != nil {
+				return fmt.Errorf("get working directory: %w", err)
+			}
+			return runFunc(cmd.Context(), repoRoot, args, cmd.ErrOrStderr())
+		},
+	}
+	if bindFlags != nil {
+		bindFlags(cmd)
+	}
 	return cmd
 }
 
@@ -307,6 +335,86 @@ func runStandardACP(
 			return err
 		}
 	}
+}
+
+func runACPWeb(
+	ctx context.Context,
+	repoRoot string,
+	command []string,
+	spec runtimeSpec,
+	webArgs []string,
+	stderr io.Writer,
+) error {
+	lockedStderr := &syncWriter{writer: stderr}
+	logger := zerolog.New(zerolog.ConsoleWriter{Out: lockedStderr, TimeFormat: time.RFC3339}).
+		Level(zerolog.DebugLevel).
+		With().Timestamp().Str("component", spec.component).Logger()
+
+	logger.Info().
+		Str("repo_root", repoRoot).
+		Strs("command", command).
+		Strs("web_args", webArgs).
+		Msg(spec.startMsg)
+
+	agentRuntime, err := acpagent.New(acpagent.Config{
+		Context:           ctx,
+		Name:              spec.name,
+		Description:       spec.description,
+		Command:           command,
+		WorkingDir:        repoRoot,
+		Stderr:            lockedStderr,
+		PermissionHandler: autoAllowPermission,
+		Logger:            &logger,
+	})
+	if err != nil {
+		logger.Error().Err(err).Msg("failed to create ACP runtime")
+		return err
+	}
+	defer func() {
+		if closeErr := agentRuntime.Close(); closeErr != nil {
+			logger.Warn().Err(closeErr).Msg("failed to close ACP runtime")
+		}
+	}()
+
+	launchCfg := &launcher.Config{
+		AgentLoader:     agent.NewSingleLoader(agentRuntime),
+		SessionService:  session.InMemoryService(),
+		ArtifactService: artifact.InMemoryService(),
+	}
+	l := full.NewLauncher()
+	if err := l.Execute(ctx, launchCfg, buildWebLauncherArgs(webArgs)); err != nil {
+		return fmt.Errorf("run web launcher: %w\n\n%s", err, l.CommandLineSyntax())
+	}
+	return nil
+}
+
+func buildWebLauncherArgs(webArgs []string) []string {
+	launcherArgs := make([]string, 0, len(webArgs)+1)
+	launcherArgs = append(launcherArgs, "web")
+	if len(webArgs) == 0 {
+		launcherArgs = append(launcherArgs, "api", "webui")
+		return launcherArgs
+	}
+	launcherArgs = append(launcherArgs, webArgs...)
+	return launcherArgs
+}
+
+func autoAllowPermission(_ context.Context, req acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error) {
+	for _, option := range req.Options {
+		if option.Kind == acp.PermissionOptionKindAllowOnce || option.Kind == acp.PermissionOptionKindAllowAlways {
+			return acp.RequestPermissionResponse{
+				Outcome: acp.NewRequestPermissionOutcomeSelected(option.OptionId),
+			}, nil
+		}
+	}
+	for _, option := range req.Options {
+		if option.Kind == acp.PermissionOptionKindRejectOnce || option.Kind == acp.PermissionOptionKindRejectAlways {
+			return acp.RequestPermissionResponse{
+				Outcome: acp.NewRequestPermissionOutcomeSelected(option.OptionId),
+			}, nil
+		}
+	}
+	return acp.RequestPermissionResponse{Outcome: acp.NewRequestPermissionOutcomeCancelled()}, nil
 }
 
 type syncWriter struct {

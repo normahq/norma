@@ -13,6 +13,7 @@ import (
 type CodexOptions struct {
 	Prompt    string
 	CodexArgs []string
+	Name      string
 
 	BridgeBin string
 }
@@ -21,10 +22,11 @@ func CodexCommand() *cobra.Command {
 	opts := CodexOptions{}
 	return newACPPlaygroundCommand(
 		"codex",
-		"Run Codex MCP server through ACP bridge and Go ADK",
+		"Run Codex MCP server through ACP proxy and Go ADK",
 		func(cmd *cobra.Command) {
 			cmd.Flags().StringVar(&opts.Prompt, "prompt", "", "single prompt to run; if empty starts a REPL")
 			cmd.Flags().StringArrayVar(&opts.CodexArgs, "codex-arg", nil, "extra Codex mcp-server argument (repeatable)")
+			cmd.Flags().StringVar(&opts.Name, "name", "", "ACP agent name exposed by the Codex proxy")
 		},
 		func(ctx context.Context, repoRoot string, stdin io.Reader, stdout, stderr io.Writer) error {
 			return RunCodexACP(ctx, repoRoot, opts, stdin, stdout, stderr)
@@ -36,13 +38,30 @@ func CodexInfoCommand() *cobra.Command {
 	opts := CodexOptions{}
 	return newACPInfoCommand(
 		"codex",
-		"Inspect Codex ACP bridge capabilities and auth methods",
+		"Inspect Codex ACP proxy capabilities and auth methods",
 		func(cmd *cobra.Command) {
 			cmd.Flags().StringArrayVar(&opts.CodexArgs, "codex-arg", nil, "extra Codex mcp-server argument (repeatable)")
-			cmd.Flags().StringVar(&opts.BridgeBin, "bridge-bin", "", "Codex ACP bridge executable path (defaults to current norma binary)")
+			cmd.Flags().StringVar(&opts.Name, "name", "", "ACP agent name exposed by the Codex proxy")
+			cmd.Flags().StringVar(&opts.BridgeBin, "bridge-bin", "", "Codex ACP proxy executable path (defaults to current norma binary)")
 		},
 		func(ctx context.Context, repoRoot string, jsonOutput bool, stdout io.Writer, stderr io.Writer) error {
 			return RunCodexACPInfo(ctx, repoRoot, opts, jsonOutput, stdout, stderr)
+		},
+	)
+}
+
+func CodexWebCommand() *cobra.Command {
+	opts := CodexOptions{}
+	return newACPWebCommand(
+		"codex [-- <web launcher args...>]",
+		"Run Codex ACP proxy with the ADK web launcher",
+		func(cmd *cobra.Command) {
+			cmd.Flags().StringArrayVar(&opts.CodexArgs, "codex-arg", nil, "extra Codex mcp-server argument (repeatable)")
+			cmd.Flags().StringVar(&opts.Name, "name", "", "ACP agent name exposed by the Codex proxy")
+			cmd.Flags().StringVar(&opts.BridgeBin, "bridge-bin", "", "Codex ACP proxy executable path (defaults to current norma binary)")
+		},
+		func(ctx context.Context, repoRoot string, launcherArgs []string, stderr io.Writer) error {
+			return RunCodexACPWeb(ctx, repoRoot, opts, launcherArgs, stderr)
 		},
 	)
 }
@@ -55,7 +74,7 @@ func RunCodexACP(ctx context.Context, repoRoot string, opts CodexOptions, stdin 
 	return runStandardACP(ctx, repoRoot, opts.Prompt, acpCmd, runtimeSpec{
 		component:   "playground.codex_acp",
 		name:        "CodexACP",
-		description: "Codex MCP server via ACP bridge",
+		description: "Codex MCP server via ACP proxy",
 		startMsg:    "starting Codex ACP playground",
 	}, stdin, stdout, stderr)
 }
@@ -70,9 +89,13 @@ func BuildCodexACPCommand(opts CodexOptions) ([]string, error) {
 		}
 	}
 
-	cmd := []string{bridgeBin, "playground", "codex-acp-bridge"}
-	for _, arg := range opts.CodexArgs {
-		cmd = append(cmd, "--codex-arg", arg)
+	cmd := []string{bridgeBin, "--debug", "proxy", "codex-acp"}
+	if strings.TrimSpace(opts.Name) != "" {
+		cmd = append(cmd, "--name", strings.TrimSpace(opts.Name))
+	}
+	if len(opts.CodexArgs) > 0 {
+		cmd = append(cmd, "--")
+		cmd = append(cmd, opts.CodexArgs...)
 	}
 	return cmd, nil
 }
@@ -94,9 +117,28 @@ func RunCodexACPInfo(
 		repoRoot,
 		acpCmd,
 		"playground.codex_acp_info",
-		"inspecting Codex ACP bridge",
+		"inspecting Codex ACP proxy",
 		jsonOutput,
 		stdout,
 		stderr,
 	)
+}
+
+func RunCodexACPWeb(
+	ctx context.Context,
+	repoRoot string,
+	opts CodexOptions,
+	launcherArgs []string,
+	stderr io.Writer,
+) error {
+	acpCmd, err := BuildCodexACPCommand(opts)
+	if err != nil {
+		return err
+	}
+	return runACPWeb(ctx, repoRoot, acpCmd, runtimeSpec{
+		component:   "playground.codex_acp_web",
+		name:        "CodexACPWeb",
+		description: "Codex MCP server via ACP proxy (web launcher)",
+		startMsg:    "starting Codex ACP web launcher",
+	}, launcherArgs, stderr)
 }

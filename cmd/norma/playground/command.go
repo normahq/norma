@@ -14,6 +14,5 @@ func Command() *cobra.Command {
 	}
 	cmd.AddCommand(acpcmd.Command())
 	cmd.AddCommand(codexMCPServerCommand())
-	cmd.AddCommand(codexACPBridgeCommand())
 	return cmd
 }

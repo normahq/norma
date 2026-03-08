@@ -102,6 +102,7 @@ You can override config values through environment variables with the `NORMA_` p
 - [Planner and Interactive Planning](docs/planner.md)
 - [PDCA Workflow and Norma Loop](docs/pdca-agent.md)
 - [NormaLoop Orchestration](docs/normaloop-agent.md)
+- [Codex ACP Proxy](docs/codex-acp-proxy.md)
 
 ### 4. Create a Task & Run
 ```bash
@@ -134,6 +135,25 @@ Notes:
 - This command is experimental and does not use `.norma/config.yaml` profiles.
 - It starts Gemini CLI as `gemini --experimental-acp`.
 - V1 is text-first: normal text responses are rendered in the terminal, while richer ACP events are mainly for debugging via `--debug-events`.
+
+### 7. Codex ACP Proxy
+Use the proxy command to expose `codex mcp-server` as ACP over stdio.
+
+```bash
+# Start proxy with default ACP agent name
+norma proxy codex-acp
+
+# Override ACP agent name
+norma proxy codex-acp --name team-codex
+
+# Forward additional flags to codex mcp-server
+norma proxy codex-acp -- --trace --raw
+```
+
+Notes:
+- `--name` sets ACP `initialize.agentInfo.name`.
+- All arguments after `--` are forwarded directly to `codex mcp-server`.
+- Full reference: [docs/codex-acp-proxy.md](docs/codex-acp-proxy.md).
 
 ---
 

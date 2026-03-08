@@ -10,11 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
-	"time"
 
-	acp "github.com/coder/acp-go-sdk"
 	acpcmd "github.com/metalagman/norma/cmd/norma/playground/acp"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -32,6 +29,7 @@ const (
 	acpSubcommandOpenCode   = "opencode"
 	acpSubcommandCodex      = "codex"
 	acpSubcommandInfo       = "info"
+	acpSubcommandWeb        = "web"
 )
 
 func TestPlaygroundCommandRegistered(t *testing.T) {
@@ -100,19 +98,40 @@ func TestPlaygroundCommandRegistered(t *testing.T) {
 	if sub == nil || sub.Name() != acpSubcommandCodex {
 		t.Fatalf("subcommand = %v, want %s", sub, acpSubcommandCodex)
 	}
+	sub, _, err = cmd.Find([]string{"acp", acpSubcommandWeb})
+	if err != nil {
+		t.Fatalf("Find() error = %v", err)
+	}
+	if sub == nil || sub.Name() != acpSubcommandWeb {
+		t.Fatalf("subcommand = %v, want %s", sub, acpSubcommandWeb)
+	}
+	sub, _, err = cmd.Find([]string{"acp", acpSubcommandWeb, acpSubcommandGemini})
+	if err != nil {
+		t.Fatalf("Find() error = %v", err)
+	}
+	if sub == nil || sub.Name() != acpSubcommandGemini {
+		t.Fatalf("subcommand = %v, want %s", sub, acpSubcommandGemini)
+	}
+	sub, _, err = cmd.Find([]string{"acp", acpSubcommandWeb, acpSubcommandOpenCode})
+	if err != nil {
+		t.Fatalf("Find() error = %v", err)
+	}
+	if sub == nil || sub.Name() != acpSubcommandOpenCode {
+		t.Fatalf("subcommand = %v, want %s", sub, acpSubcommandOpenCode)
+	}
+	sub, _, err = cmd.Find([]string{"acp", acpSubcommandWeb, acpSubcommandCodex})
+	if err != nil {
+		t.Fatalf("Find() error = %v", err)
+	}
+	if sub == nil || sub.Name() != acpSubcommandCodex {
+		t.Fatalf("subcommand = %v, want %s", sub, acpSubcommandCodex)
+	}
 	sub, _, err = cmd.Find([]string{"codex-mcp-server"})
 	if err != nil {
 		t.Fatalf("Find() error = %v", err)
 	}
 	if sub == nil || sub.Name() != "codex-mcp-server" {
 		t.Fatalf("subcommand = %v, want codex-mcp-server", sub)
-	}
-	sub, _, err = cmd.Find([]string{"codex-acp-bridge"})
-	if err != nil {
-		t.Fatalf("Find() error = %v", err)
-	}
-	if sub == nil || sub.Name() != "codex-acp-bridge" {
-		t.Fatalf("subcommand = %v, want codex-acp-bridge", sub)
 	}
 }
 
@@ -221,7 +240,7 @@ func TestRunCodexACPOneShot(t *testing.T) {
 		t.Fatalf("stderr = %q, want lifecycle log entry", got)
 	}
 	args := readArgsFile(t, argsFile)
-	wantArgs := []string{"playground", "codex-acp-bridge", "--codex-arg", "--trace"}
+	wantArgs := []string{"--debug", "proxy", "codex-acp", "--", "--trace"}
 	for _, want := range wantArgs {
 		if !containsArg(args, want) {
 			t.Fatalf("args %v do not contain %q", args, want)
@@ -467,14 +486,6 @@ func TestRunCodexMCPServerToolsOnlyMarksUnsupportedFeatures(t *testing.T) {
 	}
 }
 
-func TestBuildCodexACPBridgeCommand(t *testing.T) {
-	got := buildCodexACPBridgeCommand(codexACPBridgeOptions{CodexArgs: []string{"--trace", "--foo=bar"}})
-	want := []string{"codex", "mcp-server", "--trace", "--foo=bar"}
-	if strings.Join(got, " ") != strings.Join(want, " ") {
-		t.Fatalf("buildCodexACPBridgeCommand() = %v, want %v", got, want)
-	}
-}
-
 func TestBuildCodexACPCommand(t *testing.T) {
 	got, err := acpcmd.BuildCodexACPCommand(acpcmd.CodexOptions{
 		BridgeBin: "/tmp/norma",
@@ -483,201 +494,24 @@ func TestBuildCodexACPCommand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildCodexACPCommand() error = %v", err)
 	}
-	want := []string{"/tmp/norma", "playground", "codex-acp-bridge", "--codex-arg", "--trace", "--codex-arg", "--raw"}
+	want := []string{"/tmp/norma", "--debug", "proxy", "codex-acp", "--", "--trace", "--raw"}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Fatalf("buildCodexACPCommand() = %v, want %v", got, want)
 	}
 }
 
-func TestExtractCodexToolResultPrefersStructuredContentText(t *testing.T) {
-	result := &mcp.CallToolResult{
-		Content: []mcp.Content{
-			&mcp.TextContent{Text: "content channel response"},
-		},
-		StructuredContent: map[string]any{
-			"threadId": "thread-123",
-			"content":  "structured response",
-		},
-	}
-
-	threadID, text := extractCodexToolResult(result)
-	if threadID != "thread-123" {
-		t.Fatalf("threadID = %q, want %q", threadID, "thread-123")
-	}
-	if text != "structured response" {
-		t.Fatalf("text = %q, want %q", text, "structured response")
-	}
-}
-
-func TestCodexACPBridgePromptUsesCodexThenReply(t *testing.T) {
-	fakeSession := &fakeCodexMCPToolSession{
-		listTools: []*mcp.Tool{
-			{Name: "codex"},
-			{Name: "codex-reply"},
-		},
-		callResults: []*mcp.CallToolResult{
-			{
-				StructuredContent: map[string]any{
-					"threadId": "thread-1",
-					"content":  "first response",
-				},
-			},
-			{
-				StructuredContent: map[string]any{
-					"threadId": "thread-1",
-					"content":  "second response",
-				},
-			},
-		},
-	}
-	updater := &fakeACPSessionUpdater{}
-	agent := newCodexACPBridgeAgent(fakeSession)
-	agent.setConnection(updater)
-
-	newResp, err := agent.NewSession(context.Background(), acp.NewSessionRequest{Cwd: "/tmp/work"})
+func TestBuildCodexACPCommandWithAgentName(t *testing.T) {
+	got, err := acpcmd.BuildCodexACPCommand(acpcmd.CodexOptions{
+		BridgeBin: "/tmp/norma",
+		Name:      "team-codex",
+		CodexArgs: []string{"--trace"},
+	})
 	if err != nil {
-		t.Fatalf("NewSession() error = %v", err)
+		t.Fatalf("buildCodexACPCommand() error = %v", err)
 	}
-
-	if _, err := agent.Prompt(context.Background(), acp.PromptRequest{
-		SessionId: newResp.SessionId,
-		Prompt:    []acp.ContentBlock{acp.TextBlock("first prompt")},
-	}); err != nil {
-		t.Fatalf("first Prompt() error = %v", err)
-	}
-
-	if _, err := agent.Prompt(context.Background(), acp.PromptRequest{
-		SessionId: newResp.SessionId,
-		Prompt:    []acp.ContentBlock{acp.TextBlock("second prompt")},
-	}); err != nil {
-		t.Fatalf("second Prompt() error = %v", err)
-	}
-
-	calls := fakeSession.callsSnapshot()
-	if len(calls) != 2 {
-		t.Fatalf("len(calls) = %d, want 2", len(calls))
-	}
-	if calls[0].Name != "codex" {
-		t.Fatalf("calls[0].Name = %q, want %q", calls[0].Name, "codex")
-	}
-	if got := mapArgString(calls[0].Arguments, "prompt"); got != "first prompt" {
-		t.Fatalf("first call prompt = %q, want %q", got, "first prompt")
-	}
-	if got := mapArgString(calls[0].Arguments, "cwd"); got != "/tmp/work" {
-		t.Fatalf("first call cwd = %q, want %q", got, "/tmp/work")
-	}
-
-	if calls[1].Name != "codex-reply" {
-		t.Fatalf("calls[1].Name = %q, want %q", calls[1].Name, "codex-reply")
-	}
-	if got := mapArgString(calls[1].Arguments, "prompt"); got != "second prompt" {
-		t.Fatalf("second call prompt = %q, want %q", got, "second prompt")
-	}
-	if got := mapArgString(calls[1].Arguments, "threadId"); got != "thread-1" {
-		t.Fatalf("second call threadId = %q, want %q", got, "thread-1")
-	}
-
-	textUpdates := updater.agentMessageTexts(newResp.SessionId)
-	if len(textUpdates) != 2 {
-		t.Fatalf("len(agent message updates) = %d, want 2", len(textUpdates))
-	}
-	if textUpdates[0] != "first response" || textUpdates[1] != "second response" {
-		t.Fatalf("agent message updates = %v, want [first response second response]", textUpdates)
-	}
-}
-
-func TestCodexACPBridgeCancelStopsPrompt(t *testing.T) {
-	started := make(chan struct{})
-	fakeSession := &fakeCodexMCPToolSession{
-		listTools: []*mcp.Tool{
-			{Name: "codex"},
-			{Name: "codex-reply"},
-		},
-		callHook: func(ctx context.Context, _ *mcp.CallToolParams) (*mcp.CallToolResult, error) {
-			close(started)
-			<-ctx.Done()
-			return nil, ctx.Err()
-		},
-	}
-	updater := &fakeACPSessionUpdater{}
-	agent := newCodexACPBridgeAgent(fakeSession)
-	agent.setConnection(updater)
-
-	newResp, err := agent.NewSession(context.Background(), acp.NewSessionRequest{Cwd: "/tmp/work"})
-	if err != nil {
-		t.Fatalf("NewSession() error = %v", err)
-	}
-
-	type promptResult struct {
-		resp acp.PromptResponse
-		err  error
-	}
-	promptDone := make(chan promptResult, 1)
-	go func() {
-		resp, promptErr := agent.Prompt(context.Background(), acp.PromptRequest{
-			SessionId: newResp.SessionId,
-			Prompt:    []acp.ContentBlock{acp.TextBlock("please block")},
-		})
-		promptDone <- promptResult{resp: resp, err: promptErr}
-	}()
-
-	select {
-	case <-started:
-	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for prompt start")
-	}
-
-	if err := agent.Cancel(context.Background(), acp.CancelNotification{SessionId: newResp.SessionId}); err != nil {
-		t.Fatalf("Cancel() error = %v", err)
-	}
-
-	select {
-	case got := <-promptDone:
-		if got.err != nil {
-			t.Fatalf("Prompt() error = %v", got.err)
-		}
-		if got.resp.StopReason != acp.StopReasonCancelled {
-			t.Fatalf("StopReason = %q, want %q", got.resp.StopReason, acp.StopReasonCancelled)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for canceled prompt")
-	}
-}
-
-func TestRunCodexACPBridgeForwardsCodexArgs(t *testing.T) {
-	wrapper, argsFile := writeCodexMCPWrapper(t, "codex-tools")
-	codexDir := t.TempDir()
-	codexPath := filepath.Join(codexDir, "codex")
-
-	wrapperContent, err := os.ReadFile(wrapper)
-	if err != nil {
-		t.Fatalf("ReadFile(%s) error = %v", wrapper, err)
-	}
-	if err := os.WriteFile(codexPath, wrapperContent, 0o755); err != nil {
-		t.Fatalf("WriteFile(%s) error = %v", codexPath, err)
-	}
-
-	originalPath := os.Getenv("PATH")
-	t.Setenv("PATH", codexDir+string(os.PathListSeparator)+originalPath)
-
-	var stderr bytes.Buffer
-	runErr := runCodexACPBridge(
-		context.Background(),
-		t.TempDir(),
-		codexACPBridgeOptions{CodexArgs: []string{"--trace"}},
-		strings.NewReader(""),
-		io.Discard,
-		&stderr,
-	)
-	if runErr != nil {
-		t.Fatalf("runCodexACPBridge() error = %v; stderr=%s", runErr, stderr.String())
-	}
-
-	args := readArgsFile(t, argsFile)
-	for _, want := range []string{"mcp-server", "--trace"} {
-		if !containsArg(args, want) {
-			t.Fatalf("args %v do not contain %q", args, want)
-		}
+	want := []string{"/tmp/norma", "--debug", "proxy", "codex-acp", "--name", "team-codex", "--", "--trace"}
+	if strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Fatalf("buildCodexACPCommand() = %v, want %v", got, want)
 	}
 }
 
@@ -985,112 +819,4 @@ func mustHelper(err error) {
 	if err != nil {
 		panic(err)
 	}
-}
-
-func mapArgString(v any, key string) string {
-	m, ok := v.(map[string]any)
-	if !ok {
-		return ""
-	}
-	s, _ := m[key].(string)
-	return s
-}
-
-type fakeCodexToolCall struct {
-	Name      string
-	Arguments any
-}
-
-type fakeCodexMCPToolSession struct {
-	mu sync.Mutex
-
-	listTools   []*mcp.Tool
-	callResults []*mcp.CallToolResult
-	callHook    func(context.Context, *mcp.CallToolParams) (*mcp.CallToolResult, error)
-	closeErr    error
-	waitErr     error
-	calls       []fakeCodexToolCall
-}
-
-func (s *fakeCodexMCPToolSession) CallTool(ctx context.Context, params *mcp.CallToolParams) (*mcp.CallToolResult, error) {
-	s.mu.Lock()
-	if params != nil {
-		s.calls = append(s.calls, fakeCodexToolCall{Name: params.Name, Arguments: params.Arguments})
-	}
-	hook := s.callHook
-	var result *mcp.CallToolResult
-	if len(s.callResults) > 0 {
-		result = s.callResults[0]
-		s.callResults = s.callResults[1:]
-	}
-	s.mu.Unlock()
-
-	if hook != nil {
-		return hook(ctx, params)
-	}
-	if result != nil {
-		return result, nil
-	}
-	return &mcp.CallToolResult{}, nil
-}
-
-func (s *fakeCodexMCPToolSession) ListTools(_ context.Context, _ *mcp.ListToolsParams) (*mcp.ListToolsResult, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return &mcp.ListToolsResult{Tools: append([]*mcp.Tool(nil), s.listTools...)}, nil
-}
-
-func (s *fakeCodexMCPToolSession) Close() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.closeErr
-}
-
-func (s *fakeCodexMCPToolSession) Wait() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.waitErr
-}
-
-func (s *fakeCodexMCPToolSession) callsSnapshot() []fakeCodexToolCall {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	out := make([]fakeCodexToolCall, len(s.calls))
-	copy(out, s.calls)
-	return out
-}
-
-type fakeACPSessionUpdater struct {
-	mu      sync.Mutex
-	updates []acp.SessionNotification
-}
-
-func (u *fakeACPSessionUpdater) SessionUpdate(_ context.Context, params acp.SessionNotification) error {
-	u.mu.Lock()
-	defer u.mu.Unlock()
-	u.updates = append(u.updates, params)
-	return nil
-}
-
-func (u *fakeACPSessionUpdater) agentMessageTexts(sessionID acp.SessionId) []string {
-	u.mu.Lock()
-	defer u.mu.Unlock()
-	out := make([]string, 0)
-	for _, update := range u.updates {
-		if update.SessionId != sessionID {
-			continue
-		}
-		if update.Update.AgentMessageChunk == nil {
-			continue
-		}
-		if update.Update.AgentMessageChunk.Content.Text == nil {
-			continue
-		}
-		text := update.Update.AgentMessageChunk.Content.Text.Text
-		if strings.TrimSpace(text) == "" {
-			continue
-		}
-		out = append(out, text)
-	}
-	return out
 }

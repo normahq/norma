@@ -16,6 +16,7 @@ import (
 	loopcmd "github.com/metalagman/norma/cmd/norma/loop"
 	plancmd "github.com/metalagman/norma/cmd/norma/plan"
 	playgroundcmd "github.com/metalagman/norma/cmd/norma/playground"
+	proxycmd "github.com/metalagman/norma/cmd/norma/proxy"
 	prunecmd "github.com/metalagman/norma/cmd/norma/prune"
 	runcmd "github.com/metalagman/norma/cmd/norma/run"
 	runscmd "github.com/metalagman/norma/cmd/norma/runs"
@@ -74,6 +75,7 @@ func Execute() error {
 	rootCmd.AddCommand(runscmd.Command())
 	rootCmd.AddCommand(taskcmd.Command())
 	rootCmd.AddCommand(plancmd.Command())
+	rootCmd.AddCommand(proxycmd.Command())
 	rootCmd.AddCommand(playgroundcmd.Command())
 	rootCmd.AddCommand(initcmd.Command())
 	rootCmd.AddCommand(prunecmd.Command())

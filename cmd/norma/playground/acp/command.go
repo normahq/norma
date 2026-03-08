@@ -28,7 +28,17 @@ func Command() *cobra.Command {
 	infoCmd.AddCommand(OpenCodeInfoCommand())
 	infoCmd.AddCommand(CodexInfoCommand())
 
+	webCmd := &cobra.Command{
+		Use:          "web",
+		Short:        "Run ACP playground models with the ADK web launcher",
+		SilenceUsage: true,
+	}
+	webCmd.AddCommand(GeminiWebCommand())
+	webCmd.AddCommand(OpenCodeWebCommand())
+	webCmd.AddCommand(CodexWebCommand())
+
 	cmd.AddCommand(peclCmd)
 	cmd.AddCommand(infoCmd)
+	cmd.AddCommand(webCmd)
 	return cmd
 }

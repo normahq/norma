@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/metalagman/norma/internal/agents/pdca/contracts"
@@ -271,18 +270,19 @@ func TestResolveACPCommand(t *testing.T) {
 			},
 		},
 		{
-			name: "codex_acp_uses_bridge_command",
+			name: "codex_acp_uses_proxy_command",
 			cfg: config.AgentConfig{
 				Type:      config.AgentTypeCodexACP,
 				ExtraArgs: []string{"--trace", "--raw"},
 			},
 			check: func(t *testing.T, got []string) {
 				t.Helper()
-				require.GreaterOrEqual(t, len(got), 3)
-				assert.Equal(t, "playground", got[1])
-				assert.Equal(t, "codex-acp-bridge", got[2])
-				assert.True(t, strings.Contains(strings.Join(got, " "), "--codex-arg --trace"))
-				assert.True(t, strings.Contains(strings.Join(got, " "), "--codex-arg --raw"))
+				require.GreaterOrEqual(t, len(got), 6)
+				assert.Equal(t, "proxy", got[1])
+				assert.Equal(t, "codex-acp", got[2])
+				assert.Equal(t, "--", got[3])
+				assert.Equal(t, "--trace", got[4])
+				assert.Equal(t, "--raw", got[5])
 			},
 		},
 	}

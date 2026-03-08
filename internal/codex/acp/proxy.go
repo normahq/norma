@@ -1,4 +1,4 @@
-package playgroundcmd
+package codexacp
 
 import (
 	"context"
@@ -13,27 +13,35 @@ import (
 	"time"
 
 	acp "github.com/coder/acp-go-sdk"
+	normalogging "github.com/metalagman/norma/internal/logging"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/spf13/cobra"
+	"github.com/rs/zerolog"
 )
 
-type codexACPBridgeOptions struct {
+// DefaultAgentName is the default ACP agent name reported by the proxy.
+const DefaultAgentName = "norma-codex-acp-proxy"
+
+// Options configures Codex MCP -> ACP proxy behavior.
+type Options struct {
 	CodexArgs []string
+	Name      string
 }
 
-type codexACPBridgeAgent struct {
+type codexACPProxyAgent struct {
 	mcpSession codexMCPToolSession
+	agentName  string
+	logger     zerolog.Logger
 
 	connMu sync.RWMutex
 	conn   codexACPSessionUpdater
 
 	mu            sync.Mutex
-	sessions      map[acp.SessionId]*codexBridgeSessionState
+	sessions      map[acp.SessionId]*codexProxySessionState
 	nextSessionID uint64
 	nextToolID    uint64
 }
 
-type codexBridgeSessionState struct {
+type codexProxySessionState struct {
 	cwd    string
 	thread string
 	cancel context.CancelFunc
@@ -76,39 +84,53 @@ func (e *exitCodeError) ExitCode() int {
 	return e.code
 }
 
-func codexACPBridgeCommand() *cobra.Command {
-	opts := codexACPBridgeOptions{}
-	return newACPPlaygroundCommand(
-		"codex-acp-bridge",
-		"Expose Codex MCP server as ACP over stdio",
-		func(cmd *cobra.Command) {
-			cmd.Flags().StringArrayVar(&opts.CodexArgs, "codex-arg", nil, "extra codex mcp-server argument (repeatable)")
-		},
-		func(ctx context.Context, repoRoot string, stdin io.Reader, stdout, stderr io.Writer) error {
-			return runCodexACPBridge(ctx, repoRoot, opts, stdin, stdout, stderr)
-		},
-	)
-}
-
-func runCodexACPBridge(ctx context.Context, repoRoot string, opts codexACPBridgeOptions, stdin io.Reader, stdout, stderr io.Writer) error {
+// RunProxy starts a Codex MCP server and exposes it as an ACP agent over stdio.
+func RunProxy(ctx context.Context, repoRoot string, opts Options, stdin io.Reader, stdout, stderr io.Writer) error {
 	lockedStderr := &syncWriter{writer: stderr}
-	command := buildCodexACPBridgeCommand(opts)
+	logLevel := zerolog.InfoLevel
+	if normalogging.DebugEnabled() {
+		logLevel = zerolog.DebugLevel
+	}
+	logger := zerolog.New(zerolog.ConsoleWriter{
+		Out:        lockedStderr,
+		TimeFormat: time.RFC3339,
+	}).
+		Level(logLevel).
+		With().
+		Timestamp().
+		Str("component", "codex.acp.proxy").
+		Logger()
 
-	mcpSession, err := connectCodexMCPBridgeSession(ctx, repoRoot, command, lockedStderr)
+	command := buildCodexMCPCommand(opts)
+	agentName := strings.TrimSpace(opts.Name)
+	if agentName == "" {
+		agentName = DefaultAgentName
+	}
+	logger.Debug().
+		Str("repo_root", repoRoot).
+		Str("agent_name", agentName).
+		Strs("command", command).
+		Msg("starting codex acp proxy")
+
+	mcpSession, err := connectCodexMCPProxySession(ctx, repoRoot, command, agentName, lockedStderr, logger)
 	if err != nil {
+		logger.Error().Err(err).Msg("failed to connect codex mcp session")
 		return err
 	}
 	defer func() {
+		logger.Debug().Msg("closing codex mcp session")
 		_ = mcpSession.Close()
 	}()
 
-	if err := ensureCodexBridgeTools(ctx, mcpSession); err != nil {
+	if err := ensureCodexProxyTools(ctx, mcpSession, logger); err != nil {
+		logger.Error().Err(err).Msg("required codex tools validation failed")
 		return err
 	}
 
-	bridge := newCodexACPBridgeAgent(mcpSession)
-	conn := acp.NewAgentSideConnection(bridge, stdout, stdin)
-	bridge.setConnection(conn)
+	proxy := newCodexACPProxyAgent(mcpSession, agentName, logger)
+	conn := acp.NewAgentSideConnection(proxy, stdout, stdin)
+	proxy.setConnection(conn)
+	logger.Debug().Msg("acp connection initialized")
 
 	backendDone := make(chan error, 1)
 	go func() {
@@ -117,58 +139,90 @@ func runCodexACPBridge(ctx context.Context, repoRoot string, opts codexACPBridge
 
 	select {
 	case <-conn.Done():
+		logger.Debug().Msg("acp client disconnected")
 		_ = mcpSession.Close()
 		_ = awaitBackendStop(backendDone, 2*time.Second)
 		return nil
 	case err := <-backendDone:
 		if err == nil {
+			logger.Error().Msg("codex mcp-server exited before acp client disconnected")
 			return &exitCodeError{
 				code: 1,
 				err:  errors.New("codex mcp-server exited before ACP client disconnected"),
 			}
 		}
 		code := extractExitCode(err)
+		logger.Error().Err(err).Int("exit_code", code).Msg("codex mcp-server exited")
 		return &exitCodeError{
 			code: code,
 			err:  fmt.Errorf("codex mcp-server exited: %w", err),
 		}
 	case <-ctx.Done():
+		logger.Warn().Err(ctx.Err()).Msg("proxy context canceled")
 		_ = mcpSession.Close()
 		_ = awaitBackendStop(backendDone, 2*time.Second)
 		return ctx.Err()
 	}
 }
 
-func buildCodexACPBridgeCommand(opts codexACPBridgeOptions) []string {
+func buildCodexMCPCommand(opts Options) []string {
 	command := make([]string, 0, 2+len(opts.CodexArgs))
 	command = append(command, "codex", "mcp-server")
 	command = append(command, opts.CodexArgs...)
 	return command
 }
 
-func connectCodexMCPBridgeSession(ctx context.Context, repoRoot string, command []string, stderr io.Writer) (codexMCPToolSession, error) {
+func connectCodexMCPProxySession(ctx context.Context, repoRoot string, command []string, agentName string, stderr io.Writer, logger zerolog.Logger) (codexMCPToolSession, error) {
 	if len(command) == 0 {
 		return nil, errors.New("empty codex command")
 	}
-	client := mcp.NewClient(&mcp.Implementation{Name: "norma-codex-acp-bridge", Version: "v0.0.1"}, nil)
+	client := mcp.NewClient(&mcp.Implementation{Name: agentName, Version: "v0.0.1"}, nil)
 	cmd := exec.CommandContext(ctx, command[0], command[1:]...)
 	cmd.Dir = repoRoot
 	cmd.Stderr = stderr
+	logger.Debug().Str("cwd", repoRoot).Strs("command", command).Msg("connecting mcp command transport")
 	session, err := client.Connect(ctx, &mcp.CommandTransport{Command: cmd}, nil)
 	if err != nil {
 		return nil, fmt.Errorf("connect to mcp command: %w", err)
 	}
+	logger.Debug().Msg("connected to codex mcp session")
 	return session, nil
 }
 
-func ensureCodexBridgeTools(ctx context.Context, session codexMCPToolSession) error {
+func ensureCodexProxyTools(ctx context.Context, session codexMCPToolSession, logger zerolog.Logger) error {
+	logger.Debug().
+		Str("proto", "mcp").
+		Str("method", "tools/list").
+		Str("phase", "request").
+		Msg("mcp event")
 	toolsResult, err := session.ListTools(ctx, nil)
 	if err != nil {
+		logger.Error().
+			Str("proto", "mcp").
+			Str("method", "tools/list").
+			Str("phase", "error").
+			Err(err).
+			Msg("mcp event")
 		return fmt.Errorf("list mcp tools: %w", err)
 	}
 	if toolsResult == nil || len(toolsResult.Tools) == 0 {
 		return errors.New("mcp tools list is empty")
 	}
+	toolNames := make([]string, 0, len(toolsResult.Tools))
+	for _, t := range toolsResult.Tools {
+		if t == nil {
+			continue
+		}
+		toolNames = append(toolNames, t.Name)
+	}
+	logger.Debug().
+		Str("proto", "mcp").
+		Str("method", "tools/list").
+		Str("phase", "response").
+		Int("tool_count", len(toolNames)).
+		Strs("tools", toolNames).
+		Str("payload", logJSON(toolsResult)).
+		Msg("mcp event")
 	seen := map[string]bool{}
 	for _, t := range toolsResult.Tools {
 		if t == nil {
@@ -179,31 +233,41 @@ func ensureCodexBridgeTools(ctx context.Context, session codexMCPToolSession) er
 	if !seen["codex"] || !seen["codex-reply"] {
 		return fmt.Errorf("required tools not found (codex=%t codex-reply=%t)", seen["codex"], seen["codex-reply"])
 	}
+	logger.Debug().Msg("required codex tools are available")
 	return nil
 }
 
-func newCodexACPBridgeAgent(mcpSession codexMCPToolSession) *codexACPBridgeAgent {
-	return &codexACPBridgeAgent{
+func newCodexACPProxyAgent(mcpSession codexMCPToolSession, agentName string, logger zerolog.Logger) *codexACPProxyAgent {
+	name := strings.TrimSpace(agentName)
+	if name == "" {
+		name = DefaultAgentName
+	}
+	return &codexACPProxyAgent{
 		mcpSession: mcpSession,
-		sessions:   make(map[acp.SessionId]*codexBridgeSessionState),
+		agentName:  name,
+		logger:     logger.With().Str("agent_name", name).Logger(),
+		sessions:   make(map[acp.SessionId]*codexProxySessionState),
 	}
 }
 
-func (a *codexACPBridgeAgent) setConnection(conn codexACPSessionUpdater) {
+func (a *codexACPProxyAgent) setConnection(conn codexACPSessionUpdater) {
 	a.connMu.Lock()
 	defer a.connMu.Unlock()
 	a.conn = conn
 }
 
-func (a *codexACPBridgeAgent) Authenticate(_ context.Context, _ acp.AuthenticateRequest) (acp.AuthenticateResponse, error) {
+func (a *codexACPProxyAgent) Authenticate(_ context.Context, _ acp.AuthenticateRequest) (acp.AuthenticateResponse, error) {
+	a.logger.Debug().Msg("received authenticate")
 	return acp.AuthenticateResponse{}, nil
 }
 
-func (a *codexACPBridgeAgent) Initialize(_ context.Context, params acp.InitializeRequest) (acp.InitializeResponse, error) {
+func (a *codexACPProxyAgent) Initialize(_ context.Context, params acp.InitializeRequest) (acp.InitializeResponse, error) {
+	_ = params
+	a.logger.Debug().Msg("received initialize")
 	return acp.InitializeResponse{
 		ProtocolVersion: acp.ProtocolVersionNumber,
 		AgentInfo: &acp.Implementation{
-			Name:    "norma-codex-acp-bridge",
+			Name:    a.agentName,
 			Version: "dev",
 		},
 		AgentCapabilities: acp.AgentCapabilities{
@@ -218,34 +282,44 @@ func (a *codexACPBridgeAgent) Initialize(_ context.Context, params acp.Initializ
 	}, nil
 }
 
-func (a *codexACPBridgeAgent) Cancel(_ context.Context, params acp.CancelNotification) error {
+func (a *codexACPProxyAgent) Cancel(_ context.Context, params acp.CancelNotification) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	state, ok := a.sessions[params.SessionId]
 	if !ok || state.cancel == nil {
+		a.logger.Debug().Str("session_id", string(params.SessionId)).Msg("received cancel for inactive session")
 		return nil
 	}
+	a.logger.Debug().Str("session_id", string(params.SessionId)).Msg("canceling active prompt")
 	state.cancel()
 	return nil
 }
 
-func (a *codexACPBridgeAgent) NewSession(_ context.Context, params acp.NewSessionRequest) (acp.NewSessionResponse, error) {
+func (a *codexACPProxyAgent) NewSession(_ context.Context, params acp.NewSessionRequest) (acp.NewSessionResponse, error) {
 	sessionID := acp.SessionId(fmt.Sprintf("session-%d", atomic.AddUint64(&a.nextSessionID, 1)))
 
 	a.mu.Lock()
-	a.sessions[sessionID] = &codexBridgeSessionState{
+	a.sessions[sessionID] = &codexProxySessionState{
 		cwd: strings.TrimSpace(params.Cwd),
 	}
 	a.mu.Unlock()
+	a.logger.Debug().
+		Str("session_id", string(sessionID)).
+		Str("cwd", strings.TrimSpace(params.Cwd)).
+		Msg("created session")
 
 	return acp.NewSessionResponse{SessionId: sessionID}, nil
 }
 
-func (a *codexACPBridgeAgent) Prompt(ctx context.Context, params acp.PromptRequest) (acp.PromptResponse, error) {
+func (a *codexACPProxyAgent) Prompt(ctx context.Context, params acp.PromptRequest) (acp.PromptResponse, error) {
 	userPrompt := strings.TrimSpace(joinPromptText(params.Prompt))
 	if userPrompt == "" {
 		return acp.PromptResponse{}, acp.NewInvalidParams("prompt must include at least one text block")
 	}
+	a.logger.Debug().
+		Str("session_id", string(params.SessionId)).
+		Int("prompt_len", len(userPrompt)).
+		Msg("received prompt")
 
 	a.mu.Lock()
 	state, ok := a.sessions[params.SessionId]
@@ -273,6 +347,16 @@ func (a *codexACPBridgeAgent) Prompt(ctx context.Context, params acp.PromptReque
 
 	toolID := acp.ToolCallId(fmt.Sprintf("codex-tool-%d", atomic.AddUint64(&a.nextToolID, 1)))
 	toolName, toolArgs := buildCodexToolInvocation(threadID, cwd, userPrompt)
+	callStartedAt := time.Now()
+	a.logger.Debug().
+		Str("session_id", string(params.SessionId)).
+		Str("tool_name", toolName).
+		Str("tool_id", string(toolID)).
+		Str("tool_args", logJSON(toolArgs)).
+		Str("proto", "mcp").
+		Str("method", "tools/call").
+		Str("phase", "request").
+		Msg("invoking mcp tool")
 	if err := a.sendUpdate(promptCtx, params.SessionId, acp.StartToolCall(
 		toolID,
 		toolName,
@@ -298,10 +382,30 @@ func (a *codexACPBridgeAgent) Prompt(ctx context.Context, params acp.PromptReque
 			acp.WithUpdateRawOutput(map[string]any{"error": err.Error()}),
 		))
 		if errors.Is(promptCtx.Err(), context.Canceled) {
+			a.logger.Debug().Str("session_id", string(params.SessionId)).Msg("prompt canceled during tool call")
 			return acp.PromptResponse{StopReason: acp.StopReasonCancelled}, nil
 		}
+		a.logger.Error().
+			Err(err).
+			Str("session_id", string(params.SessionId)).
+			Str("tool_name", toolName).
+			Str("proto", "mcp").
+			Str("method", "tools/call").
+			Str("phase", "error").
+			Dur("duration", time.Since(callStartedAt)).
+			Msg("mcp event")
 		return acp.PromptResponse{}, fmt.Errorf("call mcp tool %q: %w", toolName, err)
 	}
+	a.logger.Debug().
+		Str("session_id", string(params.SessionId)).
+		Str("tool_name", toolName).
+		Str("proto", "mcp").
+		Str("method", "tools/call").
+		Str("phase", "response").
+		Dur("duration", time.Since(callStartedAt)).
+		Bool("is_error", result != nil && result.IsError).
+		Str("result_payload", logJSON(result)).
+		Msg("mcp event")
 
 	thread, responseText := extractCodexToolResult(result)
 	if thread != "" {
@@ -331,27 +435,83 @@ func (a *codexACPBridgeAgent) Prompt(ctx context.Context, params acp.PromptReque
 	}
 
 	if errors.Is(promptCtx.Err(), context.Canceled) {
+		a.logger.Debug().Str("session_id", string(params.SessionId)).Msg("prompt completed as canceled")
 		return acp.PromptResponse{StopReason: acp.StopReasonCancelled}, nil
 	}
+	a.logger.Debug().
+		Str("session_id", string(params.SessionId)).
+		Int("response_len", len(responseText)).
+		Bool("tool_error", result != nil && result.IsError).
+		Msg("prompt completed")
 	return acp.PromptResponse{StopReason: acp.StopReasonEndTurn}, nil
 }
 
-func (a *codexACPBridgeAgent) SetSessionMode(_ context.Context, params acp.SetSessionModeRequest) (acp.SetSessionModeResponse, error) {
+func (a *codexACPProxyAgent) SetSessionMode(_ context.Context, params acp.SetSessionModeRequest) (acp.SetSessionModeResponse, error) {
 	_ = params
+	a.logger.Debug().Msg("received set_session_mode")
 	return acp.SetSessionModeResponse{}, nil
 }
 
-func (a *codexACPBridgeAgent) sendUpdate(ctx context.Context, sessionID acp.SessionId, update acp.SessionUpdate) error {
+func (a *codexACPProxyAgent) sendUpdate(ctx context.Context, sessionID acp.SessionId, update acp.SessionUpdate) error {
 	a.connMu.RLock()
 	conn := a.conn
 	a.connMu.RUnlock()
 	if conn == nil {
 		return errors.New("acp connection is not initialized")
 	}
+	a.logger.Debug().
+		Str("proto", "acp").
+		Str("session_id", string(sessionID)).
+		Str("update_type", sessionUpdateType(update)).
+		Str("update_payload", sessionUpdatePayload(update)).
+		Msg("sending session update")
 	return conn.SessionUpdate(ctx, acp.SessionNotification{
 		SessionId: sessionID,
 		Update:    update,
 	})
+}
+
+func sessionUpdateType(update acp.SessionUpdate) string {
+	switch {
+	case update.UserMessageChunk != nil:
+		return "user_message_chunk"
+	case update.ToolCall != nil:
+		return "tool_call"
+	case update.ToolCallUpdate != nil:
+		return "tool_call_update"
+	case update.AgentMessageChunk != nil:
+		return "agent_message_chunk"
+	case update.AgentThoughtChunk != nil:
+		return "agent_thought_chunk"
+	case update.Plan != nil:
+		return "plan"
+	case update.AvailableCommandsUpdate != nil:
+		return "available_commands_update"
+	case update.CurrentModeUpdate != nil:
+		return "current_mode_update"
+	default:
+		return "unknown"
+	}
+}
+
+func sessionUpdatePayload(update acp.SessionUpdate) string {
+	raw, err := json.Marshal(update)
+	if err != nil {
+		return fmt.Sprintf(`{"marshal_error":%q}`, err.Error())
+	}
+	return string(raw)
+}
+
+func logJSON(v any) string {
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Sprintf(`{"marshal_error":%q}`, err.Error())
+	}
+	const maxPayloadLen = 4096
+	if len(raw) <= maxPayloadLen {
+		return string(raw)
+	}
+	return string(raw[:maxPayloadLen]) + fmt.Sprintf(`...{"truncated_bytes":%d}`, len(raw)-maxPayloadLen)
 }
 
 func buildCodexToolInvocation(threadID, cwd, prompt string) (string, map[string]any) {
@@ -457,4 +617,15 @@ func extractExitCode(err error) int {
 		return exitErr.ExitCode()
 	}
 	return 1
+}
+
+type syncWriter struct {
+	mu     sync.Mutex
+	writer io.Writer
+}
+
+func (w *syncWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.writer.Write(p)
 }

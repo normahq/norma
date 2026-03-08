@@ -2,6 +2,7 @@ package acpagent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"iter"
@@ -128,6 +129,7 @@ func (a *Agent) run(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, er
 		}
 
 		var finalText strings.Builder
+		partialEmitted := false
 		var promptResult *PromptResult
 		for updates != nil || resultCh != nil {
 			select {
@@ -139,14 +141,16 @@ func (a *Agent) run(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, er
 					updates = nil
 					continue
 				}
-				chunk := updateText(note.Update)
-				if chunk == "" {
+				if note.Update.AgentMessageChunk != nil {
+					if chunk := updateText(note.Update); chunk != "" {
+						finalText.WriteString(chunk)
+						partialEmitted = true
+					}
+				}
+				ev, ok := mapACPUpdateToEvent(ctx.InvocationID(), note.Update)
+				if !ok {
 					continue
 				}
-				finalText.WriteString(chunk)
-				ev := session.NewEvent(ctx.InvocationID())
-				ev.Content = genai.NewContentFromText(chunk, genai.RoleModel)
-				ev.Partial = true
 				if !yield(ev, nil) {
 					return
 				}
@@ -163,9 +167,6 @@ func (a *Agent) run(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, er
 			yield(nil, promptResult.Err)
 			return
 		}
-		if finalText.Len() == 0 {
-			return
-		}
 
 		a.logger.Debug().
 			Str("adk_session_id", ctx.Session().ID()).
@@ -174,7 +175,9 @@ func (a *Agent) run(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, er
 			Msg("completed adk invocation")
 
 		ev := session.NewEvent(ctx.InvocationID())
-		ev.Content = genai.NewContentFromText(finalText.String(), genai.RoleModel)
+		if !partialEmitted {
+			ev.Content = genai.NewContentFromText(finalText.String(), genai.RoleModel)
+		}
 		ev.TurnComplete = true
 		if !yield(ev, nil) {
 			return
@@ -222,4 +225,127 @@ func updateText(update acp.SessionUpdate) string {
 		return ""
 	}
 	return content.Text.Text
+}
+
+func mapACPUpdateToEvent(invocationID string, update acp.SessionUpdate) (*session.Event, bool) {
+	switch {
+	case update.AgentMessageChunk != nil:
+		part, ok := mapACPContentBlockToPart(update.AgentMessageChunk.Content)
+		if !ok {
+			return nil, false
+		}
+		ev := session.NewEvent(invocationID)
+		ev.Content = genai.NewContentFromParts([]*genai.Part{part}, genai.RoleModel)
+		ev.Partial = true
+		return ev, true
+	case update.UserMessageChunk != nil:
+		part, ok := mapACPContentBlockToPart(update.UserMessageChunk.Content)
+		if !ok {
+			return nil, false
+		}
+		ev := session.NewEvent(invocationID)
+		ev.Content = genai.NewContentFromParts([]*genai.Part{part}, genai.RoleUser)
+		ev.Partial = true
+		return ev, true
+	case update.AgentThoughtChunk != nil:
+		part, ok := mapACPContentBlockToPart(update.AgentThoughtChunk.Content)
+		if !ok {
+			return nil, false
+		}
+		part.Thought = true
+		ev := session.NewEvent(invocationID)
+		ev.Content = genai.NewContentFromParts([]*genai.Part{part}, genai.RoleModel)
+		ev.Partial = true
+		return ev, true
+	case update.ToolCall != nil:
+		tool := update.ToolCall
+		args := map[string]any{
+			"kind":      tool.Kind,
+			"status":    tool.Status,
+			"title":     tool.Title,
+			"locations": tool.Locations,
+			"rawInput":  tool.RawInput,
+			"rawOutput": tool.RawOutput,
+		}
+		part := &genai.Part{
+			FunctionCall: &genai.FunctionCall{
+				ID:   string(tool.ToolCallId),
+				Name: "acp_tool_call",
+				Args: args,
+			},
+		}
+		ev := session.NewEvent(invocationID)
+		ev.Content = genai.NewContentFromParts([]*genai.Part{part}, genai.RoleModel)
+		if isACPToolStatusLongRunning(tool.Status) {
+			ev.LongRunningToolIDs = []string{string(tool.ToolCallId)}
+		}
+		return ev, true
+	case update.ToolCallUpdate != nil:
+		tool := update.ToolCallUpdate
+		response := map[string]any{
+			"status":    tool.Status,
+			"title":     tool.Title,
+			"kind":      tool.Kind,
+			"locations": tool.Locations,
+			"rawInput":  tool.RawInput,
+			"rawOutput": tool.RawOutput,
+		}
+		part := &genai.Part{
+			FunctionResponse: &genai.FunctionResponse{
+				ID:       string(tool.ToolCallId),
+				Name:     "acp_tool_call_update",
+				Response: response,
+			},
+		}
+		ev := session.NewEvent(invocationID)
+		ev.Content = genai.NewContentFromParts([]*genai.Part{part}, genai.RoleModel)
+		if tool.Status != nil && isACPToolStatusLongRunning(*tool.Status) {
+			ev.LongRunningToolIDs = []string{string(tool.ToolCallId)}
+		}
+		return ev, true
+	case update.Plan != nil:
+		payload := map[string]any{"entries": update.Plan.Entries}
+		return newACPTextEvent(invocationID, genai.RoleModel, marshalACPUpdatePayload(payload), false), true
+	case update.AvailableCommandsUpdate != nil:
+		payload := map[string]any{"availableCommands": update.AvailableCommandsUpdate.AvailableCommands}
+		return newACPTextEvent(invocationID, genai.RoleModel, marshalACPUpdatePayload(payload), false), true
+	case update.CurrentModeUpdate != nil:
+		payload := map[string]any{"currentModeId": update.CurrentModeUpdate.CurrentModeId}
+		return newACPTextEvent(invocationID, genai.RoleModel, marshalACPUpdatePayload(payload), false), true
+	default:
+		return newACPTextEvent(invocationID, genai.RoleModel, marshalACPUpdatePayload(update), false), true
+	}
+}
+
+func mapACPContentBlockToPart(block acp.ContentBlock) (*genai.Part, bool) {
+	if block.Text != nil {
+		if block.Text.Text == "" {
+			return nil, false
+		}
+		return genai.NewPartFromText(block.Text.Text), true
+	}
+	payload := marshalACPUpdatePayload(block)
+	if payload == "" {
+		return nil, false
+	}
+	return genai.NewPartFromText(payload), true
+}
+
+func newACPTextEvent(invocationID string, role genai.Role, text string, partial bool) *session.Event {
+	ev := session.NewEvent(invocationID)
+	ev.Content = genai.NewContentFromText(text, role)
+	ev.Partial = partial
+	return ev
+}
+
+func marshalACPUpdatePayload(v any) string {
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Sprintf(`{"marshalError":%q}`, err.Error())
+	}
+	return string(raw)
+}
+
+func isACPToolStatusLongRunning(status acp.ToolCallStatus) bool {
+	return status == acp.ToolCallStatusPending || status == acp.ToolCallStatusInProgress
 }

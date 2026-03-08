@@ -32,6 +32,16 @@ tasks:
     cmds:
       - go test ./...
 
+  test:integration:codex:
+    desc: Run Codex ACP proxy integration tests (requires real codex and local config)
+    cmds:
+      - go test -tags='integration,codex' -count=1 ./cmd/norma/proxy
+
+  test:integration:opencode:
+    desc: Run OpenCode ACP integration tests for internal/adk/acpagent (requires real opencode and local config)
+    cmds:
+      - go test -tags='integration,opencode' -count=1 ./internal/adk/acpagent
+
   lint:
     desc: Run golangci-lint
     cmds:

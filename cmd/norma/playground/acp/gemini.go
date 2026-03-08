@@ -57,6 +57,22 @@ func GeminiInfoCommand() *cobra.Command {
 	})
 }
 
+func GeminiWebCommand() *cobra.Command {
+	opts := GeminiOptions{GeminiBin: "gemini"}
+	return newACPWebCommand(
+		"gemini [-- <web launcher args...>]",
+		"Run Gemini ACP with the ADK web launcher",
+		func(cmd *cobra.Command) {
+			cmd.Flags().StringVar(&opts.Model, "model", "", "Gemini model name")
+			cmd.Flags().StringVar(&opts.GeminiBin, "gemini-bin", opts.GeminiBin, "Gemini executable path")
+			cmd.Flags().StringArrayVar(&opts.GeminiArgs, "gemini-arg", nil, "extra Gemini CLI argument (repeatable)")
+		},
+		func(ctx context.Context, repoRoot string, launcherArgs []string, stderr io.Writer) error {
+			return RunGeminiACPWeb(ctx, repoRoot, opts, launcherArgs, stderr)
+		},
+	)
+}
+
 func RunGeminiACP(ctx context.Context, repoRoot string, opts GeminiOptions, stdin io.Reader, stdout, stderr io.Writer) error {
 	return runStandardACP(ctx, repoRoot, opts.Prompt, BuildGeminiACPCommand(opts), runtimeSpec{
 		component:   "playground.gemini_acp",
@@ -93,4 +109,19 @@ func RunGeminiACPInfo(
 		stdout,
 		stderr,
 	)
+}
+
+func RunGeminiACPWeb(
+	ctx context.Context,
+	repoRoot string,
+	opts GeminiOptions,
+	launcherArgs []string,
+	stderr io.Writer,
+) error {
+	return runACPWeb(ctx, repoRoot, BuildGeminiACPCommand(opts), runtimeSpec{
+		component:   "playground.gemini_acp_web",
+		name:        "GeminiACPWeb",
+		description: "Gemini CLI playground agent via ACP (web launcher)",
+		startMsg:    "starting Gemini ACP web launcher",
+	}, launcherArgs, stderr)
 }
