@@ -20,8 +20,6 @@ import (
 )
 
 func peclCommand() *cobra.Command {
-	var prompt string
-
 	cmd := &cobra.Command{
 		Use:   "pecl",
 		Short: "Run ACP CLI in REPL mode (like playground)",
@@ -50,15 +48,14 @@ This is a simple ACP execution without the planner TUI.`,
 				return fmt.Errorf("plan pecl requires ACP planner type, got %q", plannerCfg.Type)
 			}
 
-			return runACPREPL(cmd.Context(), repoRoot, plannerCfg, prompt)
+			return runACPREPL(cmd.Context(), repoRoot, plannerCfg)
 		},
 	}
 
-	cmd.Flags().StringVar(&prompt, "prompt", "", "single prompt to run; if empty starts a REPL")
 	return cmd
 }
 
-func runACPREPL(ctx context.Context, repoRoot string, plannerCfg config.AgentConfig, prompt string) error {
+func runACPREPL(ctx context.Context, repoRoot string, plannerCfg config.AgentConfig) error {
 	acpCmd, err := normaagent.ResolveACPCommand(plannerCfg)
 	if err != nil {
 		return fmt.Errorf("resolve ACP command: %w", err)
@@ -99,11 +96,6 @@ func runACPREPL(ctx context.Context, repoRoot string, plannerCfg config.AgentCon
 	})
 	if err != nil {
 		return fmt.Errorf("create session: %w", err)
-	}
-
-	if prompt != "" {
-		logger.Info().Str("prompt", prompt).Msg("running one-shot prompt")
-		return runACPTurn(ctx, adkRunner, sess.Session, prompt)
 	}
 
 	logger.Info().Msg("starting interactive REPL (type 'exit' or 'quit' to stop)")
