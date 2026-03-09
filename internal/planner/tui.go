@@ -344,10 +344,22 @@ func statusFromEvent(ev *session.Event) string {
 				continue
 			}
 			if part.FunctionCall != nil && strings.TrimSpace(part.FunctionCall.Name) != "" {
-				return fmt.Sprintf("Running tool: %s...", strings.TrimSpace(part.FunctionCall.Name))
+				name := strings.TrimSpace(part.FunctionCall.Name)
+				if name == "acp_tool_call" && part.FunctionCall.Args != nil {
+					if title, ok := part.FunctionCall.Args["title"].(string); ok && title != "" {
+						return fmt.Sprintf("Running tool: %s...", title)
+					}
+				}
+				return fmt.Sprintf("Running tool: %s...", name)
 			}
 			if part.FunctionResponse != nil && strings.TrimSpace(part.FunctionResponse.Name) != "" {
-				return fmt.Sprintf("Tool finished: %s", strings.TrimSpace(part.FunctionResponse.Name))
+				name := strings.TrimSpace(part.FunctionResponse.Name)
+				if name == "acp_tool_call_update" && part.FunctionResponse.Response != nil {
+					if title, ok := part.FunctionResponse.Response["title"].(string); ok && title != "" {
+						return fmt.Sprintf("Tool finished: %s", title)
+					}
+				}
+				return fmt.Sprintf("Tool finished: %s", name)
 			}
 		}
 	}
