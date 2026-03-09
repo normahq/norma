@@ -51,7 +51,7 @@ func NewRunner(cfg config.AgentConfig, role contracts.Role) (Runner, error) {
 				WorkingDir:        workingDir,
 				Stderr:            stderr,
 				PermissionHandler: defaultACPPermissionHandler,
-				HasSetModel:       cfg.HasSetModel,
+				HasSetModel:       config.HasSetModelSupport(cfg.Type),
 			})
 		}
 	} else {

@@ -99,7 +99,7 @@ func (p *ACPPlanner) RunInteractive(ctx context.Context, req Request) (string, e
 		WorkingDir:        p.repoRoot,
 		Stderr:            io.Discard,
 		PermissionHandler: PlannerACPPermissionHandler,
-		HasSetModel:       p.cfg.HasSetModel,
+		HasSetModel:       config.HasSetModelSupport(p.cfg.Type),
 	})
 	if err != nil {
 		closeEvents()

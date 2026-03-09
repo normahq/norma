@@ -81,7 +81,7 @@ func runACPREPL(ctx context.Context, repoRoot string, plannerCfg config.AgentCon
 		WorkingDir:        repoRoot,
 		Stderr:            os.Stderr,
 		PermissionHandler: autoAllowPermission,
-		HasSetModel:       plannerCfg.HasSetModel,
+		HasSetModel:       config.HasSetModelSupport(plannerCfg.Type),
 		Logger:            &logger,
 	})
 	if err != nil {

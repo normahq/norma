@@ -26,7 +26,6 @@ agents:
   opencode_acp:
     type: opencode_acp
     model: opencode/big-pickle
-    has_set_model: true
   codex_acp:
     type: codex_acp
     model: gpt-5.4
@@ -34,7 +33,6 @@ agents:
   opencode_codex_acp:
     type: opencode_acp
     model: openai/gpt-5.4
-    has_set_model: true
 
 profiles:
   default:

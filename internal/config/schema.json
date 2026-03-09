@@ -89,9 +89,6 @@
         },
         "use_tty": {
           "type": "boolean"
-        },
-        "has_set_model": {
-          "type": "boolean"
         }
       },
       "additionalProperties": false,
