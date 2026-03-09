@@ -121,44 +121,56 @@ func ResolveCmd(cfg config.AgentConfig) ([]string, error) {
 			return nil, fmt.Errorf("unknown agent type %q", cfg.Type)
 		}
 	}
-	return cmd, nil
+	return resolveTemplatedCmd(cmd, cfg.Model), nil
 }
 
 // ResolveACPCommand resolves the command for ACP-backed agent types.
 func ResolveACPCommand(cfg config.AgentConfig) ([]string, error) {
+	var cmd []string
 	switch cfg.Type {
 	case config.AgentTypeACPExec:
 		if len(cfg.Cmd) == 0 {
 			return nil, fmt.Errorf("acp_exec agent requires cmd")
 		}
-		cmd := append([]string(nil), cfg.Cmd...)
-		return append(cmd, cfg.ExtraArgs...), nil
+		cmd = cfg.Cmd
 	case config.AgentTypeGeminiACP:
-		cmd := []string{"gemini", "--experimental-acp"}
+		cmd = []string{"gemini", "--experimental-acp"}
 		if cfg.Model != "" {
 			cmd = append(cmd, "--model", cfg.Model)
 		}
-		return append(cmd, cfg.ExtraArgs...), nil
 	case config.AgentTypeOpenCodeACP:
-		cmd := []string{"opencode", "acp"}
-		return append(cmd, cfg.ExtraArgs...), nil
+		cmd = []string{"opencode", "acp"}
 	case config.AgentTypeCodexACP:
 		exePath, err := os.Executable()
 		if err != nil {
 			return nil, fmt.Errorf("resolve executable path: %w", err)
 		}
-		cmd := []string{exePath, "proxy", "codex-acp"}
+		cmd = []string{exePath, "proxy", "codex-acp"}
 		if cfg.Model != "" {
 			cmd = append(cmd, "--model", cfg.Model)
 		}
-		if len(cfg.ExtraArgs) > 0 {
-			cmd = append(cmd, "--")
-			cmd = append(cmd, cfg.ExtraArgs...)
-		}
-		return cmd, nil
 	default:
 		return nil, fmt.Errorf("unknown acp agent type %q", cfg.Type)
 	}
+	res := resolveTemplatedCmd(cmd, cfg.Model)
+	if len(cfg.ExtraArgs) > 0 {
+		if cfg.Type == config.AgentTypeCodexACP {
+			res = append(res, "--")
+		}
+		res = append(res, cfg.ExtraArgs...)
+	}
+	return res, nil
+}
+
+func resolveTemplatedCmd(cmd []string, model string) []string {
+	if len(cmd) == 0 {
+		return nil
+	}
+	res := make([]string, len(cmd))
+	for i, arg := range cmd {
+		res[i] = strings.ReplaceAll(arg, "{{.Model}}", model)
+	}
+	return res
 }
 
 type adkRunner struct {
