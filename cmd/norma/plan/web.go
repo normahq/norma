@@ -5,7 +5,6 @@ import (
 	"io"
 	"os"
 
-	"github.com/metalagman/norma/internal/adk/acpagent"
 	adkagent "google.golang.org/adk/agent"
 	"google.golang.org/adk/agent/llmagent"
 	"google.golang.org/adk/artifact"
@@ -14,8 +13,8 @@ import (
 	"google.golang.org/adk/session"
 	"google.golang.org/adk/tool"
 
+	"github.com/metalagman/norma/internal/adk/agentfactory"
 	"github.com/metalagman/norma/internal/adk/modelfactory"
-	normaagent "github.com/metalagman/norma/internal/agent"
 	"github.com/metalagman/norma/internal/config"
 	"github.com/metalagman/norma/internal/planner"
 	"github.com/metalagman/norma/internal/planner/llmtools"
@@ -47,24 +46,23 @@ func webCommand() *cobra.Command {
 
 			var plannerDebugAgent adkagent.Agent
 			if config.IsACPType(plannerCfg.Type) {
-				acpCmd, resolveErr := normaagent.ResolveACPCommand(plannerCfg)
-				if resolveErr != nil {
-					return resolveErr
-				}
-				acpRuntime, newErr := acpagent.New(acpagent.Config{
-					Context:           cmd.Context(),
+				factory := agentfactory.NewFactory(map[string]config.AgentConfig{
+					"planner": plannerCfg,
+				})
+				creationReq := agentfactory.CreationRequest{
 					Name:              "NormaPlannerACP",
 					Description:       "Norma planner via ACP runtime",
-					Model:             plannerCfg.Model,
-					Command:           acpCmd,
 					WorkingDir:        repoRoot,
 					Stderr:            io.Discard,
 					PermissionHandler: planner.PlannerACPPermissionHandler,
-				})
+				}
+				acpRuntime, newErr := factory.CreateAgent(cmd.Context(), "planner", creationReq)
 				if newErr != nil {
 					return fmt.Errorf("create planner ACP runtime: %w", newErr)
 				}
-				defer func() { _ = acpRuntime.Close() }()
+				if closer, ok := acpRuntime.(interface{ Close() error }); ok {
+					defer func() { _ = closer.Close() }()
+				}
 				wrappedAgent, wrapErr := planner.WrapAgentWithPlannerPrompt(acpRuntime)
 				if wrapErr != nil {
 					return fmt.Errorf("create planner ACP wrapper agent: %w", wrapErr)

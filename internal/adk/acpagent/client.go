@@ -259,7 +259,7 @@ func (c *Client) CreateSession(ctx context.Context, cwd, model string) (acp.NewS
 		// but instead require the model to be specified during session creation if at all.
 		// If the method is not found, we ignore the error and proceed, as the session
 		// was already created successfully.
-		var acpErr *acp.Error
+		var acpErr *acp.RequestError
 		if errors.As(err, &acpErr) && acpErr.Code == -32601 {
 			c.logger.Debug().
 				Str("session_id", string(resp.SessionId)).

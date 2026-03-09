@@ -11,8 +11,7 @@ import (
 	"strings"
 
 	acp "github.com/coder/acp-go-sdk"
-	"github.com/metalagman/ainvoke/adk"
-	"github.com/metalagman/norma/internal/adk/acpagent"
+	"github.com/metalagman/norma/internal/adk/agentfactory"
 	"github.com/metalagman/norma/internal/agents/pdca/contracts"
 	"github.com/metalagman/norma/internal/config"
 	"github.com/rs/zerolog/log"
@@ -30,55 +29,35 @@ type Runner interface {
 
 // NewRunner constructs a runner for the given agent config and role.
 func NewRunner(cfg config.AgentConfig, role contracts.Role) (Runner, error) {
-	var agentFactory func(ctx context.Context, req contracts.AgentRequest, stdout, stderr io.Writer) (agent.Agent, error)
+	factory := agentfactory.NewFactory(map[string]config.AgentConfig{
+		role.Name(): cfg,
+	})
 
-	if config.IsACPType(cfg.Type) {
-		cmd, err := ResolveACPCommand(cfg)
+	agentFactory := func(ctx context.Context, req contracts.AgentRequest, stdout, stderr io.Writer) (agent.Agent, error) {
+		prompt, err := role.Prompt(req)
 		if err != nil {
-			return nil, err
-		}
-		agentFactory = func(ctx context.Context, req contracts.AgentRequest, _, stderr io.Writer) (agent.Agent, error) {
-			workingDir := req.Paths.WorkspaceDir
-			if strings.TrimSpace(workingDir) == "" {
-				workingDir = req.Paths.RunDir
-			}
-			return acpagent.New(acpagent.Config{
-				Context:           ctx,
-				Name:              "Norma" + toPascal(req.Step.Name) + "ACP",
-				Description:       "Norma ACP role agent",
-				Model:             cfg.Model,
-				Command:           cmd,
-				WorkingDir:        workingDir,
-				Stderr:            stderr,
-				PermissionHandler: defaultACPPermissionHandler,
-				HasSetModel:       config.HasSetModelSupport(cfg.Type),
-			})
-		}
-	} else {
-		cmd, err := ResolveCmd(cfg)
-		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("generate prompt: %w", err)
 		}
 
-		agentFactory = func(ctx context.Context, req contracts.AgentRequest, stdout, stderr io.Writer) (agent.Agent, error) {
-			prompt, err := role.Prompt(req)
-			if err != nil {
-				return nil, fmt.Errorf("generate prompt: %w", err)
-			}
-
-			return adk.NewExecAgent(
-				req.Step.Name,
-				"Norma agent",
-				cmd,
-				adk.WithExecAgentPrompt(prompt),
-				adk.WithExecAgentInputSchema(role.InputSchema()),
-				adk.WithExecAgentOutputSchema(role.OutputSchema()),
-				adk.WithExecAgentRunDir(req.Paths.RunDir),
-				adk.WithExecAgentUseTTY(cfg.UseTTY != nil && *cfg.UseTTY),
-				adk.WithExecAgentStdout(stdout),
-				adk.WithExecAgentStderr(stderr),
-			)
+		workingDir := req.Paths.WorkspaceDir
+		if strings.TrimSpace(workingDir) == "" {
+			workingDir = req.Paths.RunDir
 		}
+
+		creationReq := agentfactory.CreationRequest{
+			Name:              "Norma" + toPascal(req.Step.Name) + "Agent",
+			Description:       "Norma " + req.Step.Name + " agent",
+			Prompt:            prompt,
+			InputSchema:       role.InputSchema(),
+			OutputSchema:      role.OutputSchema(),
+			WorkingDir:        workingDir,
+			RunDir:            req.Paths.RunDir,
+			Stdout:            stdout,
+			Stderr:            stderr,
+			PermissionHandler: defaultACPPermissionHandler,
+		}
+
+		return factory.CreateAgent(ctx, role.Name(), creationReq)
 	}
 
 	return &adkRunner{
@@ -90,87 +69,20 @@ func NewRunner(cfg config.AgentConfig, role contracts.Role) (Runner, error) {
 
 // ResolveCmd resolves the command for an agent config.
 func ResolveCmd(cfg config.AgentConfig) ([]string, error) {
-	cmd := cfg.Cmd
-	if len(cmd) == 0 {
-		switch cfg.Type {
-		case config.AgentTypeExec:
-			return nil, fmt.Errorf("exec agent requires cmd")
-		case config.AgentTypeClaude:
-			cmd = []string{"claude"}
-			if cfg.Model != "" {
-				cmd = append(cmd, "--model", cfg.Model)
-			}
-		case config.AgentTypeCodex:
-			cmd = []string{"codex", "exec"}
-			if cfg.Model != "" {
-				cmd = append(cmd, "--model", cfg.Model)
-			}
-			cmd = append(cmd, "--sandbox", "workspace-write")
-		case config.AgentTypeGemini:
-			cmd = []string{"gemini"}
-			if cfg.Model != "" {
-				cmd = append(cmd, "--model", cfg.Model)
-			}
-			cmd = append(cmd, "--approval-mode", "yolo")
-		case config.AgentTypeOpenCode:
-			cmd = []string{"opencode", "run"}
-			if cfg.Model != "" {
-				cmd = append(cmd, "--model", cfg.Model)
-			}
-		default:
-			return nil, fmt.Errorf("unknown agent type %q", cfg.Type)
-		}
-	}
-	return resolveTemplatedCmd(cmd, cfg.Model), nil
+	return agentfactory.ResolveCmd(cfg)
 }
 
 // ResolveACPCommand resolves the command for ACP-backed agent types.
 func ResolveACPCommand(cfg config.AgentConfig) ([]string, error) {
-	var cmd []string
-	switch cfg.Type {
-	case config.AgentTypeACPExec:
-		if len(cfg.Cmd) == 0 {
-			return nil, fmt.Errorf("acp_exec agent requires cmd")
-		}
-		cmd = cfg.Cmd
-	case config.AgentTypeGeminiACP:
-		cmd = []string{"gemini", "--experimental-acp"}
-		if cfg.Model != "" {
-			cmd = append(cmd, "--model", cfg.Model)
-		}
-	case config.AgentTypeOpenCodeACP:
-		cmd = []string{"opencode", "acp"}
-	case config.AgentTypeCodexACP:
-		exePath, err := os.Executable()
-		if err != nil {
-			return nil, fmt.Errorf("resolve executable path: %w", err)
-		}
-		cmd = []string{exePath, "proxy", "codex-acp"}
-		if cfg.Model != "" {
-			cmd = append(cmd, "--model", cfg.Model)
-		}
-	default:
-		return nil, fmt.Errorf("unknown acp agent type %q", cfg.Type)
-	}
-	res := resolveTemplatedCmd(cmd, cfg.Model)
-	if len(cfg.ExtraArgs) > 0 {
-		if cfg.Type == config.AgentTypeCodexACP {
-			res = append(res, "--")
-		}
-		res = append(res, cfg.ExtraArgs...)
-	}
-	return res, nil
+	return agentfactory.ResolveACPCommand(cfg)
 }
 
-func resolveTemplatedCmd(cmd []string, model string) []string {
-	if len(cmd) == 0 {
-		return nil
+func toPascal(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
 	}
-	res := make([]string, len(cmd))
-	for i, arg := range cmd {
-		res[i] = strings.ReplaceAll(arg, "{{.Model}}", model)
-	}
-	return res
+	return strings.ToUpper(s[:1]) + s[1:]
 }
 
 type adkRunner struct {
@@ -338,12 +250,4 @@ func buildACPPayload(prompt string, inputJSON []byte, role contracts.Role) strin
 		"Input JSON:",
 		string(inputJSON),
 	}, "\n\n"))
-}
-
-func toPascal(s string) string {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return ""
-	}
-	return strings.ToUpper(s[:1]) + s[1:]
 }

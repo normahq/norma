@@ -13,8 +13,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	acp "github.com/coder/acp-go-sdk"
-	"github.com/metalagman/norma/internal/adk/acpagent"
-	normaagent "github.com/metalagman/norma/internal/agent"
+	"github.com/metalagman/norma/internal/adk/agentfactory"
 	"github.com/metalagman/norma/internal/config"
 	adkagent "google.golang.org/adk/agent"
 	"google.golang.org/adk/runner"
@@ -83,30 +82,28 @@ func (p *ACPPlanner) RunInteractive(ctx context.Context, req Request) (string, e
 		})
 	}
 
-	acpCmd, err := normaagent.ResolveACPCommand(p.cfg)
-	if err != nil {
-		closeEvents()
-		_ = waitTUI()
-		return "", err
-	}
+	factory := agentfactory.NewFactory(map[string]config.AgentConfig{
+		"planner": p.cfg,
+	})
 
-	acpRuntime, err := acpagent.New(acpagent.Config{
-		Context:           runCtx,
+	creationReq := agentfactory.CreationRequest{
 		Name:              "NormaPlannerACP",
 		Description:       "Norma planner via ACP runtime",
-		Model:             p.cfg.Model,
-		Command:           acpCmd,
 		WorkingDir:        p.repoRoot,
 		Stderr:            io.Discard,
 		PermissionHandler: PlannerACPPermissionHandler,
-		HasSetModel:       config.HasSetModelSupport(p.cfg.Type),
-	})
+	}
+
+	acpRuntime, err := factory.CreateAgent(runCtx, "planner", creationReq)
 	if err != nil {
 		closeEvents()
 		_ = waitTUI()
 		return "", fmt.Errorf("create ACP planner runtime: %w", err)
 	}
-	defer func() { _ = acpRuntime.Close() }()
+	if closer, ok := acpRuntime.(interface{ Close() error }); ok {
+		defer func() { _ = closer.Close() }()
+	}
+
 	plannerAgent, err := WrapAgentWithPlannerPrompt(acpRuntime)
 	if err != nil {
 		closeEvents()

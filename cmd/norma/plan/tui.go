@@ -18,9 +18,7 @@ func tuiCommand() *cobra.Command {
 		Use:   "tui",
 		Short: "Interactively decompose an epic into features and tasks and persist them to Beads",
 		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runTUI(cmd, args)
-		},
+		RunE:               runTUI,
 	}
 	return cmd
 }

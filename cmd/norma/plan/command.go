@@ -9,9 +9,7 @@ func Command() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "plan",
 		Short: "Plan subcommands: tui, web",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runTUI(cmd, args)
-		},
+		RunE:               runTUI,
 	}
 
 	cmd.AddCommand(tuiCommand())
