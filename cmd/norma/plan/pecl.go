@@ -1,9 +1,12 @@
 package plancmd
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"os"
+	"strings"
 	"time"
 
 	acp "github.com/coder/acp-go-sdk"
@@ -55,6 +58,11 @@ This is a simple ACP execution without the planner TUI.`,
 	return cmd
 }
 
+const (
+	replCommandExit = "exit"
+	replCommandQuit = "quit"
+)
+
 func runACPREPL(ctx context.Context, repoRoot string, plannerCfg config.AgentConfig) error {
 	acpCmd, err := normaagent.ResolveACPCommand(plannerCfg)
 	if err != nil {
@@ -98,39 +106,35 @@ func runACPREPL(ctx context.Context, repoRoot string, plannerCfg config.AgentCon
 		return fmt.Errorf("create session: %w", err)
 	}
 
-	logger.Info().Msg("starting interactive REPL (type 'exit' or 'quit' to stop)")
-	return runREPL(ctx, adkRunner, sess.Session)
-}
+	_, _ = fmt.Fprintln(os.Stdout, "starting interactive REPL (type 'exit' or 'quit' to stop)")
+	return runREPL(ctx, adkRunner, sess.Session, os.Stdin, os.Stdout)
+	}
 
-func runREPL(ctx context.Context, r *runner.Runner, sess session.Session) error {
-	fmt.Print("> ")
-	for {
-		var input string
-		_, err := fmt.Scanln(&input)
-		if err != nil {
-			if err.Error() == "unexpected newline" || err.Error() == "EOF" {
-				fmt.Println("\nGoodbye!")
-				return nil
-			}
-			return err
-		}
-		trimmed := input
+	func runREPL(ctx context.Context, r *runner.Runner, sess session.Session, stdin io.Reader, stdout io.Writer) error {
+	scanner := bufio.NewScanner(stdin)
+	_, _ = fmt.Fprint(stdout, "> ")
+	for scanner.Scan() {
+		trimmed := strings.TrimSpace(scanner.Text())
 		if trimmed == "" {
-			fmt.Print("> ")
+			_, _ = fmt.Fprint(stdout, "> ")
 			continue
 		}
-		if trimmed == "exit" || trimmed == "quit" {
-			fmt.Println("Goodbye!")
-			return nil
+		if trimmed == replCommandExit || trimmed == replCommandQuit {
+			break
 		}
-		if err := runACPTurn(ctx, r, sess, trimmed); err != nil {
+		if err := runACPTurn(ctx, r, sess, trimmed, stdout); err != nil {
 			return err
 		}
-		fmt.Print("> ")
+		_, _ = fmt.Fprint(stdout, "> ")
 	}
-}
+	if err := scanner.Err(); err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintln(stdout, "Goodbye!")
+	return nil
+	}
 
-func runACPTurn(ctx context.Context, r *runner.Runner, sess session.Session, prompt string) error {
+	func runACPTurn(ctx context.Context, r *runner.Runner, sess session.Session, prompt string, stdout io.Writer) error {
 	events := r.Run(
 		ctx,
 		"norma-pecl-user",
@@ -149,12 +153,13 @@ func runACPTurn(ctx context.Context, r *runner.Runner, sess session.Session, pro
 			if part == nil || part.Text == "" {
 				continue
 			}
-			fmt.Print(part.Text)
+			_, _ = fmt.Fprint(stdout, part.Text)
 		}
-		fmt.Println()
 	}
+	_, _ = fmt.Fprintln(stdout)
 	return nil
-}
+	}
+
 
 func autoAllowPermission(_ context.Context, req acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error) {
 	for _, option := range req.Options {
