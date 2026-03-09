@@ -341,6 +341,13 @@ func (m *plannerModel) currentStatus() string {
 	return status
 }
 
+// RunTUI runs the planner TUI and ensures terminal cleanup.
+func RunTUI(prog *tea.Program) error {
+	_, err := prog.Run()
+	fmt.Println() // Ensure trailing newline on exit
+	return err
+}
+
 func statusFromEvent(ev *session.Event) string {
 	if ev == nil {
 		return "Waiting for agent updates..."

@@ -8,11 +8,13 @@ import (
 func Command() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "plan",
-		Short: "Plan subcommands: tui, pecl, web",
+		Short: "Plan subcommands: tui, web",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runTUI(cmd, args)
+		},
 	}
 
 	cmd.AddCommand(tuiCommand())
-	cmd.AddCommand(peclCommand())
 	cmd.AddCommand(webCommand())
 	return cmd
 }

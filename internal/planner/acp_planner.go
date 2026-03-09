@@ -58,7 +58,7 @@ func (p *ACPPlanner) RunInteractive(ctx context.Context, req Request) (string, e
 
 	tuiErrChan := make(chan error, 1)
 	go func() {
-		if _, runErr := prog.Run(); runErr != nil {
+		if runErr := RunTUI(prog); runErr != nil {
 			tuiErrChan <- runErr
 		}
 		close(tuiErrChan)

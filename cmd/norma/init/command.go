@@ -143,25 +143,25 @@ agents:
 profiles:
   default:
     pdca:
-      plan: codex_primary
+      plan: codex_api
       do: gemini_flash
-      check: codex_primary
-      act: codex_primary
-    planner: codex_primary
+      check: codex_api
+      act: codex_api
+    planner: codex_api
   codex:
     pdca:
-      plan: codex_primary
+      plan: codex_api
       do: codex_fast
       check: codex_fast
-      act: codex_primary
-    planner: codex_primary
+      act: codex_api
+    planner: codex_api
   claude:
     pdca:
-      plan: claude_primary
-      do: claude_primary
-      check: claude_primary
-      act: claude_primary
-    planner: claude_primary
+      plan: claude_api
+      do: claude_api
+      check: claude_api
+      act: claude_api
+    planner: claude_api
   gemini:
     pdca:
       plan: gemini_flash

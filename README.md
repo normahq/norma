@@ -72,7 +72,7 @@ The default configuration uses the `codex` agent with the `gpt-5.2-codex` model.
 profile: default
 
 agents:
-  codex_primary:
+  codex_api:
     type: codex
     model: gpt-5.2-codex
   gemini_flash:
@@ -82,11 +82,11 @@ agents:
 profiles:
   default:
     pdca:
-      plan: codex_primary
+      plan: codex_api
       do: gemini_flash
-      check: codex_primary
-      act: codex_primary
-    planner: codex_primary
+      check: codex_api
+      act: codex_api
+    planner: codex_api
 
 budgets:
   max_iterations: 5

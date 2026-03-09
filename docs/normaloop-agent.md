@@ -11,7 +11,7 @@ Example:
 
 ```yaml
 agents:
-  gemini_primary:
+  gemini_api:
     type: gemini_aistudio
     model: gemini-1.5-flash
     api_key: ${GOOGLE_API_KEY}

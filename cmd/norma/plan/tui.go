@@ -19,37 +19,41 @@ func tuiCommand() *cobra.Command {
 		Short: "Interactively decompose an epic into features and tasks and persist them to Beads",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			repoRoot, err := os.Getwd()
-			if err != nil {
-				return err
-			}
-			if !git.Available(cmd.Context(), repoRoot) {
-				return fmt.Errorf("current directory is not a git repository")
-			}
-
-			cfg, err := loadConfig(repoRoot)
-			if err != nil {
-				return err
-			}
-
-			req := planner.Request{
-				Mode: planner.ModeWizard,
-			}
-
-			plannerCfg, ok := cfg.Agents["planner"]
-			if !ok {
-				return fmt.Errorf("planner agent not configured in selected profile %q", cfg.Profile)
-			}
-			if !plannerSupportedType(plannerCfg.Type) {
-				return fmt.Errorf("planner mode supports only llm and acp agent types, got %q", plannerCfg.Type)
-			}
-			if config.IsACPType(plannerCfg.Type) {
-				return runACPPlanner(cmd, repoRoot, plannerCfg, req)
-			}
-			return runLLMPlanner(cmd, repoRoot, cfg, req)
+			return runTUI(cmd, args)
 		},
 	}
 	return cmd
+}
+
+func runTUI(cmd *cobra.Command, _ []string) error {
+	repoRoot, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	if !git.Available(cmd.Context(), repoRoot) {
+		return fmt.Errorf("current directory is not a git repository")
+	}
+
+	cfg, err := loadConfig(repoRoot)
+	if err != nil {
+		return err
+	}
+
+	req := planner.Request{
+		Mode: planner.ModeWizard,
+	}
+
+	plannerCfg, ok := cfg.Agents["planner"]
+	if !ok {
+		return fmt.Errorf("planner agent not configured in selected profile %q", cfg.Profile)
+	}
+	if !plannerSupportedType(plannerCfg.Type) {
+		return fmt.Errorf("planner mode supports only llm and acp agent types, got %q", plannerCfg.Type)
+	}
+	if config.IsACPType(plannerCfg.Type) {
+		return runACPPlanner(cmd, repoRoot, plannerCfg, req)
+	}
+	return runLLMPlanner(cmd, repoRoot, cfg, req)
 }
 
 func plannerSupportedType(t string) bool {

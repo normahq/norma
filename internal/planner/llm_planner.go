@@ -96,7 +96,7 @@ func (p *LLMPlanner) RunInteractive(ctx context.Context, req Request) (string, e
 
 	tuiErrChan := make(chan error, 1)
 	go func() {
-		if _, runErr := prog.Run(); runErr != nil {
+		if runErr := RunTUI(prog); runErr != nil {
 			tuiErrChan <- runErr
 		}
 		close(tuiErrChan)
@@ -222,7 +222,7 @@ func (p *LLMPlanner) Generate(ctx context.Context, req Request) (Decomposition, 
 
 	tuiErrChan := make(chan error, 1)
 	go func() {
-		if _, err := prog.Run(); err != nil {
+		if err := RunTUI(prog); err != nil {
 			tuiErrChan <- err
 		}
 		close(tuiErrChan)
