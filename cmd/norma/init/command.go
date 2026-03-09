@@ -112,7 +112,7 @@ const NormaGitignoreContent = `# ignore everything in .norma by default
 
 const DefaultConfigYAML = `profile: default
 agents:
-  codex_primary:
+  codex_api:
     type: codex
     model: gpt-5.2-codex
   codex_fast:
@@ -122,7 +122,7 @@ agents:
     type: gemini_aistudio
     model: gemini-3-flash-preview
     api_key: ${GOOGLE_API_KEY}
-  claude_primary:
+  claude_api:
     type: claude
     model: claude-3-opus
   opencode_exec_model:

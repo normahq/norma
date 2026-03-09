@@ -16,7 +16,7 @@ agents:
   ainvoke_opencode_minimax:
     type: opencode
     model: opencode/minimax-m2.5-free
-  gemini_primary:
+  gemini_api:
     type: gemini_aistudio
     model: gemini-2.5-flash-lite
     api_key: ${GOOGLE_API_KEY}
@@ -79,13 +79,6 @@ profiles:
       check: ainvoke_gemini_agent
       act: ainvoke_gemini_agent
     planner: gemini_acp
-  openai:
-    pdca:
-      plan: openai_primary
-      do: openai_primary
-      check: openai_primary
-      act: openai_primary
-    planner: openai_primary
 
 budgets:
   max_iterations: 5
