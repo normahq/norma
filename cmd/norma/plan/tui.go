@@ -15,9 +15,9 @@ import (
 
 func tuiCommand() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "tui [epic goal]",
+		Use:   "tui",
 		Short: "Interactively decompose an epic into features and tasks and persist them to Beads",
-		Args:  cobra.MaximumNArgs(1),
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			repoRoot, err := os.Getwd()
 			if err != nil {
@@ -32,13 +32,8 @@ func tuiCommand() *cobra.Command {
 				return err
 			}
 
-			epicDescription := ""
-			if len(args) > 0 {
-				epicDescription = args[0]
-			}
 			req := planner.Request{
-				EpicDescription: epicDescription,
-				Mode:            planner.ModeWizard,
+				Mode: planner.ModeWizard,
 			}
 
 			plannerCfg, ok := cfg.Agents["planner"]
