@@ -43,7 +43,7 @@ func tuiCommand() *cobra.Command {
 			if !plannerSupportedType(plannerCfg.Type) {
 				return fmt.Errorf("planner mode supports only llm and acp agent types, got %q", plannerCfg.Type)
 			}
-			if isACPType(plannerCfg.Type) {
+			if config.IsACPType(plannerCfg.Type) {
 				return runACPPlanner(cmd, repoRoot, plannerCfg, req)
 			}
 			return runLLMPlanner(cmd, repoRoot, cfg, req)
@@ -53,11 +53,14 @@ func tuiCommand() *cobra.Command {
 }
 
 func plannerSupportedType(t string) bool {
-	return t == "llm" || t == "acp" || t == "gemini" || t == "openai"
-}
-
-func isACPType(t string) bool {
-	return t == "acp"
+	if config.IsACPType(t) {
+		return true
+	}
+	switch t {
+	case "llm", "gemini", "openai", "claude", "codex", "opencode", "gemini_aistudio":
+		return true
+	}
+	return false
 }
 
 func runLLMPlanner(cmd *cobra.Command, repoRoot string, cfg config.Config, req planner.Request) error {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -42,6 +43,7 @@ type plannerModel struct {
 	history     strings.Builder
 	currentTurn strings.Builder
 	renderer    *glamour.TermRenderer
+	spinner     spinner.Model
 	status      string
 
 	// Channels for communication with the agent
@@ -50,6 +52,7 @@ type plannerModel struct {
 	responseChan chan<- string
 
 	waitingForHuman bool
+	waitingResponse bool
 	finishedPlan    *Decomposition
 	completedRunMsg string
 	failedRunError  string
@@ -74,6 +77,8 @@ func newPlannerModel(
 	ti := textinput.New()
 	ti.Placeholder = "Type your answer..."
 	ti.Focus()
+	sp := spinner.New()
+	sp.Spinner = spinner.Dot
 
 	vp := viewport.New(100, 20)
 	vp.Style = lipgloss.NewStyle().
@@ -85,6 +90,7 @@ func newPlannerModel(
 		viewport:     vp,
 		textinput:    ti,
 		renderer:     r,
+		spinner:      sp,
 		eventChan:    eventChan,
 		questionChan: questionChan,
 		responseChan: responseChan,
@@ -128,6 +134,7 @@ func (m *plannerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var (
 		tiCmd tea.Cmd
 		vpCmd tea.Cmd
+		spCmd tea.Cmd
 	)
 
 	switch msg := msg.(type) {
@@ -157,13 +164,15 @@ func (m *plannerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.history.WriteString(fmt.Sprintf("\n> %s\n", val))
 				m.textinput.Reset()
 				m.waitingForHuman = false
-				m.status = "Message sent. Thinking..."
+				m.waitingResponse = true
+				m.status = "Message sent. Waiting for planner response..."
 				m.updateViewport()
-				return m, nil
+				return m, m.spinner.Tick
 			}
 		}
 
 	case eventMsg:
+		m.waitingResponse = false
 		ev := (*session.Event)(msg)
 		m.status = statusFromEvent(ev)
 		if ev.Content != nil {
@@ -185,6 +194,7 @@ func (m *plannerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.waitForEvent()
 
 	case humanRequestMsg:
+		m.waitingResponse = false
 		m.waitingForHuman = true
 		m.status = "Waiting for your input..."
 		question := strings.TrimSpace(string(msg))
@@ -199,6 +209,7 @@ func (m *plannerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		plan := Decomposition(msg)
 		m.finishedPlan = &plan
 		m.waitingForHuman = false
+		m.waitingResponse = false
 		m.status = "Plan persisted."
 
 		// Render final plan into history
@@ -230,6 +241,7 @@ func (m *plannerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case planCompletedMsg:
 		m.waitingForHuman = false
+		m.waitingResponse = false
 		m.completedRunMsg = strings.TrimSpace(string(msg))
 		if m.completedRunMsg == "" {
 			m.completedRunMsg = "Planner session complete."
@@ -246,6 +258,7 @@ func (m *plannerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case planFailedMsg:
 		m.waitingForHuman = false
+		m.waitingResponse = false
 		m.failedRunError = strings.TrimSpace(string(msg))
 		m.status = "Planner failed."
 		var sb strings.Builder
@@ -263,9 +276,15 @@ func (m *plannerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.textinput.Width = msg.Width
 		m.updateViewport()
 
+	case spinner.TickMsg:
+		if m.waitingResponse {
+			m.spinner, spCmd = m.spinner.Update(msg)
+		}
+
 	case error:
 		m.err = msg
 		m.status = "Error."
+		m.waitingResponse = false
 		return m, tea.Quit
 	}
 
@@ -274,7 +293,7 @@ func (m *plannerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	m.viewport, vpCmd = m.viewport.Update(msg)
 
-	return m, tea.Batch(tiCmd, vpCmd)
+	return m, tea.Batch(tiCmd, vpCmd, spCmd)
 }
 
 func (m *plannerModel) updateViewport() {
@@ -298,7 +317,11 @@ func (m *plannerModel) View() string {
 	case m.waitingForHuman:
 		s += m.textinput.View()
 	default:
-		s += infoStyle.Render(m.currentStatus())
+		status := m.currentStatus()
+		if m.waitingResponse {
+			status = fmt.Sprintf("%s %s", m.spinner.View(), status)
+		}
+		s += infoStyle.Render(status)
 	}
 	return s
 }
