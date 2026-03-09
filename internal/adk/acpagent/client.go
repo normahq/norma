@@ -250,7 +250,19 @@ func (c *Client) CreateSession(ctx context.Context, cwd, model string) (acp.NewS
 		return resp, nil
 	}
 	if err := c.SetSessionModel(ctx, string(resp.SessionId), trimmedModel); err != nil {
-		return acp.NewSessionResponse{}, fmt.Errorf("set acp session model %q: %w", trimmedModel, err)
+		// Some ACP implementations (like Gemini ACP) might not support session/set_model
+		// but instead require the model to be specified during session creation if at all.
+		// If the method is not found, we ignore the error and proceed, as the session
+		// was already created successfully.
+		var acpErr *acp.Error
+		if errors.As(err, &acpErr) && acpErr.Code == -32601 {
+			c.logger.Debug().
+				Str("session_id", string(resp.SessionId)).
+				Str("model", trimmedModel).
+				Msg("acp session/set_model not supported by server, ignoring")
+		} else {
+			return acp.NewSessionResponse{}, fmt.Errorf("set acp session model %q: %w", trimmedModel, err)
+		}
 	}
 	if resp.Models != nil {
 		resp.Models.CurrentModelId = acp.ModelId(trimmedModel)
