@@ -26,6 +26,8 @@ type Config struct {
 	Description string
 	// Model is the specific LLM model identifier to use.
 	Model string
+	// SystemPrompt is an optional system-level instruction for the agent.
+	SystemPrompt string
 	// ClientName is the name reported to the ACP server during initialization.
 	ClientName string
 	// ClientVersion is the version reported to the ACP server during initialization.
@@ -53,6 +55,7 @@ type Agent struct {
 	client       *Client
 	workingDir   string
 	sessionModel string
+	systemPrompt string
 	logger       zerolog.Logger
 	sessionMu    sync.Mutex
 	remoteByADK  map[string]string
@@ -112,6 +115,7 @@ func New(cfg Config) (*Agent, error) {
 		client:       client,
 		workingDir:   cfg.WorkingDir,
 		sessionModel: strings.TrimSpace(cfg.Model),
+		systemPrompt: strings.TrimSpace(cfg.SystemPrompt),
 		logger:       l,
 		remoteByADK:  make(map[string]string),
 	}
@@ -142,6 +146,10 @@ func (a *Agent) run(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, er
 		}
 
 		prompt := extractPromptText(ctx.UserContent())
+		if a.systemPrompt != "" {
+			prompt = a.systemPrompt + "\n\n" + prompt
+		}
+
 		if strings.TrimSpace(prompt) == "" {
 			yield(nil, fmt.Errorf("prompt is empty"))
 			return

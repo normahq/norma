@@ -6,8 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
 	"strings"
 
 	acp "github.com/coder/acp-go-sdk"
@@ -34,7 +32,7 @@ func NewRunner(cfg config.AgentConfig, role contracts.Role) (Runner, error) {
 	})
 
 	agentFactory := func(ctx context.Context, req contracts.AgentRequest, stdout, stderr io.Writer) (agent.Agent, error) {
-		prompt, err := role.Prompt(req)
+		rolePrompt, err := role.Prompt(req)
 		if err != nil {
 			return nil, fmt.Errorf("generate prompt: %w", err)
 		}
@@ -44,10 +42,30 @@ func NewRunner(cfg config.AgentConfig, role contracts.Role) (Runner, error) {
 			workingDir = req.Paths.RunDir
 		}
 
+		input, err := role.MapRequest(req)
+		if err != nil {
+			return nil, fmt.Errorf("map request: %w", err)
+		}
+
+		inputJSON, err := json.Marshal(input)
+		if err != nil {
+			return nil, fmt.Errorf("marshal input: %w", err)
+		}
+
+		var prompt, systemPrompt string
+		if config.IsACPType(cfg.Type) {
+			systemPrompt = buildACPSystemPrompt(rolePrompt, role)
+			prompt = string(inputJSON)
+		} else {
+			systemPrompt = rolePrompt
+			prompt = string(inputJSON)
+		}
+
 		creationReq := agentfactory.CreationRequest{
 			Name:              "Norma" + toPascal(req.Step.Name) + "Agent",
 			Description:       "Norma " + req.Step.Name + " agent",
 			Prompt:            prompt,
+			SystemPrompt:      systemPrompt,
 			InputSchema:       role.InputSchema(),
 			OutputSchema:      role.OutputSchema(),
 			WorkingDir:        workingDir,
@@ -92,20 +110,6 @@ type adkRunner struct {
 }
 
 func (r *adkRunner) Run(ctx context.Context, req contracts.AgentRequest, stdout, stderr io.Writer) ([]byte, []byte, int, error) {
-	prompt, err := r.role.Prompt(req)
-	if err != nil {
-		return nil, nil, 0, fmt.Errorf("generate prompt: %w", err)
-	}
-
-	// Save prompt to logs/prompt.txt
-	if req.Paths.RunDir != "" {
-		promptPath := filepath.Join(req.Paths.RunDir, "logs", "prompt.txt")
-		_ = os.MkdirAll(filepath.Dir(promptPath), 0o700)
-		if err := os.WriteFile(promptPath, []byte(prompt), 0o600); err != nil {
-			log.Warn().Err(err).Str("path", promptPath).Msg("failed to save prompt log")
-		}
-	}
-
 	input, err := r.role.MapRequest(req)
 	if err != nil {
 		return nil, nil, 0, fmt.Errorf("map request: %w", err)
@@ -148,9 +152,6 @@ func (r *adkRunner) Run(ctx context.Context, req contracts.AgentRequest, stdout,
 	}
 
 	userPayload := string(inputJSON)
-	if config.IsACPType(r.cfg.Type) {
-		userPayload = buildACPPayload(prompt, inputJSON, r.role)
-	}
 	userContent := genai.NewContentFromText(userPayload, genai.RoleUser)
 	events := adkRunner.Run(ctx, userID, sess.Session.ID(), userContent, agent.RunConfig{})
 
@@ -241,13 +242,11 @@ func defaultACPPermissionHandler(_ context.Context, req acp.RequestPermissionReq
 	return acp.RequestPermissionResponse{Outcome: acp.NewRequestPermissionOutcomeCancelled()}, nil
 }
 
-func buildACPPayload(prompt string, inputJSON []byte, role contracts.Role) string {
+func buildACPSystemPrompt(prompt string, role contracts.Role) string {
 	const outputRule = `Return only valid JSON for the final AgentResponse object. Do not wrap in markdown.`
 	return strings.TrimSpace(strings.Join([]string{
 		prompt,
 		outputRule,
 		"Role: " + role.Name(),
-		"Input JSON:",
-		string(inputJSON),
 	}, "\n\n"))
 }

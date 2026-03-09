@@ -52,6 +52,7 @@ func webCommand() *cobra.Command {
 				creationReq := agentfactory.CreationRequest{
 					Name:              "NormaPlannerACP",
 					Description:       "Norma planner via ACP runtime",
+					SystemPrompt:      planner.PlannerInstruction(),
 					WorkingDir:        repoRoot,
 					Stderr:            io.Discard,
 					PermissionHandler: planner.PlannerACPPermissionHandler,

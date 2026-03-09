@@ -20,6 +20,7 @@ type CreationRequest struct {
 	Name              string
 	Description       string
 	Prompt            string
+	SystemPrompt      string
 	InputSchema       string
 	OutputSchema      string
 	WorkingDir        string
@@ -72,11 +73,15 @@ var constructors = map[string]constructor{
 		if err != nil {
 			return nil, err
 		}
+		fullPrompt := req.Prompt
+		if req.SystemPrompt != "" {
+			fullPrompt = req.SystemPrompt + "\n\n" + req.Prompt
+		}
 		return adk.NewExecAgent(
 			req.Name,
 			req.Description,
 			cmd,
-			adk.WithExecAgentPrompt(req.Prompt),
+			adk.WithExecAgentPrompt(fullPrompt),
 			adk.WithExecAgentInputSchema(req.InputSchema),
 			adk.WithExecAgentOutputSchema(req.OutputSchema),
 			adk.WithExecAgentRunDir(req.RunDir),
@@ -101,11 +106,16 @@ var execConstructor = func(ctx context.Context, cfg config.AgentConfig, req Crea
 	if err != nil {
 		return nil, err
 	}
+	fullPrompt := req.Prompt
+	if req.SystemPrompt != "" {
+		fullPrompt = req.SystemPrompt + "\n\n" + req.Prompt
+	}
+
 	return adk.NewExecAgent(
 		req.Name,
 		req.Description,
 		cmd,
-		adk.WithExecAgentPrompt(req.Prompt),
+		adk.WithExecAgentPrompt(fullPrompt),
 		adk.WithExecAgentInputSchema(req.InputSchema),
 		adk.WithExecAgentOutputSchema(req.OutputSchema),
 		adk.WithExecAgentRunDir(req.RunDir),
@@ -130,6 +140,7 @@ var acpConstructor = func(ctx context.Context, cfg config.AgentConfig, req Creat
 		Name:              req.Name,
 		Description:       req.Description,
 		Model:             cfg.Model,
+		SystemPrompt:      req.SystemPrompt,
 		Command:           cmd,
 		WorkingDir:        workingDir,
 		Stderr:            req.Stderr,

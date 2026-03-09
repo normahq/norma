@@ -89,6 +89,7 @@ func (p *ACPPlanner) RunInteractive(ctx context.Context, req Request) (string, e
 	creationReq := agentfactory.CreationRequest{
 		Name:              "NormaPlannerACP",
 		Description:       "Norma planner via ACP runtime",
+		SystemPrompt:      PlannerInstruction(),
 		WorkingDir:        p.repoRoot,
 		Stderr:            io.Discard,
 		PermissionHandler: PlannerACPPermissionHandler,
