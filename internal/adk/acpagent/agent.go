@@ -21,6 +21,7 @@ type Config struct {
 	Context           context.Context
 	Name              string
 	Description       string
+	Model             string
 	ClientName        string
 	ClientVersion     string
 	Command           []string
@@ -34,12 +35,20 @@ type Config struct {
 type Agent struct {
 	adkagent.Agent
 
-	client      *Client
-	workingDir  string
-	logger      zerolog.Logger
-	sessionMu   sync.Mutex
-	remoteByADK map[string]string
+	client       *Client
+	workingDir   string
+	sessionModel string
+	logger       zerolog.Logger
+	sessionMu    sync.Mutex
+	remoteByADK  map[string]string
 }
+
+const (
+	acpTypeText     = "text"
+	acpTypeImage    = "image"
+	acpTypeAudio    = "audio"
+	acpTypeResource = "resource"
+)
 
 var _ adkagent.Agent = (*Agent)(nil)
 
@@ -79,10 +88,11 @@ func New(cfg Config) (*Agent, error) {
 	}
 
 	a := &Agent{
-		client:      client,
-		workingDir:  cfg.WorkingDir,
-		logger:      l,
-		remoteByADK: make(map[string]string),
+		client:       client,
+		workingDir:   cfg.WorkingDir,
+		sessionModel: strings.TrimSpace(cfg.Model),
+		logger:       l,
+		remoteByADK:  make(map[string]string),
 	}
 	base, err := adkagent.New(adkagent.Config{
 		Name:        cfg.Name,
@@ -192,13 +202,19 @@ func (a *Agent) ensureRemoteSession(ctx context.Context, adkSessionID string) (s
 		a.logger.Debug().Str("adk_session_id", adkSessionID).Str("acp_session_id", sessionID).Msg("reusing acp session for adk session")
 		return sessionID, nil
 	}
-	resp, err := a.client.NewSession(ctx, a.workingDir)
+	resp, err := a.client.CreateSession(ctx, a.workingDir, a.sessionModel)
 	if err != nil {
 		return "", err
 	}
 	sessionID := string(resp.SessionId)
 	a.remoteByADK[adkSessionID] = sessionID
-	a.logger.Debug().Str("adk_session_id", adkSessionID).Str("acp_session_id", sessionID).Msg("created new acp session for adk session")
+	event := a.logger.Debug().
+		Str("adk_session_id", adkSessionID).
+		Str("acp_session_id", sessionID)
+	if a.sessionModel != "" {
+		event = event.Str("model", a.sessionModel)
+	}
+	event.Msg("created new acp session for adk session")
 	return sessionID, nil
 }
 
@@ -372,32 +388,119 @@ func logIgnoredACPUpdate(logger zerolog.Logger, updateType string, payload any) 
 func logIgnoredACPContentBlock(logger zerolog.Logger, block acp.ContentBlock) {
 	blockType := contentBlockType(block)
 	logEvent := logger.Debug().
-		Str("acp_content_block_type", blockType)
-
-	switch blockType {
-	case "image":
-		if payload, ok := marshalACPUpdatePayload(logger, "content_block_image", block.Image); ok {
-			logEvent = logEvent.Str("acp_content_block_payload", payload)
-		}
-	case "audio":
-		if payload, ok := marshalACPUpdatePayload(logger, "content_block_audio", block.Audio); ok {
-			logEvent = logEvent.Str("acp_content_block_payload", payload)
-		}
-	case "resource_link":
-		if payload, ok := marshalACPUpdatePayload(logger, "content_block_resource_link", block.ResourceLink); ok {
-			logEvent = logEvent.Str("acp_content_block_payload", payload)
-		}
-	case "resource":
-		if payload, ok := marshalACPUpdatePayload(logger, "content_block_resource", block.Resource); ok {
-			logEvent = logEvent.Str("acp_content_block_payload", payload)
-		}
-	}
+		Str("acp_content_block_type", blockType).
+		Str("acp_content_block_text", acpContentBlockLogText(block)).
+		Interface("acp_content_block", acpContentBlockLogValue(block))
 
 	if blockType == unknownValue {
 		logEvent.Msg("ignoring unsupported acp content block")
 		return
 	}
 	logEvent.Msg("ignoring non-text acp content block")
+}
+
+func acpContentBlockLogText(block acp.ContentBlock) string {
+	switch {
+	case block.Text != nil:
+		return strings.TrimSpace(block.Text.Text)
+	case block.Image != nil:
+		return acpTypeImage
+	case block.Audio != nil:
+		return acpTypeAudio
+	case block.ResourceLink != nil:
+		return fmt.Sprintf("resource_link name=%q uri=%q", block.ResourceLink.Name, block.ResourceLink.Uri)
+	case block.Resource != nil:
+		return acpTypeResource
+	default:
+		return unknownValue
+	}
+}
+
+func acpContentBlockLogValue(block acp.ContentBlock) map[string]any {
+	obj := map[string]any{}
+	switch {
+	case block.Text != nil:
+		obj["type"] = acpTypeText
+		if block.Text.Text != "" {
+			obj["text"] = block.Text.Text
+		}
+	case block.Image != nil:
+		obj["type"] = acpTypeImage
+		if block.Image.MimeType != "" {
+			obj["mime_type"] = block.Image.MimeType
+		}
+		if block.Image.Uri != nil && *block.Image.Uri != "" {
+			obj["uri"] = *block.Image.Uri
+		}
+		if block.Image.Data != "" {
+			obj["data_len"] = len(block.Image.Data)
+		}
+	case block.Audio != nil:
+		obj["type"] = acpTypeAudio
+		if block.Audio.MimeType != "" {
+			obj["mime_type"] = block.Audio.MimeType
+		}
+		if block.Audio.Data != "" {
+			obj["data_len"] = len(block.Audio.Data)
+		}
+	case block.ResourceLink != nil:
+		obj["type"] = "resource_link"
+		if block.ResourceLink.Name != "" {
+			obj["name"] = block.ResourceLink.Name
+		}
+		if block.ResourceLink.Uri != "" {
+			obj["uri"] = block.ResourceLink.Uri
+		}
+		if block.ResourceLink.Description != nil && *block.ResourceLink.Description != "" {
+			obj["description"] = *block.ResourceLink.Description
+		}
+		if block.ResourceLink.MimeType != nil && *block.ResourceLink.MimeType != "" {
+			obj["mime_type"] = *block.ResourceLink.MimeType
+		}
+		if block.ResourceLink.Size != nil {
+			obj["size"] = *block.ResourceLink.Size
+		}
+		if block.ResourceLink.Title != nil && *block.ResourceLink.Title != "" {
+			obj["title"] = *block.ResourceLink.Title
+		}
+	case block.Resource != nil:
+		obj["type"] = acpTypeResource
+		obj["resource"] = acpEmbeddedResourceLogValue(block.Resource.Resource)
+	default:
+		obj["type"] = unknownValue
+	}
+	return obj
+}
+
+func acpEmbeddedResourceLogValue(resource acp.EmbeddedResourceResource) map[string]any {
+	obj := map[string]any{}
+	switch {
+	case resource.TextResourceContents != nil:
+		obj["kind"] = acpTypeText
+		if resource.TextResourceContents.Uri != "" {
+			obj["uri"] = resource.TextResourceContents.Uri
+		}
+		if resource.TextResourceContents.MimeType != nil && *resource.TextResourceContents.MimeType != "" {
+			obj["mime_type"] = *resource.TextResourceContents.MimeType
+		}
+		if resource.TextResourceContents.Text != "" {
+			obj["text_len"] = len(resource.TextResourceContents.Text)
+		}
+	case resource.BlobResourceContents != nil:
+		obj["kind"] = "blob"
+		if resource.BlobResourceContents.Uri != "" {
+			obj["uri"] = resource.BlobResourceContents.Uri
+		}
+		if resource.BlobResourceContents.MimeType != nil && *resource.BlobResourceContents.MimeType != "" {
+			obj["mime_type"] = *resource.BlobResourceContents.MimeType
+		}
+		if resource.BlobResourceContents.Blob != "" {
+			obj["blob_len"] = len(resource.BlobResourceContents.Blob)
+		}
+	default:
+		obj["kind"] = unknownValue
+	}
+	return obj
 }
 
 func sessionUpdateType(update acp.SessionUpdate) string {
@@ -426,15 +529,15 @@ func sessionUpdateType(update acp.SessionUpdate) string {
 func contentBlockType(block acp.ContentBlock) string {
 	switch {
 	case block.Text != nil:
-		return "text"
+		return acpTypeText
 	case block.Image != nil:
-		return "image"
+		return acpTypeImage
 	case block.Audio != nil:
-		return "audio"
+		return acpTypeAudio
 	case block.ResourceLink != nil:
 		return "resource_link"
 	case block.Resource != nil:
-		return "resource"
+		return acpTypeResource
 	default:
 		return unknownValue
 	}

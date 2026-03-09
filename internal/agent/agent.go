@@ -46,6 +46,7 @@ func NewRunner(cfg config.AgentConfig, role contracts.Role) (Runner, error) {
 				Context:           ctx,
 				Name:              "Norma" + toPascal(req.Step.Name) + "ACP",
 				Description:       "Norma ACP role agent",
+				Model:             cfg.Model,
 				Command:           cmd,
 				WorkingDir:        workingDir,
 				Stderr:            stderr,
@@ -138,11 +139,7 @@ func ResolveACPCommand(cfg config.AgentConfig) ([]string, error) {
 		}
 		return append(cmd, cfg.ExtraArgs...), nil
 	case config.AgentTypeOpenCodeACP:
-		cmd := []string{"opencode"}
-		if cfg.Model != "" {
-			cmd = append(cmd, "--model", cfg.Model)
-		}
-		cmd = append(cmd, "acp")
+		cmd := []string{"opencode", "acp"}
 		return append(cmd, cfg.ExtraArgs...), nil
 	case config.AgentTypeCodexACP:
 		exePath, err := os.Executable()
@@ -150,6 +147,9 @@ func ResolveACPCommand(cfg config.AgentConfig) ([]string, error) {
 			return nil, fmt.Errorf("resolve executable path: %w", err)
 		}
 		cmd := []string{exePath, "proxy", "codex-acp"}
+		if cfg.Model != "" {
+			cmd = append(cmd, "--model", cfg.Model)
+		}
 		if len(cfg.ExtraArgs) > 0 {
 			cmd = append(cmd, "--")
 			cmd = append(cmd, cfg.ExtraArgs...)

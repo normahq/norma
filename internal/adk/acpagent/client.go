@@ -23,6 +23,7 @@ var (
 
 	errSessionIDRequired = errors.New("acp session id is required")
 	errPromptRequired    = errors.New("acp prompt is required")
+	errModelRequired     = errors.New("acp model is required")
 )
 
 const unknownValue = "unknown"
@@ -64,6 +65,14 @@ type activePrompt struct {
 	sessionID acp.SessionId
 	updates   chan acp.SessionNotification
 	signal    chan struct{}
+	lastChunk *loggedACPChunk
+}
+
+type loggedACPChunk struct {
+	kind         string
+	contentBlock map[string]any
+	partial      bool
+	thought      bool
 }
 
 // PromptResult contains the terminal Prompt RPC response or an error.
@@ -194,6 +203,55 @@ func (c *Client) NewSession(ctx context.Context, cwd string) (acp.NewSessionResp
 	return resp, nil
 }
 
+// CreateSession creates a new ACP session and applies a configured session
+// model when requested.
+func (c *Client) CreateSession(ctx context.Context, cwd, model string) (acp.NewSessionResponse, error) {
+	resp, err := c.NewSession(ctx, cwd)
+	if err != nil {
+		return acp.NewSessionResponse{}, err
+	}
+
+	trimmedModel := strings.TrimSpace(model)
+	if trimmedModel == "" {
+		return resp, nil
+	}
+	if err := c.SetSessionModel(ctx, string(resp.SessionId), trimmedModel); err != nil {
+		return acp.NewSessionResponse{}, fmt.Errorf("set acp session model %q: %w", trimmedModel, err)
+	}
+	if resp.Models != nil {
+		resp.Models.CurrentModelId = acp.ModelId(trimmedModel)
+	}
+	return resp, nil
+}
+
+// SetSessionModel selects the active model for an ACP session.
+func (c *Client) SetSessionModel(ctx context.Context, sessionID, model string) error {
+	if strings.TrimSpace(sessionID) == "" {
+		return errSessionIDRequired
+	}
+	trimmedModel := strings.TrimSpace(model)
+	if trimmedModel == "" {
+		return errModelRequired
+	}
+
+	c.logger.Debug().
+		Str("session_id", sessionID).
+		Str("model", trimmedModel).
+		Msg("sending acp session/set_model")
+	_, err := c.conn.SetSessionModel(ctx, acp.SetSessionModelRequest{
+		SessionId: acp.SessionId(sessionID),
+		ModelId:   acp.ModelId(trimmedModel),
+	})
+	if err != nil {
+		return err
+	}
+	c.logger.Debug().
+		Str("session_id", sessionID).
+		Str("model", trimmedModel).
+		Msg("acp session/set_model succeeded")
+	return nil
+}
+
 // Prompt sends a prompt to an ACP session and streams session updates.
 func (c *Client) Prompt(ctx context.Context, sessionID, prompt string) (<-chan acp.SessionNotification, <-chan PromptResult, error) {
 	if strings.TrimSpace(sessionID) == "" {
@@ -227,6 +285,7 @@ func (c *Client) Prompt(ctx context.Context, sessionID, prompt string) (<-chan a
 			Prompt:    []acp.ContentBlock{acp.TextBlock(prompt)},
 		})
 		waitForUpdateIdle(ctx, active.signal)
+		c.logLastChunkInSeries(activeSessionID)
 		if err != nil {
 			c.logger.Error().Err(err).Str("session_id", sessionID).Msg("acp session/prompt failed")
 			resultCh <- PromptResult{Err: err}
@@ -310,10 +369,12 @@ func (c *Client) RequestPermission(ctx context.Context, params acp.RequestPermis
 
 // SessionUpdate is part of the ACP client callback contract.
 func (c *Client) SessionUpdate(_ context.Context, params acp.SessionNotification) error {
-	c.logger.Debug().
+	logEvent := c.logger.Debug().
 		Str("session_id", string(params.SessionId)).
-		Str("update_kind", sessionUpdateKind(params.Update)).
-		Msg("received acp session update callback")
+		Str("update_kind", sessionUpdateKind(params.Update))
+	logACPUpdateContentFields(logEvent, params.Update)
+	logACPUpdateChunkFields(logEvent, params.Update)
+	logEvent.Msg("received acp session update callback")
 	return nil
 }
 
@@ -358,6 +419,31 @@ func (c *Client) clearActive(sessionID acp.SessionId) {
 	delete(c.activeBySession, sessionID)
 }
 
+func (c *Client) logLastChunkInSeries(sessionID acp.SessionId) {
+	c.stateMu.Lock()
+	active := c.activeBySession[sessionID]
+	var last *loggedACPChunk
+	if active != nil && active.lastChunk != nil {
+		chunkCopy := *active.lastChunk
+		last = &chunkCopy
+	}
+	c.stateMu.Unlock()
+	if last == nil {
+		return
+	}
+
+	logEvent := c.logger.Debug().
+		Str("session_id", string(sessionID)).
+		Str("update_kind", last.kind).
+		Bool("partial", last.partial).
+		Bool("thought", last.thought).
+		Bool("last_in_series", true)
+	if last.contentBlock != nil {
+		logEvent = logEvent.Interface("acp_content_block", last.contentBlock)
+	}
+	logEvent.Msg("received last acp chunk in series")
+}
+
 func (c *Client) failAll(err error) {
 	c.closeOnce.Do(func() {
 		c.closeErr = err
@@ -388,13 +474,18 @@ func (c *Client) dispatchUpdates() {
 }
 
 func (c *Client) dispatchSessionUpdate(note acp.SessionNotification) {
-	c.logger.Debug().
+	logEvent := c.logger.Debug().
 		Str("session_id", string(note.SessionId)).
-		Str("update_kind", sessionUpdateKind(note.Update)).
-		Msg("received acp session update")
+		Str("update_kind", sessionUpdateKind(note.Update))
+	logACPUpdateContentFields(logEvent, note.Update)
+	logACPUpdateChunkFields(logEvent, note.Update)
+	logEvent.Msg("received acp session update")
 
 	c.stateMu.Lock()
 	active := c.activeBySession[note.SessionId]
+	if active != nil {
+		active.lastChunk = loggedACPChunkFromUpdate(note.Update)
+	}
 	c.stateMu.Unlock()
 	if active == nil {
 		return
@@ -440,6 +531,62 @@ func sessionUpdateKind(update acp.SessionUpdate) string {
 		return "current_mode_update"
 	default:
 		return unknownValue
+	}
+}
+
+func logACPUpdateContentFields(event *zerolog.Event, update acp.SessionUpdate) {
+	if event == nil {
+		return
+	}
+	switch {
+	case update.AgentMessageChunk != nil:
+		event.Interface("acp_content_block", acpContentBlockLogValue(update.AgentMessageChunk.Content))
+	case update.UserMessageChunk != nil:
+		event.Interface("acp_content_block", acpContentBlockLogValue(update.UserMessageChunk.Content))
+	case update.AgentThoughtChunk != nil:
+		event.Interface("acp_content_block", acpContentBlockLogValue(update.AgentThoughtChunk.Content))
+	}
+}
+
+func logACPUpdateChunkFields(event *zerolog.Event, update acp.SessionUpdate) {
+	if event == nil {
+		return
+	}
+	switch {
+	case update.AgentMessageChunk != nil:
+		event.Bool("partial", true).Bool("thought", false)
+	case update.AgentThoughtChunk != nil:
+		event.Bool("partial", true).Bool("thought", true)
+	case update.UserMessageChunk != nil:
+		event.Bool("partial", true).Bool("thought", false)
+	}
+}
+
+func loggedACPChunkFromUpdate(update acp.SessionUpdate) *loggedACPChunk {
+	switch {
+	case update.AgentMessageChunk != nil:
+		return &loggedACPChunk{
+			kind:         "agent_message_chunk",
+			contentBlock: acpContentBlockLogValue(update.AgentMessageChunk.Content),
+			partial:      true,
+			thought:      false,
+		}
+	case update.AgentThoughtChunk != nil:
+		return &loggedACPChunk{
+			kind:         "agent_thought_chunk",
+			contentBlock: acpContentBlockLogValue(update.AgentThoughtChunk.Content),
+			partial:      true,
+			thought:      true,
+		}
+	case update.UserMessageChunk != nil:
+		return &loggedACPChunk{
+			kind:         "user_message_chunk",
+			contentBlock: acpContentBlockLogValue(update.UserMessageChunk.Content),
+			partial:      true,
+			thought:      false,
+		}
+	default:
+		return nil
 	}
 }
 

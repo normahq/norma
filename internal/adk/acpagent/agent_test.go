@@ -75,6 +75,29 @@ func TestClientPromptReceivesUpdates(t *testing.T) {
 	}
 }
 
+func TestClientCreateSessionSetsModel(t *testing.T) {
+	client, err := NewClient(context.Background(), ClientConfig{
+		Command: helperCommandWithEnv(t, map[string]string{
+			"GO_EXPECT_SESSION_MODEL": "openai/gpt-5.4",
+		}),
+	})
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	if _, err := client.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	sess, err := client.CreateSession(context.Background(), t.TempDir(), "openai/gpt-5.4")
+	if err != nil {
+		t.Fatalf("CreateSession() error = %v", err)
+	}
+	if got := strings.TrimSpace(string(sess.SessionId)); got == "" {
+		t.Fatal("CreateSession() returned empty session id")
+	}
+}
+
 func TestClientHandlesPermissionRequest(t *testing.T) {
 	client, err := NewClient(context.Background(), ClientConfig{
 		Command: helperCommand(t),
@@ -269,6 +292,77 @@ func TestClientPromptValidatesInputs(t *testing.T) {
 				t.Fatalf("Prompt() error = %v, want %v", gotErr, tc.wantErr)
 			}
 		})
+	}
+}
+
+func TestClientSessionUpdateCallbackLogsContentBlock(t *testing.T) {
+	var logBuf bytes.Buffer
+	logger := zerolog.New(&logBuf).Level(zerolog.DebugLevel)
+
+	client := &Client{logger: logger}
+	err := client.SessionUpdate(context.Background(), acp.SessionNotification{
+		SessionId: "session-1",
+		Update: acp.SessionUpdate{
+			UserMessageChunk: &acp.SessionUpdateUserMessageChunk{
+				Content: acp.ContentBlock{},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("SessionUpdate() error = %v", err)
+	}
+
+	got := logBuf.String()
+	if !strings.Contains(got, "received acp session update callback") {
+		t.Fatalf("debug log = %q, want callback message", got)
+	}
+	if !strings.Contains(got, "\"acp_content_block\":{\"type\":\"unknown\"}") {
+		t.Fatalf("debug log = %q, want structured content block payload", got)
+	}
+	if !strings.Contains(got, "\"update_kind\":\"user_message_chunk\"") {
+		t.Fatalf("debug log = %q, want update kind", got)
+	}
+	if !strings.Contains(got, "\"partial\":true") {
+		t.Fatalf("debug log = %q, want partial flag", got)
+	}
+	if !strings.Contains(got, "\"thought\":false") {
+		t.Fatalf("debug log = %q, want thought flag", got)
+	}
+}
+
+func TestClientLogsLastChunkInSeries(t *testing.T) {
+	var logBuf bytes.Buffer
+	logger := zerolog.New(&logBuf).Level(zerolog.DebugLevel)
+
+	client := &Client{
+		logger: logger,
+		activeBySession: map[acp.SessionId]*activePrompt{
+			"session-1": {
+				sessionID: "session-1",
+				lastChunk: &loggedACPChunk{
+					kind:         "agent_thought_chunk",
+					contentBlock: map[string]any{"type": "unknown"},
+					partial:      true,
+					thought:      true,
+				},
+			},
+		},
+	}
+
+	client.logLastChunkInSeries("session-1")
+
+	got := logBuf.String()
+	if !strings.Contains(got, "received last acp chunk in series") {
+		t.Fatalf("debug log = %q, want last chunk message", got)
+	}
+	if !strings.Contains(got, "\"last_in_series\":true") {
+		t.Fatalf("debug log = %q, want last_in_series flag", got)
+	}
+	if !strings.Contains(got, "\"thought\":true") {
+		t.Fatalf("debug log = %q, want thought flag", got)
+	}
+	if !strings.Contains(got, "\"update_kind\":\"agent_thought_chunk\"") {
+		t.Fatalf("debug log = %q, want update kind", got)
 	}
 }
 
@@ -548,11 +642,20 @@ func TestMapACPUpdateToEventIgnoresUnmarshalableContentBlock(t *testing.T) {
 	if !strings.Contains(got, "resource_link") {
 		t.Fatalf("debug log = %q, want resource_link marker", got)
 	}
+	if !strings.Contains(got, "\"acp_content_block\"") {
+		t.Fatalf("debug log = %q, want structured content block payload", got)
+	}
+	if !strings.Contains(got, "\"acp_content_block_text\":\"resource_link name=\\\"doc\\\" uri=\\\"file:///tmp/doc.txt\\\"\"") {
+		t.Fatalf("debug log = %q, want text content block summary", got)
+	}
+	if !strings.Contains(got, "\"name\":\"doc\"") {
+		t.Fatalf("debug log = %q, want content block fields", got)
+	}
 	if !strings.Contains(got, "ignoring non-text acp content block") {
 		t.Fatalf("debug log = %q, want ignored non-text block message", got)
 	}
-	if !strings.Contains(got, "ignoring acp payload that failed to marshal") {
-		t.Fatalf("debug log = %q, want marshal failure debug context", got)
+	if strings.Contains(got, "ignoring acp payload that failed to marshal") {
+		t.Fatalf("debug log = %q, want no marshal failure", got)
 	}
 }
 
@@ -573,6 +676,12 @@ func TestMapACPUpdateToEventIgnoresUnknownContentBlockWithoutMarshalAttempt(t *t
 	got := logBuf.String()
 	if !strings.Contains(got, "ignoring unsupported acp content block") {
 		t.Fatalf("debug log = %q, want unsupported content block message", got)
+	}
+	if !strings.Contains(got, "\"acp_content_block_text\":\"unknown\"") {
+		t.Fatalf("debug log = %q, want unknown content block text", got)
+	}
+	if !strings.Contains(got, "\"acp_content_block\":{\"type\":\"unknown\"}") {
+		t.Fatalf("debug log = %q, want structured unknown content block payload", got)
 	}
 	if strings.Contains(got, "failed to marshal") {
 		t.Fatalf("debug log = %q, want no marshal failure", got)
@@ -687,6 +796,7 @@ func runACPHelper(stdin *os.File, stdout *os.File) {
 	sessionCount := 0
 	expectedClientName := os.Getenv("GO_EXPECT_CLIENT_NAME")
 	expectedClientVersion := os.Getenv("GO_EXPECT_CLIENT_VERSION")
+	expectedSessionModel := os.Getenv("GO_EXPECT_SESSION_MODEL")
 
 	for scanner.Scan() {
 		var msg helperEnvelope
@@ -716,6 +826,18 @@ func runACPHelper(stdin *os.File, stdout *os.File) {
 			sessionCount++
 			sessionID := fmt.Sprintf("session-%d", sessionCount)
 			writeEnvelope(stdout, helperEnvelope{JSONRPC: "2.0", ID: msg.ID, Result: mustJSON(helperNewSessionResponse{SessionID: sessionID})})
+		case acp.AgentMethodSessionSetModel:
+			var req helperSetSessionModelRequest
+			must(json.Unmarshal(msg.Params, &req))
+			if expectedSessionModel != "" && req.ModelID != expectedSessionModel {
+				writeEnvelope(stdout, helperEnvelope{
+					JSONRPC: "2.0",
+					ID:      msg.ID,
+					Error:   &helperError{Code: -32000, Message: fmt.Sprintf("unexpected session model: %s", req.ModelID)},
+				})
+				continue
+			}
+			writeEnvelope(stdout, helperEnvelope{JSONRPC: "2.0", ID: msg.ID, Result: mustJSON(helperSetSessionModelResponse{})})
 		case acp.AgentMethodSessionPrompt:
 			var req helperPromptRequest
 			must(json.Unmarshal(msg.Params, &req))
@@ -861,6 +983,13 @@ type helperNewSessionResponse struct {
 type helperPromptResponse struct {
 	StopReason string `json:"stopReason"`
 }
+
+type helperSetSessionModelRequest struct {
+	SessionID string `json:"sessionId"`
+	ModelID   string `json:"modelId"`
+}
+
+type helperSetSessionModelResponse struct{}
 
 type helperPromptRequest struct {
 	SessionID string              `json:"sessionId"`

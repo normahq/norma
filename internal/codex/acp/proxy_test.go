@@ -25,6 +25,17 @@ func TestBuildCodexMCPCommand(t *testing.T) {
 	}
 }
 
+func TestBuildCodexMCPCommandWithModel(t *testing.T) {
+	got := buildCodexMCPCommand(Options{
+		Model:     "gpt-5.4",
+		CodexArgs: []string{"--trace"},
+	})
+	want := []string{"codex", "mcp-server", "-c", `model="gpt-5.4"`, "--trace"}
+	if strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Fatalf("buildCodexMCPCommand() = %v, want %v", got, want)
+	}
+}
+
 func TestSessionUpdateType(t *testing.T) {
 	t.Run("tool call update", func(t *testing.T) {
 		update := acp.UpdateToolCall(acp.ToolCallId("call-1"), acp.WithUpdateStatus(acp.ToolCallStatusCompleted))
@@ -91,7 +102,7 @@ func TestCodexACPProxyPromptUsesCodexThenReply(t *testing.T) {
 		},
 	}
 	updater := &fakeACPSessionUpdater{}
-	agent := newCodexACPProxyAgent(fakeSession, "test-agent", zerolog.Nop())
+	agent := newCodexACPProxyAgent(fakeSession, "test-agent", "", zerolog.Nop())
 	agent.setConnection(updater)
 
 	newResp, err := agent.NewSession(context.Background(), acp.NewSessionRequest{Cwd: "/tmp/work"})
@@ -160,7 +171,7 @@ func TestCodexACPProxyCancelStopsPrompt(t *testing.T) {
 		},
 	}
 	updater := &fakeACPSessionUpdater{}
-	agent := newCodexACPProxyAgent(fakeSession, "test-agent", zerolog.Nop())
+	agent := newCodexACPProxyAgent(fakeSession, "test-agent", "", zerolog.Nop())
 	agent.setConnection(updater)
 
 	newResp, err := agent.NewSession(context.Background(), acp.NewSessionRequest{Cwd: "/tmp/work"})
@@ -205,7 +216,7 @@ func TestCodexACPProxyCancelStopsPrompt(t *testing.T) {
 }
 
 func TestCodexACPProxyInitializeUsesConfiguredAgentName(t *testing.T) {
-	agent := newCodexACPProxyAgent(&fakeCodexMCPToolSession{}, "team-codex", zerolog.Nop())
+	agent := newCodexACPProxyAgent(&fakeCodexMCPToolSession{}, "team-codex", "", zerolog.Nop())
 	resp, err := agent.Initialize(context.Background(), acp.InitializeRequest{})
 	if err != nil {
 		t.Fatalf("Initialize() error = %v", err)
@@ -219,7 +230,7 @@ func TestCodexACPProxyInitializeUsesConfiguredAgentName(t *testing.T) {
 }
 
 func TestCodexACPProxyInitializeUsesDefaultAgentNameWhenEmpty(t *testing.T) {
-	agent := newCodexACPProxyAgent(&fakeCodexMCPToolSession{}, "", zerolog.Nop())
+	agent := newCodexACPProxyAgent(&fakeCodexMCPToolSession{}, "", "", zerolog.Nop())
 	resp, err := agent.Initialize(context.Background(), acp.InitializeRequest{})
 	if err != nil {
 		t.Fatalf("Initialize() error = %v", err)

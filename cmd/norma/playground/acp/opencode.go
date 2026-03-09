@@ -3,7 +3,6 @@ package acpcmd
 import (
 	"context"
 	"io"
-	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -74,7 +73,7 @@ func OpenCodeWebCommand() *cobra.Command {
 }
 
 func RunOpenCodeACP(ctx context.Context, repoRoot string, opts OpenCodeOptions, stdin io.Reader, stdout, stderr io.Writer) error {
-	return runStandardACP(ctx, repoRoot, opts.Prompt, BuildOpenCodeACPCommand(opts), runtimeSpec{
+	return runStandardACP(ctx, repoRoot, opts.Prompt, BuildOpenCodeACPCommand(opts), opts.Model, runtimeSpec{
 		component:   "playground.opencode_acp",
 		name:        "OpenCodeACP",
 		description: "OpenCode CLI playground agent via ACP",
@@ -83,11 +82,8 @@ func RunOpenCodeACP(ctx context.Context, repoRoot string, opts OpenCodeOptions, 
 }
 
 func BuildOpenCodeACPCommand(opts OpenCodeOptions) []string {
-	cmd := []string{opts.OpenCodeBin}
-	if strings.TrimSpace(opts.Model) != "" {
-		cmd = append(cmd, "--model", opts.Model)
-	}
-	cmd = append(cmd, "acp")
+	cmd := make([]string, 0, 2+len(opts.OpenCodeArgs))
+	cmd = append(cmd, opts.OpenCodeBin, "acp")
 	cmd = append(cmd, opts.OpenCodeArgs...)
 	return cmd
 }
@@ -104,6 +100,7 @@ func RunOpenCodeACPInfo(
 		ctx,
 		repoRoot,
 		BuildOpenCodeACPCommand(opts),
+		opts.Model,
 		"playground.opencode_acp_info",
 		"inspecting OpenCode ACP agent",
 		jsonOutput,
@@ -119,7 +116,7 @@ func RunOpenCodeACPWeb(
 	launcherArgs []string,
 	stderr io.Writer,
 ) error {
-	return runACPWeb(ctx, repoRoot, BuildOpenCodeACPCommand(opts), runtimeSpec{
+	return runACPWeb(ctx, repoRoot, BuildOpenCodeACPCommand(opts), opts.Model, runtimeSpec{
 		component:   "playground.opencode_acp_web",
 		name:        "OpenCodeACPWeb",
 		description: "OpenCode CLI playground agent via ACP (web launcher)",

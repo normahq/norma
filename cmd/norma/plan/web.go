@@ -55,6 +55,7 @@ func webCommand() *cobra.Command {
 					Context:           cmd.Context(),
 					Name:              "NormaPlannerACP",
 					Description:       "Norma planner via ACP runtime",
+					Model:             plannerCfg.Model,
 					Command:           acpCmd,
 					WorkingDir:        repoRoot,
 					Stderr:            io.Discard,

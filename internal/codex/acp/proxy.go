@@ -24,13 +24,15 @@ const DefaultAgentName = "norma-codex-acp-proxy"
 // Options configures Codex MCP -> ACP proxy behavior.
 type Options struct {
 	CodexArgs []string
+	Model     string
 	Name      string
 }
 
 type codexACPProxyAgent struct {
-	mcpSession codexMCPToolSession
-	agentName  string
-	logger     zerolog.Logger
+	mcpSession   codexMCPToolSession
+	agentName    string
+	defaultModel string
+	logger       zerolog.Logger
 
 	connMu sync.RWMutex
 	conn   codexACPSessionUpdater
@@ -44,6 +46,7 @@ type codexACPProxyAgent struct {
 type codexProxySessionState struct {
 	cwd    string
 	thread string
+	model  string
 	cancel context.CancelFunc
 }
 
@@ -127,7 +130,7 @@ func RunProxy(ctx context.Context, repoRoot string, opts Options, stdin io.Reade
 		return err
 	}
 
-	proxy := newCodexACPProxyAgent(mcpSession, agentName, logger)
+	proxy := newCodexACPProxyAgent(mcpSession, agentName, strings.TrimSpace(opts.Model), logger)
 	conn := acp.NewAgentSideConnection(proxy, stdout, stdin)
 	proxy.setConnection(conn)
 	logger.Debug().Msg("acp connection initialized")
@@ -166,8 +169,11 @@ func RunProxy(ctx context.Context, repoRoot string, opts Options, stdin io.Reade
 }
 
 func buildCodexMCPCommand(opts Options) []string {
-	command := make([]string, 0, 2+len(opts.CodexArgs))
+	command := make([]string, 0, 4+len(opts.CodexArgs))
 	command = append(command, "codex", "mcp-server")
+	if model := strings.TrimSpace(opts.Model); model != "" {
+		command = append(command, "-c", fmt.Sprintf("model=%q", model))
+	}
 	command = append(command, opts.CodexArgs...)
 	return command
 }
@@ -237,16 +243,17 @@ func ensureCodexProxyTools(ctx context.Context, session codexMCPToolSession, log
 	return nil
 }
 
-func newCodexACPProxyAgent(mcpSession codexMCPToolSession, agentName string, logger zerolog.Logger) *codexACPProxyAgent {
+func newCodexACPProxyAgent(mcpSession codexMCPToolSession, agentName string, defaultModel string, logger zerolog.Logger) *codexACPProxyAgent {
 	name := strings.TrimSpace(agentName)
 	if name == "" {
 		name = DefaultAgentName
 	}
 	return &codexACPProxyAgent{
-		mcpSession: mcpSession,
-		agentName:  name,
-		logger:     logger.With().Str("agent_name", name).Logger(),
-		sessions:   make(map[acp.SessionId]*codexProxySessionState),
+		mcpSession:   mcpSession,
+		agentName:    name,
+		defaultModel: strings.TrimSpace(defaultModel),
+		logger:       logger.With().Str("agent_name", name).Logger(),
+		sessions:     make(map[acp.SessionId]*codexProxySessionState),
 	}
 }
 
@@ -300,7 +307,8 @@ func (a *codexACPProxyAgent) NewSession(_ context.Context, params acp.NewSession
 
 	a.mu.Lock()
 	a.sessions[sessionID] = &codexProxySessionState{
-		cwd: strings.TrimSpace(params.Cwd),
+		cwd:   strings.TrimSpace(params.Cwd),
+		model: a.defaultModel,
 	}
 	a.mu.Unlock()
 	a.logger.Debug().
@@ -308,7 +316,16 @@ func (a *codexACPProxyAgent) NewSession(_ context.Context, params acp.NewSession
 		Str("cwd", strings.TrimSpace(params.Cwd)).
 		Msg("created session")
 
-	return acp.NewSessionResponse{SessionId: sessionID}, nil
+	resp := acp.NewSessionResponse{SessionId: sessionID}
+	if a.defaultModel != "" {
+		resp.Models = &acp.SessionModelState{
+			CurrentModelId: acp.ModelId(a.defaultModel),
+			AvailableModels: []acp.ModelInfo{
+				{ModelId: acp.ModelId(a.defaultModel), Name: a.defaultModel},
+			},
+		}
+	}
+	return resp, nil
 }
 
 func (a *codexACPProxyAgent) Prompt(ctx context.Context, params acp.PromptRequest) (acp.PromptResponse, error) {
@@ -450,6 +467,21 @@ func (a *codexACPProxyAgent) SetSessionMode(_ context.Context, params acp.SetSes
 	_ = params
 	a.logger.Debug().Msg("received set_session_mode")
 	return acp.SetSessionModeResponse{}, nil
+}
+
+func (a *codexACPProxyAgent) SetSessionModel(_ context.Context, params acp.SetSessionModelRequest) (acp.SetSessionModelResponse, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	state, ok := a.sessions[params.SessionId]
+	if !ok {
+		return acp.SetSessionModelResponse{}, acp.NewInvalidParams("session not found")
+	}
+	state.model = strings.TrimSpace(string(params.ModelId))
+	a.logger.Debug().
+		Str("session_id", string(params.SessionId)).
+		Str("model", state.model).
+		Msg("received set_session_model")
+	return acp.SetSessionModelResponse{}, nil
 }
 
 func (a *codexACPProxyAgent) sendUpdate(ctx context.Context, sessionID acp.SessionId, update acp.SessionUpdate) error {

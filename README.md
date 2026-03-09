@@ -107,7 +107,9 @@ You can override config values through environment variables with the `NORMA_` p
 ### 4. Create a Task & Run
 ```bash
 # Add a task to Beads
-norma task add "implement user logout" --ac "/logout returns 200"
+bd create --type task \
+  --title "implement user logout" \
+  --description $'Objective: implement user logout\nArtifact: auth/logout handler and tests\nVerify:\n- go test ./...'
 
 # Orchestrate the fix
 norma loop norma-a3f2dd

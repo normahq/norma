@@ -20,7 +20,6 @@ import (
 	prunecmd "github.com/metalagman/norma/cmd/norma/prune"
 	runcmd "github.com/metalagman/norma/cmd/norma/run"
 	runscmd "github.com/metalagman/norma/cmd/norma/runs"
-	taskcmd "github.com/metalagman/norma/cmd/norma/task"
 	"github.com/metalagman/norma/internal/git"
 	"github.com/metalagman/norma/internal/logging"
 	"github.com/rs/zerolog/log"
@@ -73,7 +72,6 @@ func Execute() error {
 	rootCmd.AddCommand(loopcmd.Command())
 	rootCmd.AddCommand(runcmd.Command())
 	rootCmd.AddCommand(runscmd.Command())
-	rootCmd.AddCommand(taskcmd.Command())
 	rootCmd.AddCommand(plancmd.Command())
 	rootCmd.AddCommand(proxycmd.Command())
 	rootCmd.AddCommand(playgroundcmd.Command())

@@ -12,6 +12,7 @@ import (
 
 type CodexOptions struct {
 	Prompt    string
+	Model     string
 	CodexArgs []string
 	Name      string
 
@@ -25,6 +26,7 @@ func CodexCommand() *cobra.Command {
 		"Run Codex MCP server through ACP proxy and Go ADK",
 		func(cmd *cobra.Command) {
 			cmd.Flags().StringVar(&opts.Prompt, "prompt", "", "single prompt to run; if empty starts a REPL")
+			cmd.Flags().StringVar(&opts.Model, "model", "", "Codex model name")
 			cmd.Flags().StringArrayVar(&opts.CodexArgs, "codex-arg", nil, "extra Codex mcp-server argument (repeatable)")
 			cmd.Flags().StringVar(&opts.Name, "name", "", "ACP agent name exposed by the Codex proxy")
 		},
@@ -40,6 +42,7 @@ func CodexInfoCommand() *cobra.Command {
 		"codex",
 		"Inspect Codex ACP proxy capabilities and auth methods",
 		func(cmd *cobra.Command) {
+			cmd.Flags().StringVar(&opts.Model, "model", "", "Codex model name")
 			cmd.Flags().StringArrayVar(&opts.CodexArgs, "codex-arg", nil, "extra Codex mcp-server argument (repeatable)")
 			cmd.Flags().StringVar(&opts.Name, "name", "", "ACP agent name exposed by the Codex proxy")
 			cmd.Flags().StringVar(&opts.BridgeBin, "bridge-bin", "", "Codex ACP proxy executable path (defaults to current norma binary)")
@@ -56,6 +59,7 @@ func CodexWebCommand() *cobra.Command {
 		"codex [-- <web launcher args...>]",
 		"Run Codex ACP proxy with the ADK web launcher",
 		func(cmd *cobra.Command) {
+			cmd.Flags().StringVar(&opts.Model, "model", "", "Codex model name")
 			cmd.Flags().StringArrayVar(&opts.CodexArgs, "codex-arg", nil, "extra Codex mcp-server argument (repeatable)")
 			cmd.Flags().StringVar(&opts.Name, "name", "", "ACP agent name exposed by the Codex proxy")
 			cmd.Flags().StringVar(&opts.BridgeBin, "bridge-bin", "", "Codex ACP proxy executable path (defaults to current norma binary)")
@@ -71,7 +75,7 @@ func RunCodexACP(ctx context.Context, repoRoot string, opts CodexOptions, stdin 
 	if err != nil {
 		return err
 	}
-	return runStandardACP(ctx, repoRoot, opts.Prompt, acpCmd, runtimeSpec{
+	return runStandardACP(ctx, repoRoot, opts.Prompt, acpCmd, opts.Model, runtimeSpec{
 		component:   "playground.codex_acp",
 		name:        "CodexACP",
 		description: "Codex MCP server via ACP proxy",
@@ -90,6 +94,9 @@ func BuildCodexACPCommand(opts CodexOptions) ([]string, error) {
 	}
 
 	cmd := []string{bridgeBin, "--debug", "proxy", "codex-acp"}
+	if strings.TrimSpace(opts.Model) != "" {
+		cmd = append(cmd, "--model", strings.TrimSpace(opts.Model))
+	}
 	if strings.TrimSpace(opts.Name) != "" {
 		cmd = append(cmd, "--name", strings.TrimSpace(opts.Name))
 	}
@@ -116,6 +123,7 @@ func RunCodexACPInfo(
 		ctx,
 		repoRoot,
 		acpCmd,
+		opts.Model,
 		"playground.codex_acp_info",
 		"inspecting Codex ACP proxy",
 		jsonOutput,
@@ -135,7 +143,7 @@ func RunCodexACPWeb(
 	if err != nil {
 		return err
 	}
-	return runACPWeb(ctx, repoRoot, acpCmd, runtimeSpec{
+	return runACPWeb(ctx, repoRoot, acpCmd, opts.Model, runtimeSpec{
 		component:   "playground.codex_acp_web",
 		name:        "CodexACPWeb",
 		description: "Codex MCP server via ACP proxy (web launcher)",

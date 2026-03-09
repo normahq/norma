@@ -74,7 +74,7 @@ func GeminiWebCommand() *cobra.Command {
 }
 
 func RunGeminiACP(ctx context.Context, repoRoot string, opts GeminiOptions, stdin io.Reader, stdout, stderr io.Writer) error {
-	return runStandardACP(ctx, repoRoot, opts.Prompt, BuildGeminiACPCommand(opts), runtimeSpec{
+	return runStandardACP(ctx, repoRoot, opts.Prompt, BuildGeminiACPCommand(opts), opts.Model, runtimeSpec{
 		component:   "playground.gemini_acp",
 		name:        "GeminiACP",
 		description: "Gemini CLI playground agent via ACP",
@@ -103,6 +103,7 @@ func RunGeminiACPInfo(
 		ctx,
 		repoRoot,
 		BuildGeminiACPCommand(opts),
+		opts.Model,
 		"playground.gemini_acp_info",
 		"inspecting Gemini ACP agent",
 		jsonOutput,
@@ -118,7 +119,7 @@ func RunGeminiACPWeb(
 	launcherArgs []string,
 	stderr io.Writer,
 ) error {
-	return runACPWeb(ctx, repoRoot, BuildGeminiACPCommand(opts), runtimeSpec{
+	return runACPWeb(ctx, repoRoot, BuildGeminiACPCommand(opts), opts.Model, runtimeSpec{
 		component:   "playground.gemini_acp_web",
 		name:        "GeminiACPWeb",
 		description: "Gemini CLI playground agent via ACP (web launcher)",

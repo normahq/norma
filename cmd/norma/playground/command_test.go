@@ -19,6 +19,7 @@ import (
 const (
 	methodInitialize        = "initialize"
 	methodSessionNew        = "session/new"
+	methodSessionSetModel   = "session/set_model"
 	methodSessionPrompt     = "session/prompt"
 	methodSessionCancel     = "session/cancel"
 	methodSessionUpdate     = "session/update"
@@ -204,7 +205,7 @@ func TestRunOpenCodeACPOneShot(t *testing.T) {
 		t.Fatalf("stderr = %q, want lifecycle log entry", got)
 	}
 	args := readArgsFile(t, argsFile)
-	wantArgs := []string{"--model", "opencode/test-model", "acp", "--print-logs"}
+	wantArgs := []string{"acp", "--print-logs"}
 	for _, want := range wantArgs {
 		if !containsArg(args, want) {
 			t.Fatalf("args %v do not contain %q", args, want)
@@ -489,12 +490,13 @@ func TestRunCodexMCPServerToolsOnlyMarksUnsupportedFeatures(t *testing.T) {
 func TestBuildCodexACPCommand(t *testing.T) {
 	got, err := acpcmd.BuildCodexACPCommand(acpcmd.CodexOptions{
 		BridgeBin: "/tmp/norma",
+		Model:     "gpt-5.4",
 		CodexArgs: []string{"--trace", "--raw"},
 	})
 	if err != nil {
 		t.Fatalf("buildCodexACPCommand() error = %v", err)
 	}
-	want := []string{"/tmp/norma", "--debug", "proxy", "codex-acp", "--", "--trace", "--raw"}
+	want := []string{"/tmp/norma", "--debug", "proxy", "codex-acp", "--model", "gpt-5.4", "--", "--trace", "--raw"}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Fatalf("buildCodexACPCommand() = %v, want %v", got, want)
 	}
@@ -503,13 +505,14 @@ func TestBuildCodexACPCommand(t *testing.T) {
 func TestBuildCodexACPCommandWithAgentName(t *testing.T) {
 	got, err := acpcmd.BuildCodexACPCommand(acpcmd.CodexOptions{
 		BridgeBin: "/tmp/norma",
+		Model:     "gpt-5.4",
 		Name:      "team-codex",
 		CodexArgs: []string{"--trace"},
 	})
 	if err != nil {
 		t.Fatalf("buildCodexACPCommand() error = %v", err)
 	}
-	want := []string{"/tmp/norma", "--debug", "proxy", "codex-acp", "--name", "team-codex", "--", "--trace"}
+	want := []string{"/tmp/norma", "--debug", "proxy", "codex-acp", "--model", "gpt-5.4", "--name", "team-codex", "--", "--trace"}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Fatalf("buildCodexACPCommand() = %v, want %v", got, want)
 	}
@@ -643,6 +646,8 @@ func runPlaygroundACPHelper(stdin *os.File, stdout *os.File) {
 		case methodSessionNew:
 			sessionCount++
 			writeHelperEnvelope(stdout, helperEnvelope{JSONRPC: "2.0", ID: msg.ID, Result: mustHelperJSON(helperNewSessionResponse{SessionID: fmt.Sprintf("session-%d", sessionCount)})})
+		case methodSessionSetModel:
+			writeHelperEnvelope(stdout, helperEnvelope{JSONRPC: "2.0", ID: msg.ID, Result: mustHelperJSON(helperSetSessionModelResponse{})})
 		case methodSessionPrompt:
 			var req helperPromptRequest
 			mustHelper(json.Unmarshal(msg.Params, &req))
@@ -755,6 +760,8 @@ type helperNewSessionResponse struct {
 type helperPromptResponse struct {
 	StopReason string `json:"stopReason"`
 }
+
+type helperSetSessionModelResponse struct{}
 
 type helperPromptRequest struct {
 	SessionID string              `json:"sessionId"`

@@ -23,6 +23,7 @@ func runACPInfo(
 	ctx context.Context,
 	repoRoot string,
 	command []string,
+	sessionModel string,
 	component string,
 	startMsg string,
 	jsonOutput bool,
@@ -61,7 +62,7 @@ func runACPInfo(
 	if err != nil {
 		return fmt.Errorf("initialize acp client: %w", err)
 	}
-	sessionResp, err := client.NewSession(ctx, repoRoot)
+	sessionResp, err := client.CreateSession(ctx, repoRoot, sessionModel)
 	if err != nil {
 		return fmt.Errorf("create acp session: %w", err)
 	}

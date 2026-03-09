@@ -94,6 +94,7 @@ func (p *ACPPlanner) RunInteractive(ctx context.Context, req Request) (string, e
 		Context:           runCtx,
 		Name:              "NormaPlannerACP",
 		Description:       "Norma planner via ACP runtime",
+		Model:             p.cfg.Model,
 		Command:           acpCmd,
 		WorkingDir:        p.repoRoot,
 		Stderr:            io.Discard,

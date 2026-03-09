@@ -252,7 +252,7 @@ func TestResolveACPCommand(t *testing.T) {
 			},
 			check: func(t *testing.T, got []string) {
 				t.Helper()
-				want := []string{"opencode", "--model", "opencode/model", "acp", "--bar"}
+				want := []string{"opencode", "acp", "--bar"}
 				assert.Equal(t, want, got)
 			},
 		},
@@ -273,16 +273,19 @@ func TestResolveACPCommand(t *testing.T) {
 			name: "codex_acp_uses_proxy_command",
 			cfg: config.AgentConfig{
 				Type:      config.AgentTypeCodexACP,
+				Model:     "gpt-5.4",
 				ExtraArgs: []string{"--trace", "--raw"},
 			},
 			check: func(t *testing.T, got []string) {
 				t.Helper()
-				require.GreaterOrEqual(t, len(got), 6)
+				require.GreaterOrEqual(t, len(got), 8)
 				assert.Equal(t, "proxy", got[1])
 				assert.Equal(t, "codex-acp", got[2])
-				assert.Equal(t, "--", got[3])
-				assert.Equal(t, "--trace", got[4])
-				assert.Equal(t, "--raw", got[5])
+				assert.Equal(t, "--model", got[3])
+				assert.Equal(t, "gpt-5.4", got[4])
+				assert.Equal(t, "--", got[5])
+				assert.Equal(t, "--trace", got[6])
+				assert.Equal(t, "--raw", got[7])
 			},
 		},
 	}
