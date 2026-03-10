@@ -322,7 +322,13 @@ func writeToolSummary(stdout io.Writer, supported bool, tools []*mcp.Tool) error
 		if tool == nil {
 			continue
 		}
-		items = append(items, summaryItem{name: tool.Name, description: tool.Description})
+		item := summaryItem{name: tool.Name, description: tool.Description}
+		if tool.InputSchema != nil {
+			if schemaBytes, err := json.MarshalIndent(tool.InputSchema, "    ", "  "); err == nil {
+				item.details = "  Parameters: " + string(schemaBytes)
+			}
+		}
+		items = append(items, item)
 	}
 	return writeSummaryList(stdout, "Tools", supported, items)
 }
@@ -363,7 +369,11 @@ func writeResourceTemplateSummary(stdout io.Writer, supported bool, resourceTemp
 func writeADKToolSummary(stdout io.Writer, tools []codexADKToolSummary) error {
 	items := make([]summaryItem, 0, len(tools))
 	for _, tool := range tools {
-		items = append(items, summaryItem{name: tool.Name, description: tool.Description})
+		item := summaryItem{name: tool.Name, description: tool.Description}
+		if tool.IsLongRunning {
+			item.description += " (long-running)"
+		}
+		items = append(items, item)
 	}
 	return writeSummaryList(stdout, "ADK tools", true, items)
 }
@@ -411,6 +421,7 @@ func extractSupportFromInitialize(initialize *mcp.InitializeResult) codexMCPMeth
 type summaryItem struct {
 	name        string
 	description string
+	details     string
 }
 
 func writeSummaryList(stdout io.Writer, label string, supported bool, items []summaryItem) error {
@@ -436,6 +447,11 @@ func writeSummaryList(stdout io.Writer, label string, supported bool, items []su
 		}
 		if _, err := fmt.Fprintln(stdout); err != nil {
 			return err
+		}
+		if strings.TrimSpace(item.details) != "" {
+			if _, err := fmt.Fprintln(stdout, item.details); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
