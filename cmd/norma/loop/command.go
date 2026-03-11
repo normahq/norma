@@ -69,10 +69,6 @@ func Command() *cobra.Command {
 					"iteration": 1,
 				},
 			})
-			if err != nil && err.Error() == normaloop.ErrNoTasks.Error() {
-				log.Info().Msg("Loop completed: no more tasks to run.")
-				return nil
-			}
 			return err
 		},
 	}

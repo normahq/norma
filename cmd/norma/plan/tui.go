@@ -5,7 +5,7 @@ import (
 	"os"
 
 	"github.com/metalagman/norma/internal/git"
-	"github.com/metalagman/norma/internal/planner"
+	domain "github.com/metalagman/norma/internal/planner"
 	"github.com/spf13/cobra"
 )
 
@@ -33,8 +33,8 @@ func runTUI(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	req := planner.Request{
-		Mode: planner.ModeWizard,
+	req := domain.Request{
+		Mode: domain.ModeWizard,
 	}
 
 	plannerID, ok := cfg.RoleIDs["planner"]

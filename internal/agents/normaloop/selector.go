@@ -6,14 +6,31 @@ import (
 	"fmt"
 	"iter"
 	"strings"
+	"time"
 
 	"github.com/metalagman/norma/internal/task"
 
 	"google.golang.org/adk/agent"
 	"google.golang.org/adk/session"
+	"google.golang.org/genai"
 )
 
 var ErrNoTasks = errors.New("no tasks")
+
+var defaultBackoffSteps = []time.Duration{
+	5 * time.Second,
+	10 * time.Second,
+	20 * time.Second,
+	40 * time.Second,
+	60 * time.Second,
+}
+
+func (w *Loop) backoffSteps() []time.Duration {
+	if len(w.overrideBackoffSteps) > 0 {
+		return w.overrideBackoffSteps
+	}
+	return defaultBackoffSteps
+}
 
 func (w *Loop) newSelectorAgent() (agent.Agent, error) {
 	return agent.New(agent.Config{
@@ -34,30 +51,70 @@ func (w *Loop) runSelector(ctx agent.InvocationContext) iter.Seq2[*session.Event
 			return
 		}
 
-		selected, reason, err := w.selectNextTask(ctx)
-		if err != nil {
-			if errors.Is(err, ErrNoTasks) {
-				l.Info().Msg("no runnable tasks left, exiting loop")
-				_ = ctx.Session().State().Set("selected_task_id", "")
-				yield(nil, ErrNoTasks)
+		for {
+			selected, reason, err := w.selectNextTask(ctx)
+			if err == nil {
+				l.Info().
+					Str("task_id", selected.ID).
+					Str("selection_reason", reason).
+					Msg("selector picked task")
+
+				_ = ctx.Session().State().Set("selector_backoff_step", 0)
+
+				if err := ctx.Session().State().Set("selected_task_id", selected.ID); err != nil {
+					yield(nil, fmt.Errorf("set selected_task_id in session: %w", err))
+					return
+				}
+				if err := ctx.Session().State().Set("selection_reason", reason); err != nil {
+					yield(nil, fmt.Errorf("set selection_reason in session: %w", err))
+					return
+				}
 				return
 			}
-			yield(nil, err)
-			return
-		}
 
-		l.Info().
-			Str("task_id", selected.ID).
-			Str("selection_reason", reason).
-			Msg("selector picked task")
+			if !errors.Is(err, ErrNoTasks) {
+				yield(nil, err)
+				return
+			}
 
-		if err := ctx.Session().State().Set("selected_task_id", selected.ID); err != nil {
-			yield(nil, fmt.Errorf("set selected_task_id in session: %w", err))
-			return
-		}
-		if err := ctx.Session().State().Set("selection_reason", reason); err != nil {
-			yield(nil, fmt.Errorf("set selection_reason in session: %w", err))
-			return
+			// No runnable tasks, start backoff
+			steps := w.backoffSteps()
+			stepVal, _ := ctx.Session().State().Get("selector_backoff_step")
+			step, _ := stepVal.(int)
+			if step >= len(steps) {
+				step = len(steps) - 1
+			}
+			wait := steps[step]
+
+			l.Info().
+				Dur("wait_duration", wait).
+				Int("backoff_step", step).
+				Msg("no runnable tasks found, waiting with backoff")
+
+			ev := session.NewEvent(ctx.InvocationID())
+			ev.Partial = true
+			ev.Content = &genai.Content{
+				Parts: []*genai.Part{
+					{Text: fmt.Sprintf("No runnable tasks found. Waiting %v before retrying...", wait)},
+				},
+			}
+			if !yield(ev, nil) {
+				return
+			}
+
+			timer := time.NewTimer(wait)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return
+			case <-timer.C:
+			}
+
+			// Increment backoff step for next iteration
+			if step < len(steps)-1 {
+				step++
+			}
+			_ = ctx.Session().State().Set("selector_backoff_step", step)
 		}
 	}
 }

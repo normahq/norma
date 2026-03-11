@@ -5,12 +5,13 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/metalagman/norma/internal/agents/planner"
 	"github.com/metalagman/norma/internal/config"
-	"github.com/metalagman/norma/internal/planner"
+	domain "github.com/metalagman/norma/internal/planner"
 	"github.com/spf13/cobra"
 )
 
-func runAgentPlanner(cmd *cobra.Command, repoRoot string, registry map[string]config.AgentConfig, plannerID string, req planner.Request) error {
+func runAgentPlanner(cmd *cobra.Command, repoRoot string, registry map[string]config.AgentConfig, plannerID string, req domain.Request) error {
 	p := planner.NewAgentPlanner(repoRoot, registry, plannerID)
 	runDir, err := p.RunInteractive(cmd.Context(), req)
 	if err != nil {

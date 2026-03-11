@@ -8,6 +8,7 @@ import (
 	"iter"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/metalagman/norma/internal/db"
 	runpkg "github.com/metalagman/norma/internal/run"
@@ -20,10 +21,12 @@ import (
 
 type mockTracker struct {
 	listTasks []task.Task
+	leafTasks []task.Task
 	tasksByID map[string]task.Task
 	children  map[string][]task.Task
 
 	listErr       error
+	leafErr       error
 	taskErr       error
 	markStatusErr error
 	setRunErr     error
@@ -71,7 +74,12 @@ func (m *mockTracker) SetRun(_ context.Context, _ string, runID string) error {
 	return m.setRunErr
 }
 func (m *mockTracker) AddDependency(context.Context, string, string) error { return nil }
-func (m *mockTracker) LeafTasks(context.Context) ([]task.Task, error)      { return nil, nil }
+func (m *mockTracker) LeafTasks(_ context.Context) ([]task.Task, error) {
+	if m.leafErr != nil {
+		return nil, m.leafErr
+	}
+	return slices.Clone(m.leafTasks), nil
+}
 func (m *mockTracker) UpdateWorkflowState(context.Context, string, string) error {
 	return nil
 }
@@ -147,7 +155,7 @@ func TestSelectNextTaskNoRunnableTasks(t *testing.T) {
 	t.Parallel()
 
 	tracker := &mockTracker{
-		listTasks: []task.Task{
+		leafTasks: []task.Task{
 			{ID: "norma-epic", Type: "epic"},
 			{ID: "norma-feature", Type: "feature"},
 		},
@@ -234,3 +242,86 @@ func TestRunTaskByIDRunnerErrorMarksFailed(t *testing.T) {
 		t.Fatalf("mark status calls = %v, want %v", tracker.markStatusCalls, wantCalls)
 	}
 }
+
+type mockInvocationContext struct {
+	agent.InvocationContext
+	ctx     context.Context
+	session session.Session
+	agent   agent.Agent
+}
+
+func (m *mockInvocationContext) Context() context.Context { return m.ctx }
+func (m *mockInvocationContext) Done() <-chan struct{}   { return m.ctx.Done() }
+func (m *mockInvocationContext) Session() session.Session { return m.session }
+func (m *mockInvocationContext) Agent() agent.Agent       { return m.agent }
+func (m *mockInvocationContext) InvocationID() string     { return "test-id" }
+func (m *mockInvocationContext) Ended() bool              { return m.ctx.Err() != nil }
+
+func TestRunSelectorBackoff(t *testing.T) {
+	t.Parallel()
+
+	tracker := &mockTracker{}
+	w := &Loop{
+		logger:               zerolog.Nop(),
+		tracker:              tracker,
+		overrideBackoffSteps: []time.Duration{time.Millisecond, 2 * time.Millisecond},
+	}
+
+	sessionService := session.InMemoryService()
+	sess, err := sessionService.Create(context.Background(), &session.CreateRequest{
+		AppName: "test",
+		UserID:  "test-user",
+	})
+	if err != nil {
+		t.Fatalf("sessionService.Create() error = %v", err)
+	}
+
+	ag, _ := w.newSelectorAgent()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	mctx := &mockInvocationContext{
+		ctx:     ctx,
+		session: sess.Session,
+		agent:   ag,
+	}
+
+	// First run: no tasks, should wait and increment backoff step
+	tracker.leafErr = ErrNoTasks
+	
+	// We run it in a goroutine because it loops forever
+	go func() {
+		for range w.runSelector(mctx) {
+			// consume events
+		}
+	}()
+
+	// Wait a bit for the first attempt and backoff increment
+	time.Sleep(100 * time.Millisecond)
+
+	stepVal, _ := sess.Session.State().Get("selector_backoff_step")
+	step, _ := stepVal.(int)
+	if step == 0 {
+		t.Errorf("expected backoff step > 0, got 0")
+	}
+
+	// Now add a task and see if it selects and resets backoff
+	tracker.leafErr = nil
+	tracker.leafTasks = []task.Task{{ID: "norma-1", Type: "task"}}
+	
+	// Wait for the next iteration in the loop
+	time.Sleep(100 * time.Millisecond)
+
+	selectedID, _ := sess.Session.State().Get("selected_task_id")
+	if selectedID != "norma-1" {
+		t.Errorf("selected task ID = %v, want norma-1", selectedID)
+	}
+
+	stepVal, _ = sess.Session.State().Get("selector_backoff_step")
+	step, _ = stepVal.(int)
+	if step != 0 {
+		t.Errorf("expected backoff step reset to 0, got %d", step)
+	}
+}
+
+

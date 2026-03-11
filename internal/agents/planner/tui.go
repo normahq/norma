@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
+	domain "github.com/metalagman/norma/internal/planner"
 	"google.golang.org/adk/session"
 )
 
@@ -31,7 +32,7 @@ var (
 
 type eventMsg *session.Event
 type humanRequestMsg string
-type planFinishedMsg Decomposition
+type planFinishedMsg domain.Decomposition
 type planCompletedMsg string
 type planFailedMsg string
 
@@ -53,7 +54,7 @@ type plannerModel struct {
 
 	waitingForHuman bool
 	waitingResponse bool
-	finishedPlan    *Decomposition
+	finishedPlan    *domain.Decomposition
 	completedRunMsg string
 	failedRunError  string
 	err             error
@@ -206,7 +207,7 @@ func (m *plannerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.waitForQuestion()
 
 	case planFinishedMsg:
-		plan := Decomposition(msg)
+		plan := domain.Decomposition(msg)
 		m.finishedPlan = &plan
 		m.waitingForHuman = false
 		m.waitingResponse = false
@@ -357,23 +358,23 @@ func statusFromEvent(ev *session.Event) string {
 			if part == nil {
 				continue
 			}
-			if part.FunctionCall != nil && strings.TrimSpace(part.FunctionCall.Name) != "" {
-				name := strings.TrimSpace(part.FunctionCall.Name)
-				if name == "acp_tool_call" && part.FunctionCall.Args != nil {
-					if title, ok := part.FunctionCall.Args["title"].(string); ok && title != "" {
-						return fmt.Sprintf("Running tool: %s...", title)
-					}
+			if part.FunctionCall != nil {
+				if title := toolTitle(part.FunctionCall.Args); title != "" {
+					return fmt.Sprintf("Running tool: %s...", title)
 				}
-				return fmt.Sprintf("Running tool: %s...", name)
+				if name := strings.TrimSpace(part.FunctionCall.Name); name != "" {
+					return fmt.Sprintf("Running tool: %s...", name)
+				}
+				return "Running tool..."
 			}
-			if part.FunctionResponse != nil && strings.TrimSpace(part.FunctionResponse.Name) != "" {
-				name := strings.TrimSpace(part.FunctionResponse.Name)
-				if name == "acp_tool_call_update" && part.FunctionResponse.Response != nil {
-					if title, ok := part.FunctionResponse.Response["title"].(string); ok && title != "" {
-						return fmt.Sprintf("Tool finished: %s", title)
-					}
+			if part.FunctionResponse != nil {
+				if title := toolTitle(part.FunctionResponse.Response); title != "" {
+					return fmt.Sprintf("Tool finished: %s", title)
 				}
-				return fmt.Sprintf("Tool finished: %s", name)
+				if name := strings.TrimSpace(part.FunctionResponse.Name); name != "" {
+					return fmt.Sprintf("Tool finished: %s", name)
+				}
+				return "Tool finished."
 			}
 		}
 	}
@@ -384,4 +385,19 @@ func statusFromEvent(ev *session.Event) string {
 		return "Waiting for next step..."
 	}
 	return "Thinking..."
+}
+
+func toolTitle(payload map[string]any) string {
+	if payload == nil {
+		return ""
+	}
+	title, ok := payload["title"]
+	if !ok {
+		return ""
+	}
+	s, ok := title.(string)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(s)
 }

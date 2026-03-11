@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"path/filepath"
+	"time"
 
 	"github.com/metalagman/norma/internal/config"
 	"github.com/metalagman/norma/internal/db"
@@ -41,8 +42,9 @@ type Loop struct {
 	tracker        task.Tracker
 	runStore       runStatusStore
 	factory        runpkg.AgentFactory
-	continueOnFail bool
-	policy         task.SelectionPolicy
+	continueOnFail       bool
+	policy               task.SelectionPolicy
+	overrideBackoffSteps []time.Duration
 }
 
 // NewLoop constructs the normaloop ADK loop agent runtime.

@@ -108,7 +108,7 @@ func addCommand() *cobra.Command {
 			var id string
 			var err error
 
-			var acs []task.AcceptanceCriterion
+			acs := make([]task.AcceptanceCriterion, 0, len(criteria))
 			for _, c := range criteria {
 				acs = append(acs, task.AcceptanceCriterion{Text: c})
 			}

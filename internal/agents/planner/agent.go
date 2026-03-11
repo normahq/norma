@@ -2,6 +2,8 @@ package planner
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -12,9 +14,9 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	acp "github.com/coder/acp-go-sdk"
 	"github.com/metalagman/norma/internal/adk/agentfactory"
 	"github.com/metalagman/norma/internal/config"
+	domain "github.com/metalagman/norma/internal/planner"
 	adkagent "google.golang.org/adk/agent"
 	"google.golang.org/adk/runner"
 	"google.golang.org/adk/session"
@@ -38,7 +40,7 @@ func NewAgentPlanner(repoRoot string, registry map[string]config.AgentConfig, pl
 }
 
 // RunInteractive starts a planner session in TUI mode.
-func (p *AgentPlanner) RunInteractive(ctx context.Context, req Request) (string, error) {
+func (p *AgentPlanner) RunInteractive(ctx context.Context, req domain.Request) (string, error) {
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -92,7 +94,6 @@ func (p *AgentPlanner) RunInteractive(ctx context.Context, req Request) (string,
 		SystemInstruction: PlannerInstruction(),
 		WorkingDirectory:  p.repoRoot,
 		Stderr:            io.Discard,
-		PermissionHandler: PlannerPermissionHandler,
 	}
 
 	agentRuntime, err := factory.CreateAgent(runCtx, p.plannerID, creationReq)
@@ -228,36 +229,10 @@ func newPlanRunDir(repoRoot string) (string, error) {
 	return runDir, nil
 }
 
-// PlannerPermissionHandler enforces planner-safe ACP permissions.
-func PlannerPermissionHandler(_ context.Context, req acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error) {
-	if req.ToolCall.Kind != nil {
-		switch *req.ToolCall.Kind {
-		case acp.ToolKindEdit, acp.ToolKindDelete, acp.ToolKindMove:
-			if resp, ok := selectPermissionOption(req.Options, acp.PermissionOptionKindRejectOnce, acp.PermissionOptionKindRejectAlways); ok {
-				return resp, nil
-			}
-			return acp.RequestPermissionResponse{Outcome: acp.NewRequestPermissionOutcomeCancelled()}, nil
-		}
+func randomHex(bytesLen int) (string, error) {
+	buf := make([]byte, bytesLen)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
 	}
-	if resp, ok := selectPermissionOption(req.Options, acp.PermissionOptionKindAllowOnce, acp.PermissionOptionKindAllowAlways); ok {
-		return resp, nil
-	}
-	if resp, ok := selectPermissionOption(req.Options, acp.PermissionOptionKindRejectOnce, acp.PermissionOptionKindRejectAlways); ok {
-		return resp, nil
-	}
-	return acp.RequestPermissionResponse{Outcome: acp.NewRequestPermissionOutcomeCancelled()}, nil
-}
-
-func selectPermissionOption(options []acp.PermissionOption, preferredKinds ...acp.PermissionOptionKind) (acp.RequestPermissionResponse, bool) {
-	for _, kind := range preferredKinds {
-		for _, option := range options {
-			if option.Kind != kind {
-				continue
-			}
-			return acp.RequestPermissionResponse{
-				Outcome: acp.NewRequestPermissionOutcomeSelected(option.OptionId),
-			}, true
-		}
-	}
-	return acp.RequestPermissionResponse{}, false
+	return hex.EncodeToString(buf), nil
 }

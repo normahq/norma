@@ -12,8 +12,8 @@ import (
 	"google.golang.org/adk/session"
 
 	"github.com/metalagman/norma/internal/adk/agentfactory"
+	"github.com/metalagman/norma/internal/agents/planner"
 	"github.com/metalagman/norma/internal/config"
-	"github.com/metalagman/norma/internal/planner"
 	"github.com/spf13/cobra"
 )
 
@@ -45,7 +45,6 @@ func webCommand() *cobra.Command {
 				SystemInstruction: planner.PlannerInstruction(),
 				WorkingDirectory:  repoRoot,
 				Stderr:            io.Discard,
-				PermissionHandler: planner.PlannerPermissionHandler,
 			}
 			plannerDebugAgent, newErr := factory.CreateAgent(cmd.Context(), "planner", creationReq)
 			if newErr != nil {

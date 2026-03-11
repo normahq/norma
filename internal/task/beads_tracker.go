@@ -253,7 +253,8 @@ func (t *BeadsTracker) MarkDone(ctx context.Context, id string) error {
 		normaStatusPlanning, normaStatusDoing, normaStatusChecking, normaStatusActing,
 		"norma-has-plan", "norma-has-do", "norma-has-check",
 	}
-	args := []string{"update", id, "--status", statusClosed, "--json", "--quiet"}
+	args := make([]string, 0, 6+2*len(allLabels))
+	args = append(args, "update", id, "--status", statusClosed, "--json", "--quiet")
 	for _, l := range allLabels {
 		args = append(args, "--remove-label", l)
 	}
