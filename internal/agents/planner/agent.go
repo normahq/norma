@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -13,7 +12,6 @@ import (
 	"sync"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/metalagman/norma/internal/adk/agentfactory"
 	"github.com/metalagman/norma/internal/config"
 	domain "github.com/metalagman/norma/internal/planner"
@@ -30,6 +28,35 @@ type AgentPlanner struct {
 	plannerID string
 }
 
+// InteractiveSession exposes the planner runtime interaction channels.
+type InteractiveSession struct {
+	RunDir    string
+	Events    <-chan *session.Event
+	Questions <-chan string
+	Responses chan<- string
+
+	done chan error
+
+	cancel   context.CancelFunc
+	waitOnce sync.Once
+	waitErr  error
+}
+
+// Wait blocks until the interactive planner session ends.
+func (s *InteractiveSession) Wait() error {
+	s.waitOnce.Do(func() {
+		s.waitErr = <-s.done
+	})
+	return s.waitErr
+}
+
+// Cancel stops the interactive planner session.
+func (s *InteractiveSession) Cancel() {
+	if s.cancel != nil {
+		s.cancel()
+	}
+}
+
 // NewAgentPlanner constructs a new planner runtime.
 func NewAgentPlanner(repoRoot string, registry map[string]config.AgentConfig, plannerID string) *AgentPlanner {
 	return &AgentPlanner{
@@ -39,56 +66,20 @@ func NewAgentPlanner(repoRoot string, registry map[string]config.AgentConfig, pl
 	}
 }
 
-// RunInteractive starts a planner session in TUI mode.
-func (p *AgentPlanner) RunInteractive(ctx context.Context, req domain.Request) (string, error) {
+// StartInteractive starts an interactive planner runtime and returns session I/O channels.
+func (p *AgentPlanner) StartInteractive(ctx context.Context, req domain.Request) (*InteractiveSession, error) {
 	runCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
 
 	planRunDir, err := newPlanRunDir(p.repoRoot)
 	if err != nil {
-		return "", err
+		cancel()
+		return nil, err
 	}
 
 	eventChan := make(chan *session.Event, 100)
 	questionChan := make(chan string)
 	responseChan := make(chan string)
-
-	tuiModel, err := newPlannerModel(eventChan, questionChan, responseChan, cancel)
-	if err != nil {
-		return "", fmt.Errorf("create TUI model: %w", err)
-	}
-	prog := tea.NewProgram(tuiModel, tea.WithAltScreen())
-
-	tuiErrChan := make(chan error, 1)
-	go func() {
-		if runErr := RunTUI(prog); runErr != nil {
-			tuiErrChan <- runErr
-		}
-		close(tuiErrChan)
-	}()
-
-	var waitTUIOnce sync.Once
-	var waitTUIErr error
-	waitTUI := func() error {
-		waitTUIOnce.Do(func() {
-			if runErr, ok := <-tuiErrChan; ok {
-				waitTUIErr = runErr
-			}
-		})
-		return waitTUIErr
-	}
-
-	var closeEventOnce sync.Once
-	closeEvents := func() {
-		closeEventOnce.Do(func() {
-			close(eventChan)
-			close(questionChan)
-		})
-	}
-	stopTUI := func() {
-		closeEvents()
-		prog.Quit()
-	}
+	done := make(chan error, 1)
 
 	factory := agentfactory.NewFactory(p.registry)
 
@@ -102,12 +93,8 @@ func (p *AgentPlanner) RunInteractive(ctx context.Context, req domain.Request) (
 
 	agentRuntime, err := factory.CreateAgent(runCtx, p.plannerID, creationReq)
 	if err != nil {
-		stopTUI()
-		_ = waitTUI()
-		return "", fmt.Errorf("create planner runtime: %w", err)
-	}
-	if closer, ok := agentRuntime.(interface{ Close() error }); ok {
-		defer func() { _ = closer.Close() }()
+		cancel()
+		return nil, fmt.Errorf("create planner runtime: %w", err)
 	}
 
 	sessionService := session.InMemoryService()
@@ -117,9 +104,11 @@ func (p *AgentPlanner) RunInteractive(ctx context.Context, req domain.Request) (
 		SessionService: sessionService,
 	})
 	if err != nil {
-		stopTUI()
-		_ = waitTUI()
-		return "", fmt.Errorf("create planner runner: %w", err)
+		if closer, ok := agentRuntime.(interface{ Close() error }); ok {
+			_ = closer.Close()
+		}
+		cancel()
+		return nil, fmt.Errorf("create planner runner: %w", err)
 	}
 
 	sess, err := sessionService.Create(runCtx, &session.CreateRequest{
@@ -127,97 +116,94 @@ func (p *AgentPlanner) RunInteractive(ctx context.Context, req domain.Request) (
 		UserID:  "norma-planner-user",
 	})
 	if err != nil {
-		stopTUI()
-		_ = waitTUI()
-		return "", fmt.Errorf("create planner session: %w", err)
+		if closer, ok := agentRuntime.(interface{ Close() error }); ok {
+			_ = closer.Close()
+		}
+		cancel()
+		return nil, fmt.Errorf("create planner session: %w", err)
 	}
 
-	runTurn := func(prompt string) error {
-		events := adkRunner.Run(
-			runCtx,
-			"norma-planner-user",
-			sess.Session.ID(),
-			genai.NewContentFromText(prompt, genai.RoleUser),
-			adkagent.RunConfig{},
-		)
-		for ev, runErr := range events {
-			if runErr != nil {
-				return fmt.Errorf("planner turn failed: %w", runErr)
+	go func() {
+		defer close(eventChan)
+		defer close(questionChan)
+		defer close(done)
+		defer cancel()
+		if closer, ok := agentRuntime.(interface{ Close() error }); ok {
+			defer func() { _ = closer.Close() }()
+		}
+
+		runTurn := func(prompt string) error {
+			events := adkRunner.Run(
+				runCtx,
+				"norma-planner-user",
+				sess.Session.ID(),
+				genai.NewContentFromText(prompt, genai.RoleUser),
+				adkagent.RunConfig{},
+			)
+			for ev, runErr := range events {
+				if runErr != nil {
+					return fmt.Errorf("planner turn failed: %w", runErr)
+				}
+				if ev == nil {
+					continue
+				}
+				select {
+				case eventChan <- ev:
+				case <-runCtx.Done():
+					return runCtx.Err()
+				}
 			}
-			if ev == nil {
+			return nil
+		}
+
+		if initialPrompt := buildInitialPrompt(req); initialPrompt != "" {
+			if turnErr := runTurn(initialPrompt); turnErr != nil {
+				done <- turnErr
+				return
+			}
+		}
+
+		for {
+			select {
+			case questionChan <- "What do you want to build? Ctrl+C to exit.":
+			case <-runCtx.Done():
+				done <- runCtx.Err()
+				return
+			}
+
+			var input string
+			select {
+			case input = <-responseChan:
+			case <-runCtx.Done():
+				done <- runCtx.Err()
+				return
+			}
+
+			message := strings.TrimSpace(input)
+			if message == "" {
 				continue
 			}
-			select {
-			case eventChan <- ev:
-			case <-runCtx.Done():
-				return runCtx.Err()
+			switch strings.ToLower(message) {
+			case "exit", "quit":
+				done <- nil
+				return
 			}
-		}
-		return nil
-	}
 
-	if initialPrompt := buildInitialPrompt(req); initialPrompt != "" {
-		if turnErr := runTurn(initialPrompt); turnErr != nil {
-			if errors.Is(turnErr, context.Canceled) {
-				stopTUI()
-				_ = waitTUI()
-				return "", context.Canceled
+			if turnErr := runTurn(message); turnErr != nil {
+				done <- turnErr
+				return
 			}
-			prog.Send(planFailedMsg(formatPlannerRunError(turnErr)))
-			if tuiErr := waitTUI(); tuiErr != nil {
-				return "", fmt.Errorf("TUI error: %w", tuiErr)
-			}
-			closeEvents()
-			return "", ErrHandledInTUI
 		}
-	}
+	}()
 
-	for {
-		select {
-		case questionChan <- "What do you want to build? Ctrl+C to exit.":
-		case <-runCtx.Done():
-			stopTUI()
-			_ = waitTUI()
-			return "", context.Canceled
-		}
-
-		var input string
-		select {
-		case input = <-responseChan:
-		case <-runCtx.Done():
-			stopTUI()
-			_ = waitTUI()
-			return "", context.Canceled
-		}
-
-		message := strings.TrimSpace(input)
-		if message == "" {
-			continue
-		}
-		switch strings.ToLower(message) {
-		case "exit", "quit":
-			prog.Send(planCompletedMsg("Planner session ended by user."))
-			if tuiErr := waitTUI(); tuiErr != nil {
-				return "", fmt.Errorf("TUI error: %w", tuiErr)
-			}
-			closeEvents()
-			return planRunDir, nil
-		}
-
-		if turnErr := runTurn(message); turnErr != nil {
-			if errors.Is(turnErr, context.Canceled) {
-				stopTUI()
-				_ = waitTUI()
-				return "", context.Canceled
-			}
-			prog.Send(planFailedMsg(formatPlannerRunError(turnErr)))
-			if tuiErr := waitTUI(); tuiErr != nil {
-				return "", fmt.Errorf("TUI error: %w", tuiErr)
-			}
-			closeEvents()
-			return "", ErrHandledInTUI
-		}
-	}
+	return &InteractiveSession{
+		RunDir:    planRunDir,
+		Events:    eventChan,
+		Questions: questionChan,
+		Responses: responseChan,
+		done:      done,
+		cancel:    cancel,
+	}, nil
 }
 
 func buildInitialPrompt(req domain.Request) string {

@@ -40,9 +40,9 @@ func TestFormatPlannerRunError(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got := formatPlannerRunError(tc.in)
+			got := FormatPlannerRunError(tc.in)
 			if got != tc.want {
-				t.Fatalf("formatPlannerRunError() = %q, want %q", got, tc.want)
+				t.Fatalf("FormatPlannerRunError() = %q, want %q", got, tc.want)
 			}
 		})
 	}

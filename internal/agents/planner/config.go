@@ -1,12 +1,8 @@
 package planner
 
 import (
-	"errors"
 	"strings"
 )
-
-// ErrHandledInTUI indicates planner failure was already presented to the user in TUI.
-var ErrHandledInTUI = errors.New("planner failure handled in tui")
 
 // PlannerInstruction returns the canonical planner prompt used by Norma planner agents.
 func PlannerInstruction() string {
@@ -45,7 +41,8 @@ Planning Rules:
 `
 }
 
-func formatPlannerRunError(err error) string {
+// FormatPlannerRunError maps planner runtime errors to concise user-facing text.
+func FormatPlannerRunError(err error) string {
 	msg := strings.TrimSpace(err.Error())
 	if msg == "" {
 		return "Planner run failed due to an unexpected error."
