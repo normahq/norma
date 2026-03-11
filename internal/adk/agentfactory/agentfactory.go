@@ -11,7 +11,6 @@ import (
 	"github.com/metalagman/norma/internal/adk/acpagent"
 	"github.com/metalagman/norma/internal/adk/agentconfig"
 	"google.golang.org/adk/agent"
-	"google.golang.org/adk/tool"
 )
 
 // CreationRequest defines the parameters for creating a new agent.
@@ -23,7 +22,6 @@ type CreationRequest struct {
 	Stdout            io.Writer
 	Stderr            io.Writer
 	PermissionHandler func(context.Context, acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error)
-	Tools             []tool.Tool
 }
 
 // constructor is a function that creates a new agent instance.
@@ -87,7 +85,6 @@ var acpConstructor = func(ctx context.Context, cfg agentconfig.Config, req Creat
 		WorkingDir:        req.WorkingDirectory,
 		Stderr:            req.Stderr,
 		PermissionHandler: req.PermissionHandler,
-		Tools:             req.Tools,
 	})
 }
 

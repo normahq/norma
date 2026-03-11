@@ -43,9 +43,8 @@ type Runner struct {
 
 // Result summarizes a completed run.
 type Result struct {
-	RunID      string
-	Status     string
-	NextTaskID string
+	RunID  string
+	Status string
 }
 
 // NewADKRunner constructs a Runner with an ADK agent factory.
@@ -173,7 +172,6 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []task.AcceptanceCrite
 	}
 
 	res.Status = outcome.Status
-	res.NextTaskID = outcome.NextTaskID
 
 	if outcome.Verdict != nil && *outcome.Verdict == "PASS" {
 		log.Info().Msg("verdict is PASS, applying changes")
