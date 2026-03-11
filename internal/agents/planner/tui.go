@@ -31,6 +31,8 @@ var (
 )
 
 type eventMsg *session.Event
+type eventStreamClosedMsg struct{}
+type questionStreamClosedMsg struct{}
 type humanRequestMsg string
 type planFinishedMsg domain.Decomposition
 type planCompletedMsg string
@@ -115,7 +117,7 @@ func (m *plannerModel) waitForEvent() tea.Cmd {
 	return func() tea.Msg {
 		ev, ok := <-m.eventChan
 		if !ok {
-			return nil
+			return eventStreamClosedMsg{}
 		}
 		return eventMsg(ev)
 	}
@@ -125,7 +127,7 @@ func (m *plannerModel) waitForQuestion() tea.Cmd {
 	return func() tea.Msg {
 		q, ok := <-m.questionChan
 		if !ok {
-			return nil
+			return questionStreamClosedMsg{}
 		}
 		return humanRequestMsg(q)
 	}
@@ -194,6 +196,11 @@ func (m *plannerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.waitForEvent()
 
+	case eventStreamClosedMsg, questionStreamClosedMsg:
+		m.waitingForHuman = false
+		m.waitingResponse = false
+		return m, tea.Quit
+
 	case humanRequestMsg:
 		m.waitingResponse = false
 		m.waitingForHuman = true
@@ -255,7 +262,7 @@ func (m *plannerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		rendered, _ := m.renderer.Render(sb.String())
 		m.history.WriteString(rendered)
 		m.updateViewport()
-		return m, nil
+		return m, tea.Quit
 
 	case planFailedMsg:
 		m.waitingForHuman = false
@@ -269,7 +276,7 @@ func (m *plannerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		rendered, _ := m.renderer.Render(sb.String())
 		m.history.WriteString(rendered)
 		m.updateViewport()
-		return m, nil
+		return m, tea.Quit
 
 	case tea.WindowSizeMsg:
 		m.viewport.Width = msg.Width

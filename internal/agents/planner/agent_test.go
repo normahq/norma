@@ -1,7 +1,10 @@
 package planner
 
 import (
+	"strings"
 	"testing"
+
+	domain "github.com/metalagman/norma/internal/planner"
 )
 
 func TestFormatPlannerRunError(t *testing.T) {
@@ -48,3 +51,29 @@ func TestFormatPlannerRunError(t *testing.T) {
 type errString string
 
 func (e errString) Error() string { return string(e) }
+
+func TestBuildInitialPrompt(t *testing.T) {
+	t.Parallel()
+
+	req := domain.Request{
+		EpicDescription: "Build planner runtime",
+		Clarifications: []domain.Clarification{
+			{Question: "Target users?", Answer: "CLI users"},
+			{Answer: "Need offline mode"},
+		},
+	}
+
+	got := buildInitialPrompt(req)
+	if !strings.Contains(got, "Build planner runtime") {
+		t.Fatalf("buildInitialPrompt() missing epic description: %q", got)
+	}
+	if !strings.Contains(got, "Clarification: Target users?") {
+		t.Fatalf("buildInitialPrompt() missing question: %q", got)
+	}
+	if !strings.Contains(got, "Answer: CLI users") {
+		t.Fatalf("buildInitialPrompt() missing answer: %q", got)
+	}
+	if !strings.Contains(got, "Clarification answer: Need offline mode") {
+		t.Fatalf("buildInitialPrompt() missing answer-only clarification: %q", got)
+	}
+}

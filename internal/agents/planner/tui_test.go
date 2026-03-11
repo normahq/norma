@@ -3,6 +3,7 @@ package planner
 import (
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"google.golang.org/adk/session"
 	"google.golang.org/genai"
 )
@@ -86,6 +87,45 @@ func TestStatusFromEvent(t *testing.T) {
 	}
 }
 
+func TestPlannerModel_StreamClosedQuits(t *testing.T) {
+	t.Parallel()
+
+	model := newTestModel(t)
+
+	_, cmd := model.Update(eventStreamClosedMsg{})
+	assertQuitCmd(t, cmd)
+
+	model = newTestModel(t)
+	_, cmd = model.Update(questionStreamClosedMsg{})
+	assertQuitCmd(t, cmd)
+}
+
+func TestPlannerModel_CompletedAndFailedQuit(t *testing.T) {
+	t.Parallel()
+
+	model := newTestModel(t)
+	updated, cmd := model.Update(planCompletedMsg("done"))
+	updatedModel, ok := updated.(*plannerModel)
+	if !ok {
+		t.Fatalf("updated model type = %T, want *plannerModel", updated)
+	}
+	if updatedModel.completedRunMsg != "done" {
+		t.Fatalf("completedRunMsg = %q, want %q", updatedModel.completedRunMsg, "done")
+	}
+	assertQuitCmd(t, cmd)
+
+	model = newTestModel(t)
+	updated, cmd = model.Update(planFailedMsg("boom"))
+	updatedModel, ok = updated.(*plannerModel)
+	if !ok {
+		t.Fatalf("updated model type = %T, want *plannerModel", updated)
+	}
+	if updatedModel.failedRunError != "boom" {
+		t.Fatalf("failedRunError = %q, want %q", updatedModel.failedRunError, "boom")
+	}
+	assertQuitCmd(t, cmd)
+}
+
 func eventWithPart(part *genai.Part) *session.Event {
 	ev := session.NewEvent("inv-1")
 	ev.Content = genai.NewContentFromParts([]*genai.Part{part}, genai.RoleModel)
@@ -102,4 +142,27 @@ func turnCompleteEvent() *session.Event {
 	ev := session.NewEvent("inv-complete")
 	ev.TurnComplete = true
 	return ev
+}
+
+func newTestModel(t *testing.T) *plannerModel {
+	t.Helper()
+	eventChan := make(chan *session.Event)
+	questionChan := make(chan string)
+	responseChan := make(chan string)
+	model, err := newPlannerModel(eventChan, questionChan, responseChan, nil)
+	if err != nil {
+		t.Fatalf("newPlannerModel() error = %v", err)
+	}
+	return model
+}
+
+func assertQuitCmd(t *testing.T, cmd tea.Cmd) {
+	t.Helper()
+	if cmd == nil {
+		t.Fatalf("cmd = nil, want quit command")
+	}
+	msg := cmd()
+	if _, ok := msg.(tea.QuitMsg); !ok {
+		t.Fatalf("cmd() message type = %T, want tea.QuitMsg", msg)
+	}
 }

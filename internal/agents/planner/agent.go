@@ -85,6 +85,10 @@ func (p *AgentPlanner) RunInteractive(ctx context.Context, req domain.Request) (
 			close(questionChan)
 		})
 	}
+	stopTUI := func() {
+		closeEvents()
+		prog.Quit()
+	}
 
 	factory := agentfactory.NewFactory(p.registry)
 
@@ -98,7 +102,7 @@ func (p *AgentPlanner) RunInteractive(ctx context.Context, req domain.Request) (
 
 	agentRuntime, err := factory.CreateAgent(runCtx, p.plannerID, creationReq)
 	if err != nil {
-		closeEvents()
+		stopTUI()
 		_ = waitTUI()
 		return "", fmt.Errorf("create planner runtime: %w", err)
 	}
@@ -113,7 +117,7 @@ func (p *AgentPlanner) RunInteractive(ctx context.Context, req domain.Request) (
 		SessionService: sessionService,
 	})
 	if err != nil {
-		closeEvents()
+		stopTUI()
 		_ = waitTUI()
 		return "", fmt.Errorf("create planner runner: %w", err)
 	}
@@ -123,7 +127,7 @@ func (p *AgentPlanner) RunInteractive(ctx context.Context, req domain.Request) (
 		UserID:  "norma-planner-user",
 	})
 	if err != nil {
-		closeEvents()
+		stopTUI()
 		_ = waitTUI()
 		return "", fmt.Errorf("create planner session: %w", err)
 	}
@@ -152,18 +156,18 @@ func (p *AgentPlanner) RunInteractive(ctx context.Context, req domain.Request) (
 		return nil
 	}
 
-	if goal := strings.TrimSpace(req.EpicDescription); goal != "" {
-		if turnErr := runTurn(goal); turnErr != nil {
+	if initialPrompt := buildInitialPrompt(req); initialPrompt != "" {
+		if turnErr := runTurn(initialPrompt); turnErr != nil {
 			if errors.Is(turnErr, context.Canceled) {
-				closeEvents()
+				stopTUI()
 				_ = waitTUI()
 				return "", context.Canceled
 			}
-			closeEvents()
 			prog.Send(planFailedMsg(formatPlannerRunError(turnErr)))
 			if tuiErr := waitTUI(); tuiErr != nil {
 				return "", fmt.Errorf("TUI error: %w", tuiErr)
 			}
+			closeEvents()
 			return "", ErrHandledInTUI
 		}
 	}
@@ -172,7 +176,7 @@ func (p *AgentPlanner) RunInteractive(ctx context.Context, req domain.Request) (
 		select {
 		case questionChan <- "What do you want to build? Ctrl+C to exit.":
 		case <-runCtx.Done():
-			closeEvents()
+			stopTUI()
 			_ = waitTUI()
 			return "", context.Canceled
 		}
@@ -181,7 +185,7 @@ func (p *AgentPlanner) RunInteractive(ctx context.Context, req domain.Request) (
 		select {
 		case input = <-responseChan:
 		case <-runCtx.Done():
-			closeEvents()
+			stopTUI()
 			_ = waitTUI()
 			return "", context.Canceled
 		}
@@ -192,28 +196,61 @@ func (p *AgentPlanner) RunInteractive(ctx context.Context, req domain.Request) (
 		}
 		switch strings.ToLower(message) {
 		case "exit", "quit":
-			closeEvents()
 			prog.Send(planCompletedMsg("Planner session ended by user."))
 			if tuiErr := waitTUI(); tuiErr != nil {
 				return "", fmt.Errorf("TUI error: %w", tuiErr)
 			}
+			closeEvents()
 			return planRunDir, nil
 		}
 
 		if turnErr := runTurn(message); turnErr != nil {
 			if errors.Is(turnErr, context.Canceled) {
-				closeEvents()
+				stopTUI()
 				_ = waitTUI()
 				return "", context.Canceled
 			}
-			closeEvents()
 			prog.Send(planFailedMsg(formatPlannerRunError(turnErr)))
 			if tuiErr := waitTUI(); tuiErr != nil {
 				return "", fmt.Errorf("TUI error: %w", tuiErr)
 			}
+			closeEvents()
 			return "", ErrHandledInTUI
 		}
 	}
+}
+
+func buildInitialPrompt(req domain.Request) string {
+	var b strings.Builder
+
+	epicDescription := strings.TrimSpace(req.EpicDescription)
+	if epicDescription != "" {
+		b.WriteString(epicDescription)
+	}
+
+	for _, c := range req.Clarifications {
+		question := strings.TrimSpace(c.Question)
+		answer := strings.TrimSpace(c.Answer)
+		if question == "" && answer == "" {
+			continue
+		}
+		if b.Len() > 0 {
+			b.WriteString("\n\n")
+		}
+		if question != "" {
+			b.WriteString("Clarification: ")
+			b.WriteString(question)
+			if answer != "" {
+				b.WriteString("\nAnswer: ")
+				b.WriteString(answer)
+			}
+			continue
+		}
+		b.WriteString("Clarification answer: ")
+		b.WriteString(answer)
+	}
+
+	return b.String()
 }
 
 func newPlanRunDir(repoRoot string) (string, error) {
