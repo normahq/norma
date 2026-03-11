@@ -8,7 +8,10 @@ import (
 	"github.com/spf13/viper"
 )
 
-const genericACPType = "generic_acp"
+const (
+	genericACPType = "generic_acp"
+	acpType        = "acp"
+)
 
 func TestResolveConfigPath_DefaultYAMLPreferred(t *testing.T) {
 	t.Parallel()
@@ -71,7 +74,7 @@ retention:
 	if planAgent.Type != genericACPType {
 		t.Fatalf("plan agent type = %q, want %q", planAgent.Type, genericACPType)
 	}
-	if gotCmd := planAgent.Cmd; len(gotCmd) < 2 || gotCmd[0] != "opencode" || gotCmd[1] != "acp" {
+	if gotCmd := planAgent.Cmd; len(gotCmd) < 2 || gotCmd[0] != "opencode" || gotCmd[1] != acpType {
 		t.Fatalf("plan agent cmd = %v, want opencode acp command", gotCmd)
 	}
 }
@@ -167,8 +170,8 @@ budgets:
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
-	if cfg.Profile != "acp" {
-		t.Fatalf("profile = %q, want %q", cfg.Profile, "acp")
+	if cfg.Profile != acpType {
+		t.Fatalf("profile = %q, want %q", cfg.Profile, acpType)
 	}
 
 	checkRole := func(role, wantID, wantType string) {
@@ -199,7 +202,7 @@ budgets:
 	}
 	doAgent := cfg.Agents[cfg.RoleIDs["do"]]
 	doCmd := doAgent.Cmd
-	if len(doCmd) < 2 || doCmd[0] != "opencode" || doCmd[1] != "acp" {
+	if len(doCmd) < 2 || doCmd[0] != "opencode" || doCmd[1] != acpType {
 		t.Fatalf("do agent cmd = %v, want opencode acp command", doCmd)
 	}
 	checkAgent := cfg.Agents[cfg.RoleIDs["check"]]
