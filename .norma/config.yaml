@@ -1,9 +1,6 @@
 profile: default
 
 agents:
-  claude:
-    type: claude_exec
-    model: opus-4.6
   gemini_acp:
     type: gemini_acp
     model: gemini-3-flash-preview
@@ -36,13 +33,6 @@ profiles:
       check: codex_acp
       act: codex_acp
     planner: codex_acp
-  claude:
-    pdca:
-      plan: claude
-      do: claude
-      check: claude
-      act: claude
-    planner: claude
   opencode:
     pdca:
       plan: opencode_acp

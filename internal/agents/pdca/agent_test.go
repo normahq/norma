@@ -382,6 +382,7 @@ func TestNewLoopAgentRegistersRoleSubAgents(t *testing.T) {
 		context.Background(),
 		config.Config{},
 		nil,
+		nil,
 		AgentInput{},
 		"",
 		3,

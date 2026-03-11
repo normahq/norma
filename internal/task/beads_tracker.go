@@ -247,9 +247,17 @@ func (t *BeadsTracker) Task(ctx context.Context, id string) (Task, error) {
 	return t.toTask(issues[0]), nil
 }
 
-// MarkDone marks a task as done (closed).
+// MarkDone marks a task as done (closed) and removes workflow labels.
 func (t *BeadsTracker) MarkDone(ctx context.Context, id string) error {
-	_, err := t.exec(ctx, "close", id, "--json", "--quiet")
+	allLabels := []string{
+		normaStatusPlanning, normaStatusDoing, normaStatusChecking, normaStatusActing,
+		"norma-has-plan", "norma-has-do", "norma-has-check",
+	}
+	args := []string{"update", id, "--status", statusClosed, "--json", "--quiet"}
+	for _, l := range allLabels {
+		args = append(args, "--remove-label", l)
+	}
+	_, err := t.exec(ctx, args...)
 	return err
 }
 
@@ -260,6 +268,8 @@ func (t *BeadsTracker) MarkStatus(ctx context.Context, id string, status string)
 	switch status {
 	case normaStatusTodo:
 		beadsStatus = statusOpen
+		// Also remove skip labels for a clean reset
+		removeLabels = append(removeLabels, "norma-has-plan", "norma-has-do", "norma-has-check")
 	case normaStatusPlanning, normaStatusDoing, normaStatusChecking, normaStatusActing:
 		// When using these granular statuses, we also update labels
 		return t.UpdateWorkflowState(ctx, id, status)

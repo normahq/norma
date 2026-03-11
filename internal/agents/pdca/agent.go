@@ -23,6 +23,7 @@ import (
 	"github.com/metalagman/norma/internal/db"
 	"github.com/metalagman/norma/internal/git"
 	"github.com/metalagman/norma/internal/logging"
+	"github.com/metalagman/norma/internal/task"
 	"github.com/rs/zerolog/log"
 
 	"google.golang.org/adk/agent"
@@ -34,15 +35,17 @@ import (
 type runtime struct {
 	cfg        config.Config
 	store      *db.Store
+	tracker    task.Tracker
 	runInput   AgentInput
 	baseBranch string
 }
 
 // NewLoopAgent creates and configures the PDCA loop agent with role subagents.
-func NewLoopAgent(ctx context.Context, cfg config.Config, store *db.Store, runInput AgentInput, baseBranch string, maxIterations int) (agent.Agent, error) {
+func NewLoopAgent(ctx context.Context, cfg config.Config, store *db.Store, tracker task.Tracker, runInput AgentInput, baseBranch string, maxIterations int) (agent.Agent, error) {
 	rt := &runtime{
 		cfg:        cfg,
 		store:      store,
+		tracker:    tracker,
 		runInput:   runInput,
 		baseBranch: baseBranch,
 	}
@@ -211,6 +214,112 @@ func (a *runtime) shouldStop(ctx agent.InvocationContext) bool {
 }
 
 func (a *runtime) runStep(ctx agent.InvocationContext, iteration int, roleName string) (*contracts.AgentResponse, error) {
+	if a.tracker != nil {
+		workflowState := ""
+		switch roleName {
+		case RolePlan:
+			workflowState = "planning"
+		case RoleDo:
+			workflowState = "doing"
+		case RoleCheck:
+			workflowState = "checking"
+		case RoleAct:
+			workflowState = "acting"
+		}
+
+		if workflowState != "" {
+			if err := a.tracker.UpdateWorkflowState(ctx, a.runInput.TaskID, workflowState); err != nil {
+				log.Warn().Err(err).Str("task_id", a.runInput.TaskID).Str("state", workflowState).Msg("failed to update workflow state in tracker")
+			}
+		}
+
+		// Check for skip labels
+		skipLabel := ""
+		switch roleName {
+		case RolePlan:
+			skipLabel = "norma-has-plan"
+		case RoleDo:
+			skipLabel = "norma-has-do"
+		case RoleCheck:
+			skipLabel = "norma-has-check"
+		}
+		if skipLabel != "" {
+			item, err := a.tracker.Task(ctx, a.runInput.TaskID)
+			if err == nil {
+				hasLabel := false
+				for _, l := range item.Labels {
+					if l == skipLabel {
+						hasLabel = true
+						break
+					}
+				}
+				if hasLabel {
+					log.Info().Str("task_id", a.runInput.TaskID).Str("role", roleName).Msg("skipping step due to label")
+					state := a.getTaskState(ctx)
+					resp := &contracts.AgentResponse{
+						Status: "ok",
+						Summary: contracts.ResponseSummary{
+							Text: fmt.Sprintf("Skipped %s step: already completed (label %s found)", roleName, skipLabel),
+						},
+						Progress: contracts.StepProgress{
+							Title:   fmt.Sprintf("%s skipped (resumed)", roleName),
+							Details: []string{fmt.Sprintf("Label %s is present on task", skipLabel)},
+						},
+					}
+					// Restore state from task notes if possible
+					switch roleName {
+					case RolePlan:
+						resp.Plan = state.Plan
+					case RoleDo:
+						resp.Do = state.Do
+					case RoleCheck:
+						resp.Check = state.Check
+					case RoleAct:
+						resp.Act = state.Act
+					}
+
+					// Increment step index
+					idxVal, _ := ctx.Session().State().Get("current_step_index")
+					index := 0
+					if idxVal != nil {
+						if i, ok := idxVal.(int); ok {
+							index = i
+						}
+					}
+					index++
+					_ = ctx.Session().State().Set("current_step_index", index)
+
+					// Commit a "skipped" step record to DB
+					if a.store != nil {
+						now := time.Now().UTC().Format(time.RFC3339)
+						stepRec := db.StepRecord{
+							RunID:     a.runInput.RunID,
+							StepIndex: index,
+							Role:      roleName,
+							Iteration: iteration,
+							Status:    "skipped",
+							StepDir:   "", // No directory for skipped step
+							StartedAt: now,
+							EndedAt:   now,
+							Summary:   resp.Summary.Text,
+						}
+						update := db.Update{
+							CurrentStepIndex: index,
+							Iteration:        iteration,
+							Status:           "running",
+						}
+						_ = a.store.CommitStep(ctx, stepRec, nil, update)
+					}
+
+					// Update journal
+					_ = a.updateTaskState(ctx, resp, roleName, iteration, index)
+
+					return resp, nil
+				}
+			}
+		}
+	}
+
 	idxVal, err := ctx.Session().State().Get("current_step_index")
 	index := 0
 	if err == nil && idxVal != nil {
@@ -395,6 +504,23 @@ func (a *runtime) runStep(ctx agent.InvocationContext, iteration int, roleName s
 	// Update Task State and persist to Beads.
 	if err := a.updateTaskState(ctx, &resp, roleName, iteration, index); err != nil {
 		return nil, err
+	}
+
+	if a.tracker != nil && resp.Status == "ok" {
+		label := ""
+		switch roleName {
+		case RolePlan:
+			label = "norma-has-plan"
+		case RoleDo:
+			label = "norma-has-do"
+		case RoleCheck:
+			label = "norma-has-check"
+		}
+		if label != "" {
+			if err := a.tracker.AddLabel(ctx, a.runInput.TaskID, label); err != nil {
+				log.Warn().Err(err).Str("task_id", a.runInput.TaskID).Str("label", label).Msg("failed to add label to task")
+			}
+		}
 	}
 
 	return &resp, nil
@@ -662,6 +788,16 @@ func (a *runtime) updateTaskState(ctx agent.InvocationContext, resp *contracts.A
 
 	if err := ctx.Session().State().Set("task_state", state); err != nil {
 		return fmt.Errorf("set task state in session: %w", err)
+	}
+
+	if a.tracker != nil {
+		data, err := json.MarshalIndent(state, "", "  ")
+		if err != nil {
+			return fmt.Errorf("marshal task state: %w", err)
+		}
+		if err := a.tracker.SetNotes(ctx, a.runInput.TaskID, string(data)); err != nil {
+			return fmt.Errorf("persist task state to beads: %w", err)
+		}
 	}
 
 	return nil

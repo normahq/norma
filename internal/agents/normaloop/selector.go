@@ -63,8 +63,7 @@ func (w *Loop) runSelector(ctx agent.InvocationContext) iter.Seq2[*session.Event
 }
 
 func (w *Loop) selectNextTask(ctx context.Context) (task.Task, string, error) {
-	status := statusTodo
-	items, err := w.tracker.List(ctx, &status)
+	items, err := w.tracker.LeafTasks(ctx)
 	if err != nil {
 		return task.Task{}, "", err
 	}
