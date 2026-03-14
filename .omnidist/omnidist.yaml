@@ -1,0 +1,116 @@
+profiles:
+  acp-dump:
+    tool:
+      name: acp-dump
+      main: ./cmd/acp-dump
+    version:
+      source: fixed
+      fixed: 0.0.1
+    targets:
+      - os: darwin
+        arch: amd64
+      - os: darwin
+        arch: arm64
+      - os: linux
+        arch: amd64
+      - os: linux
+        arch: arm64
+      - os: windows
+        arch: amd64
+    build:
+      ldflags: -s -w
+      tags: []
+      cgo: false
+    distributions:
+      npm:
+        package: '@metalagman/acp-dump'
+        registry: https://registry.npmjs.org
+        access: public
+        include-readme: true
+
+  mcp-dump:
+    tool:
+      name: mcp-dump
+      main: ./cmd/mcp-dump
+    version:
+      source: fixed
+      fixed: 0.0.1
+    targets:
+      - os: darwin
+        arch: amd64
+      - os: darwin
+        arch: arm64
+      - os: linux
+        arch: amd64
+      - os: linux
+        arch: arm64
+      - os: windows
+        arch: amd64
+    build:
+      ldflags: -s -w
+      tags: []
+      cgo: false
+    distributions:
+      npm:
+        package: '@metalagman/mcp-dump'
+        registry: https://registry.npmjs.org
+        access: public
+        include-readme: true
+
+  acp-repl:
+    tool:
+      name: acp-repl
+      main: ./cmd/acp-repl
+    version:
+      source: fixed
+      fixed: 0.0.1
+    targets:
+      - os: darwin
+        arch: amd64
+      - os: darwin
+        arch: arm64
+      - os: linux
+        arch: amd64
+      - os: linux
+        arch: arm64
+      - os: windows
+        arch: amd64
+    build:
+      ldflags: -s -w
+      tags: []
+      cgo: false
+    distributions:
+      npm:
+        package: '@metalagman/acp-repl'
+        registry: https://registry.npmjs.org
+        access: public
+        include-readme: true
+
+  codex-acp-bridge:
+    tool:
+      name: codex-acp-bridge
+      main: ./cmd/codex-acp-bridge
+    version:
+      source: fixed
+      fixed: 0.0.1
+    targets:
+      - os: darwin
+        arch: amd64
+      - os: darwin
+        arch: arm64
+      - os: linux
+        arch: amd64
+      - os: linux
+        arch: arm64
+      - os: windows
+        arch: amd64
+    build:
+      ldflags: -s -w
+      tags: []
+      cgo: false
+    distributions:
+      npm:
+        package: '@metalagman/codex-acp-bridge'
+        registry: https://registry.npmjs.org
+        access: public
+        include-readme: true
