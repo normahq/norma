@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"iter"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -20,6 +21,8 @@ import (
 )
 
 type mockTracker struct {
+	mu sync.RWMutex
+
 	listTasks []task.Task
 	leafTasks []task.Task
 	tasksByID map[string]task.Task
@@ -43,6 +46,9 @@ func (m *mockTracker) AddFeature(context.Context, string, string) (string, error
 	return "", nil
 }
 func (m *mockTracker) List(_ context.Context, _ *string) ([]task.Task, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	if m.listErr != nil {
 		return nil, m.listErr
 	}
@@ -50,9 +56,15 @@ func (m *mockTracker) List(_ context.Context, _ *string) ([]task.Task, error) {
 }
 func (m *mockTracker) ListFeatures(context.Context, string) ([]task.Task, error) { return nil, nil }
 func (m *mockTracker) Children(_ context.Context, parentID string) ([]task.Task, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	return slices.Clone(m.children[parentID]), nil
 }
 func (m *mockTracker) Task(_ context.Context, id string) (task.Task, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	if m.taskErr != nil {
 		return task.Task{}, m.taskErr
 	}
@@ -64,21 +76,37 @@ func (m *mockTracker) Task(_ context.Context, id string) (task.Task, error) {
 }
 func (m *mockTracker) MarkDone(context.Context, string) error { return nil }
 func (m *mockTracker) MarkStatus(_ context.Context, _ string, status string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	m.markStatusCalls = append(m.markStatusCalls, status)
 	return m.markStatusErr
 }
 func (m *mockTracker) Update(context.Context, string, string, string) error { return nil }
 func (m *mockTracker) Delete(context.Context, string) error                 { return nil }
 func (m *mockTracker) SetRun(_ context.Context, _ string, runID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	m.setRunCalls = append(m.setRunCalls, runID)
 	return m.setRunErr
 }
 func (m *mockTracker) AddDependency(context.Context, string, string) error { return nil }
 func (m *mockTracker) LeafTasks(_ context.Context) ([]task.Task, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	if m.leafErr != nil {
 		return nil, m.leafErr
 	}
 	return slices.Clone(m.leafTasks), nil
+}
+func (m *mockTracker) setLeafState(leafErr error, leafTasks []task.Task) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.leafErr = leafErr
+	m.leafTasks = slices.Clone(leafTasks)
 }
 func (m *mockTracker) UpdateWorkflowState(context.Context, string, string) error {
 	return nil
@@ -287,7 +315,7 @@ func TestRunSelectorBackoff(t *testing.T) {
 	}
 
 	// First run: no tasks, should wait and increment backoff step
-	tracker.leafErr = errNoTasks
+	tracker.setLeafState(errNoTasks, nil)
 
 	// We run it in a goroutine because it loops forever
 	go func() {
@@ -306,8 +334,7 @@ func TestRunSelectorBackoff(t *testing.T) {
 	}
 
 	// Now add a task and see if it selects and resets backoff
-	tracker.leafErr = nil
-	tracker.leafTasks = []task.Task{{ID: "norma-1", Type: "task"}}
+	tracker.setLeafState(nil, []task.Task{{ID: "norma-1", Type: "task"}})
 
 	// Wait for the next iteration in the loop
 	time.Sleep(100 * time.Millisecond)
