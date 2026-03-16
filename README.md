@@ -66,6 +66,15 @@ Run `norma init` to automatically initialize `.beads` and create a default `.nor
 norma init
 ```
 
+### Global Flags
+
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `--config` | string | `.norma/config.yaml` | Config file path |
+| `--debug` | bool | `false` | Enable debug logging |
+| `--trace` | bool | `false` | Enable trace logging (overrides --debug) |
+| `--profile` | string | `""` | Config profile name |
+
 The default configuration uses the `gemini_acp` agent. You can customize it in `.norma/config.yaml`:
 
 ```yaml

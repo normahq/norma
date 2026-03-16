@@ -31,6 +31,7 @@ import (
 var (
 	cfgFile      string
 	debug        bool
+	trace        bool
 	profile      string
 	runBeadsInit = func(ctx context.Context, repoRoot string) error {
 		cmd := exec.CommandContext(ctx, "bd", "init", "--prefix", "norma")
@@ -50,6 +51,7 @@ func Execute() error {
 	cobra.OnInitialize(initDotEnv, initConfig)
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", defaultConfigPath, "config file path")
 	rootCmd.PersistentFlags().BoolVar(&debug, "debug", false, "enable debug logging")
+	rootCmd.PersistentFlags().BoolVar(&trace, "trace", false, "enable trace logging (overrides --debug)")
 	rootCmd.PersistentFlags().StringVar(&profile, "profile", "", "config profile name")
 	if err := viper.BindPFlag("config", rootCmd.PersistentFlags().Lookup("config")); err != nil {
 		return fmt.Errorf("bind config flag: %w", err)
@@ -58,7 +60,7 @@ func Execute() error {
 		return fmt.Errorf("bind profile flag: %w", err)
 	}
 	rootCmd.PersistentPreRun = func(cmd *cobra.Command, _ []string) {
-		logging.Init(debug)
+		logging.Init(debug, trace)
 		repoRoot, err := os.Getwd()
 		if err != nil {
 			log.Warn().Err(err).Msg("failed to get current working directory")

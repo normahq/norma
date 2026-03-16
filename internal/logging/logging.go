@@ -10,12 +10,16 @@ import (
 )
 
 var debugEnabled bool
+var traceEnabled bool
 
 // Init initializes the global logger.
-func Init(debug bool) {
+func Init(debug, trace bool) {
 	debugEnabled = debug
+	traceEnabled = trace
 	level := zerolog.InfoLevel
-	if debug {
+	if trace {
+		level = zerolog.TraceLevel
+	} else if debug {
 		level = zerolog.DebugLevel
 	}
 	zerolog.SetGlobalLevel(level)
@@ -28,4 +32,9 @@ func Init(debug bool) {
 // DebugEnabled reports whether debug logging is enabled.
 func DebugEnabled() bool {
 	return debugEnabled
+}
+
+// TraceEnabled reports whether trace logging is enabled.
+func TraceEnabled() bool {
+	return traceEnabled
 }
