@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
 jobs:
   prepare:
     runs-on: ubuntu-latest
@@ -57,6 +58,27 @@ jobs:
         run: tar -xzf omnidist-staged.tgz
       - name: Publish npm artifacts
         run: omnidist --profile 'codex-acp-bridge' npm publish
+
+  publish_uv:
+    needs: prepare
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      UV_PUBLISH_TOKEN: ${{ secrets.UV_PUBLISH_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+      - name: Install omnidist
+        run: npm install -g '@omnidist/omnidist@0.1.24'
+      - name: Download staged artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: omnidist-staged
+      - name: Restore staged artifacts
+        run: tar -xzf omnidist-staged.tgz
+      - name: Publish uv artifacts
+        run: omnidist --profile 'codex-acp-bridge' uv publish
 
 
   release:
