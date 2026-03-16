@@ -186,7 +186,7 @@ require (
 	github.com/mattn/go-runewidth v0.0.19 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.1 // indirect
 	github.com/metalagman/appkit v0.1.0 // indirect
-	github.com/metalagman/omnidist v0.1.22 // indirect
+	github.com/metalagman/omnidist v0.1.24 // indirect
 	github.com/mgechev/revive v1.14.0 // indirect
 	github.com/microcosm-cc/bluemonday v1.0.27 // indirect
 	github.com/mitchellh/go-homedir v1.1.0 // indirect
