@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
 jobs:
   prepare:
     runs-on: ubuntu-latest
@@ -57,6 +58,28 @@ jobs:
         run: tar -xzf omnidist-staged.tgz
       - name: Publish npm artifacts
         run: omnidist --profile 'mcp-dump' npm publish
+
+
+  publish_uv:
+    needs: prepare
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: Install omnidist
+        run: pip install '@omnidist/omnidist==0.1.24'
+      - name: Download staged artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: omnidist-staged
+      - name: Restore staged artifacts
+        run: tar -xzf omnidist-staged.tgz
+      - name: Publish uv artifacts
+        run: omnidist --profile 'mcp-dump' uv publish
 
 
   release:
