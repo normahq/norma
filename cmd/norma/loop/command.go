@@ -55,7 +55,16 @@ func Command() *cobra.Command {
 				ActiveFeatureID: activeFeatureID,
 				ActiveEpicID:    activeEpicID,
 			}
-			loopAgent, err := normaloop.New(log.Logger, cfg, workingDir, tracker, runStore, pdcaFactory, continueOnFail, policy)
+			loopAgent, err := normaloop.New(normaloop.Config{
+				Logger:         log.Logger,
+				Cfg:            cfg,
+				WorkingDir:     workingDir,
+				Tracker:        tracker,
+				RunStore:       runStore,
+				Factory:        pdcaFactory,
+				ContinueOnFail: continueOnFail,
+				Policy:         policy,
+			})
 			if err != nil {
 				return err
 			}

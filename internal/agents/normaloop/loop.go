@@ -25,6 +25,17 @@ const (
 
 const maxLoopIterations uint = 1_000_000
 
+type Config struct {
+	Logger         zerolog.Logger
+	Cfg            config.Config
+	WorkingDir     string
+	Tracker        task.Tracker
+	RunStore       runStatusStore
+	Factory        runpkg.AgentFactory
+	ContinueOnFail bool
+	Policy         task.SelectionPolicy
+}
+
 type runStatusStore interface {
 	GetRunStatus(ctx context.Context, runID string) (string, error)
 	CreateRun(ctx context.Context, runID, goal, runDir string, iteration int) error
@@ -46,22 +57,22 @@ type loopRuntime struct {
 }
 
 // New constructs the normaloop ADK loop agent runtime.
-func New(logger zerolog.Logger, cfg config.Config, workingDir string, tracker task.Tracker, runStore runStatusStore, factory runpkg.AgentFactory, continueOnFail bool, policy task.SelectionPolicy) (agent.Agent, error) {
-	absWorkingDir, err := filepath.Abs(workingDir)
+func New(cfg Config) (agent.Agent, error) {
+	absWorkingDir, err := filepath.Abs(cfg.WorkingDir)
 	if err != nil {
 		return nil, fmt.Errorf("resolve absolute working dir: %w", err)
 	}
 
 	w := &loopRuntime{
-		logger:         logger.With().Str("component", "normaloop").Logger(),
-		cfg:            cfg,
+		logger:         cfg.Logger.With().Str("component", "normaloop").Logger(),
+		cfg:            cfg.Cfg,
 		workingDir:     absWorkingDir,
 		normaDir:       filepath.Join(absWorkingDir, ".norma"),
-		tracker:        tracker,
-		runStore:       runStore,
-		factory:        factory,
-		continueOnFail: continueOnFail,
-		policy:         policy,
+		tracker:        cfg.Tracker,
+		runStore:       cfg.RunStore,
+		factory:        cfg.Factory,
+		continueOnFail: cfg.ContinueOnFail,
+		policy:         cfg.Policy,
 	}
 
 	iterationAgent, err := w.newIterationAgent()
