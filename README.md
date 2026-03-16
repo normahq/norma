@@ -209,6 +209,7 @@ Standalone binary is also available as `acp-repl`.
 Norma uses [Omnidist](https://github.com/metalagman/omnidist) profiles for build/stage/verify/publish flows across all command binaries.
 
 Profiles configured in `.omnidist/omnidist.yaml`:
+- `norma`
 - `acp-dump`
 - `mcp-dump`
 - `acp-repl`
@@ -217,6 +218,7 @@ Profiles configured in `.omnidist/omnidist.yaml`:
 Quickstart per profile:
 
 ```bash
+omnidist --profile norma quickstart
 omnidist --profile acp-dump quickstart
 omnidist --profile mcp-dump quickstart
 omnidist --profile acp-repl quickstart
@@ -233,6 +235,7 @@ omnidist --profile <profile> npm publish
 ```
 
 GitHub release workflows are split per profile and run on `v*` tag pushes:
+- `omnidist-release-norma.yml`
 - `omnidist-release-acp-dump.yml`
 - `omnidist-release-mcp-dump.yml`
 - `omnidist-release-acp-repl.yml`
@@ -240,6 +243,7 @@ GitHub release workflows are split per profile and run on `v*` tag pushes:
 
 Publishing uses:
 - `NPM_PUBLISH_TOKEN` for npm
+- `UV_PUBLISH_TOKEN` for uv
 
 ---
 
