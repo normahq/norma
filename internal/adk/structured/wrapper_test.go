@@ -2,6 +2,7 @@ package structured
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -410,4 +411,82 @@ func runSingleTurnWithMeta(t *testing.T, a adkagent.Agent, input string) (string
 		}
 	}
 	return out.String(), turnCompleteCount, nil
+}
+
+func TestSentinelErrors(t *testing.T) {
+	t.Parallel()
+
+	t.Run("ErrStructuredInputSchemaValidation satisfies ErrStructuredIOSchemaValidation", func(t *testing.T) {
+		t.Parallel()
+		if !errors.Is(ErrStructuredInputSchemaValidation, ErrStructuredIOSchemaValidation) {
+			t.Fatal("ErrStructuredInputSchemaValidation should satisfy errors.Is(..., ErrStructuredIOSchemaValidation)")
+		}
+	})
+
+	t.Run("ErrStructuredOutputSchemaValidation satisfies ErrStructuredIOSchemaValidation", func(t *testing.T) {
+		t.Parallel()
+		if !errors.Is(ErrStructuredOutputSchemaValidation, ErrStructuredIOSchemaValidation) {
+			t.Fatal("ErrStructuredOutputSchemaValidation should satisfy errors.Is(..., ErrStructuredIOSchemaValidation)")
+		}
+	})
+
+	t.Run("ErrStructuredInputSchemaValidation does not satisfy ErrStructuredOutputSchemaValidation", func(t *testing.T) {
+		t.Parallel()
+		if errors.Is(ErrStructuredInputSchemaValidation, ErrStructuredOutputSchemaValidation) {
+			t.Fatal("ErrStructuredInputSchemaValidation should not satisfy errors.Is(..., ErrStructuredOutputSchemaValidation)")
+		}
+	})
+
+	t.Run("ErrStructuredOutputSchemaValidation does not satisfy ErrStructuredInputSchemaValidation", func(t *testing.T) {
+		t.Parallel()
+		if errors.Is(ErrStructuredOutputSchemaValidation, ErrStructuredInputSchemaValidation) {
+			t.Fatal("ErrStructuredOutputSchemaValidation should not satisfy errors.Is(..., ErrStructuredInputSchemaValidation)")
+		}
+	})
+}
+
+func TestWrapperAgentReturnsSentinelErrors(t *testing.T) {
+	t.Parallel()
+
+	t.Run("invalid_input returns ErrStructuredInputSchemaValidation", func(t *testing.T) {
+		t.Parallel()
+
+		inner := newStaticOutputAgent(t, validStructuredOutputJSON, nil)
+		wrapped, err := NewAgent(inner)
+		if err != nil {
+			t.Fatalf("NewAgent() error = %v", err)
+		}
+
+		_, runErr := runSingleTurn(t, wrapped, "not-json")
+		if runErr == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if !errors.Is(runErr, ErrStructuredInputSchemaValidation) {
+			t.Fatalf("error should satisfy errors.Is(..., ErrStructuredInputSchemaValidation), got: %v", runErr)
+		}
+		if !errors.Is(runErr, ErrStructuredIOSchemaValidation) {
+			t.Fatalf("error should satisfy errors.Is(..., ErrStructuredIOSchemaValidation), got: %v", runErr)
+		}
+	})
+
+	t.Run("invalid_output returns ErrStructuredOutputSchemaValidation", func(t *testing.T) {
+		t.Parallel()
+
+		inner := newStaticOutputAgent(t, `{"invalid":"json"}`, nil)
+		wrapped, err := NewAgent(inner)
+		if err != nil {
+			t.Fatalf("NewAgent() error = %v", err)
+		}
+
+		_, runErr := runSingleTurn(t, wrapped, `{"input":"hello"}`)
+		if runErr == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if !errors.Is(runErr, ErrStructuredOutputSchemaValidation) {
+			t.Fatalf("error should satisfy errors.Is(..., ErrStructuredOutputSchemaValidation), got: %v", runErr)
+		}
+		if !errors.Is(runErr, ErrStructuredIOSchemaValidation) {
+			t.Fatalf("error should satisfy errors.Is(..., ErrStructuredIOSchemaValidation), got: %v", runErr)
+		}
+	})
 }

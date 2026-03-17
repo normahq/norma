@@ -3,6 +3,7 @@ package structured
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"iter"
 	"sort"
@@ -349,11 +350,19 @@ func contentText(content *genai.Content) string {
 }
 
 func validateInputSchema(schema, rawInput string) error {
-	return validateJSONAgainstSchema(rawInput, schema, "input")
+	err := validateJSONAgainstSchema(rawInput, schema, "input")
+	if err != nil {
+		return errors.Join(ErrStructuredInputSchemaValidation, err)
+	}
+	return nil
 }
 
 func validateOutputSchema(schema, rawOutput string) error {
-	return validateJSONAgainstSchema(rawOutput, schema, "output")
+	err := validateJSONAgainstSchema(rawOutput, schema, "output")
+	if err != nil {
+		return errors.Join(ErrStructuredOutputSchemaValidation, err)
+	}
+	return nil
 }
 
 func validateJSONAgainstSchema(raw, schema, label string) error {
