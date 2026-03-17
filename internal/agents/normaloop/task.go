@@ -16,6 +16,7 @@ import (
 	"github.com/metalagman/norma/internal/git"
 	"github.com/metalagman/norma/internal/reconcile"
 	runpkg "github.com/metalagman/norma/internal/run"
+	"github.com/metalagman/norma/internal/task"
 )
 
 var taskIDPattern = regexp.MustCompile(`^norma-[a-z0-9]+(?:\.[a-z0-9]+)*$`)
@@ -166,6 +167,18 @@ func (w *loopRuntime) runTaskByID(ctx context.Context, id string) error {
 	}
 
 	w.logger.Warn().Str("task_id", id).Str("run_id", runID).Str("status", outcome.Status).Msg("task did not pass")
+
+	if outcome.Decision != nil && *outcome.Decision == "replan" {
+		w.logger.Info().Str("task_id", id).Str("run_id", runID).Msg("handling replan decision")
+		if err := w.handleReplan(ctx, id, item); err != nil {
+			w.logger.Error().Err(err).Msg("failed to handle replan")
+			_ = w.tracker.MarkStatus(ctx, id, runpkg.StatusFailed)
+			return fmt.Errorf("handle replan: %w", err)
+		}
+		w.logger.Info().Str("task_id", id).Str("duration", time.Since(startedAt).String()).Msg("task handled replan, returning without hard failure")
+		return nil
+	}
+
 	if outcome.Status == runpkg.StatusFailed {
 		_ = w.tracker.MarkStatus(ctx, id, runpkg.StatusFailed)
 		return fmt.Errorf("task %s failed (run %s)", id, runID)
@@ -321,4 +334,50 @@ func randomHex(bytesLen int) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(buf), nil
+}
+
+func (w *loopRuntime) handleReplan(ctx context.Context, oldTaskID string, oldTask task.Task) error {
+	staleLabels := []string{"norma-has-plan", "norma-has-do", "norma-has-check"}
+	for _, label := range staleLabels {
+		if err := w.tracker.RemoveLabel(ctx, oldTaskID, label); err != nil {
+			w.logger.Warn().Err(err).Str("label", label).Msg("failed to remove stale workflow label")
+		}
+	}
+	w.logger.Info().Str("task_id", oldTaskID).Int("removed", len(staleLabels)).Msg("removed stale workflow labels")
+
+	replanTitle := fmt.Sprintf("Replan: %s", oldTask.Title)
+	replanGoal := fmt.Sprintf("Replan required for task %s. Original goal: %s", oldTaskID, oldTask.Goal)
+
+	newTaskID, err := w.tracker.AddFollowUp(ctx, oldTask.ParentID, replanTitle, replanGoal, oldTask.Criteria)
+	if err != nil {
+		return fmt.Errorf("create replanning task: %w", err)
+	}
+	w.logger.Info().Str("old_task_id", oldTaskID).Str("new_task_id", newTaskID).Msg("created replanning task")
+
+	if err := w.tracker.AddRelatedLink(ctx, oldTaskID, newTaskID); err != nil {
+		w.logger.Warn().Err(err).Msg("failed to add related link between old and new task")
+	}
+
+	blockedDependents, err := w.tracker.ListBlockedDependents(ctx, oldTaskID)
+	if err != nil {
+		w.logger.Warn().Err(err).Msg("failed to list blocked dependents")
+	} else {
+		for _, dep := range blockedDependents {
+			if err := w.tracker.AddDependency(ctx, dep.ID, newTaskID); err != nil {
+				w.logger.Warn().Err(err).Str("dep_id", dep.ID).Msg("failed to add new task as blocker")
+			}
+		}
+		w.logger.Info().Int("rewired_count", len(blockedDependents)).Msg("rewired blocked dependents to new replanning task")
+	}
+
+	if err := w.tracker.AddLabel(ctx, oldTaskID, "replan-needed"); err != nil {
+		w.logger.Warn().Err(err).Msg("failed to add replan-needed label")
+	}
+
+	if err := w.tracker.CloseWithReason(ctx, oldTaskID, "wont do: replan needed"); err != nil {
+		return fmt.Errorf("close old task with reason: %w", err)
+	}
+
+	w.logger.Info().Str("old_task_id", oldTaskID).Msg("old task closed with replan reason")
+	return nil
 }

@@ -244,15 +244,12 @@ omnidist --profile <profile> npm publish
 ```
 
 GitHub release workflows are split per profile and run on `v*` tag pushes:
-- `omnidist-release-norma.yml`
 - `omnidist-release-acp-dump.yml`
 - `omnidist-release-mcp-dump.yml`
 - `omnidist-release-acp-repl.yml`
 - `omnidist-release-codex-acp-bridge.yml`
 
-Publishing uses:
-- `NPM_PUBLISH_TOKEN` for npm
-- `UV_PUBLISH_TOKEN` for uv
+Publishing uses npm only.
 
 ---
 

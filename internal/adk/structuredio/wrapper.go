@@ -3,6 +3,7 @@ package structuredio
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"iter"
 	"sort"
@@ -83,12 +84,14 @@ type wrapperAgent struct {
 	inputSchema               string
 	outputSchema              string
 	maxAccumulatedOutputBytes int
+	outputValidationRetries   int
 }
 
 type options struct {
 	inputSchema               string
 	outputSchema              string
 	maxAccumulatedOutputBytes int
+	outputValidationRetries   int
 }
 
 // Option customizes wrapper behavior at creation time.
@@ -116,6 +119,17 @@ func WithMaxAccumulatedOutputBytes(maxBytes int) Option {
 	}
 }
 
+// WithOutputValidationRetries sets the number of retries for output schema validation failures.
+// Default is 1 retry (2 total attempts).
+func WithOutputValidationRetries(retries int) Option {
+	return func(o *options) {
+		if retries < 0 {
+			retries = 0
+		}
+		o.outputValidationRetries = retries
+	}
+}
+
 // NewAgent creates an ADK agent wrapper around another agent and validates
 // structured input/output using configured schemas.
 func NewAgent(wrapped adkagent.Agent, setters ...Option) (adkagent.Agent, error) {
@@ -127,6 +141,7 @@ func NewAgent(wrapped adkagent.Agent, setters ...Option) (adkagent.Agent, error)
 		inputSchema:               inputSchemaJSON,
 		outputSchema:              outputSchemaJSON,
 		maxAccumulatedOutputBytes: defaultMaxAccumulatedOutputBytes,
+		outputValidationRetries:   1,
 	}
 	for _, set := range setters {
 		if set == nil {
@@ -142,6 +157,9 @@ func NewAgent(wrapped adkagent.Agent, setters ...Option) (adkagent.Agent, error)
 	}
 	if opts.maxAccumulatedOutputBytes <= 0 {
 		opts.maxAccumulatedOutputBytes = defaultMaxAccumulatedOutputBytes
+	}
+	if opts.outputValidationRetries < 0 {
+		opts.outputValidationRetries = 0
 	}
 	if err := validateSchemaDefinition(opts.inputSchema, "input"); err != nil {
 		return nil, err
@@ -170,6 +188,7 @@ func NewAgent(wrapped adkagent.Agent, setters ...Option) (adkagent.Agent, error)
 		inputSchema:               opts.inputSchema,
 		outputSchema:              opts.outputSchema,
 		maxAccumulatedOutputBytes: opts.maxAccumulatedOutputBytes,
+		outputValidationRetries:   opts.outputValidationRetries,
 	}, nil
 }
 
@@ -241,17 +260,6 @@ func (w *wrapperAgent) Run(ctx adkagent.InvocationContext) iter.Seq2[*session.Ev
 			}
 			totalEvents++
 			text := eventText(ev)
-			logger.Debug().
-				Str("invocation_id", ctx.InvocationID()).
-				Int("inner_event_index", totalEvents).
-				Bool("turn_complete", ev.TurnComplete).
-				Bool("partial", ev.Partial).
-				Str("author", strings.TrimSpace(ev.Author)).
-				Str("content_role", eventContentRole(ev)).
-				Int("parts_count", eventPartsCount(ev)).
-				Int("event_text_len", len(text)).
-				Str("event_text_preview", truncateForLog(text, 320)).
-				Msg("received underlying agent event")
 
 			if text != "" {
 				if accumulated.Len()+len(text) > w.maxAccumulatedOutputBytes {
@@ -285,16 +293,82 @@ func (w *wrapperAgent) Run(ctx adkagent.InvocationContext) iter.Seq2[*session.Ev
 			Int("accumulated_output_len", len(accumulatedText)).
 			Str("accumulated_output_preview", truncateForLog(accumulatedText, 320)).
 			Msg("collected accumulated output from inner agent")
-		jsonOutput, err := extractAndValidateOutputJSON(w.outputSchema, accumulatedText)
-		if err != nil {
+
+		var jsonOutput string
+		var lastOutputErr error
+		maxAttempts := w.outputValidationRetries + 1
+
+		for attempt := 1; attempt <= maxAttempts; attempt++ {
 			logger.Debug().
-				Err(err).
 				Str("invocation_id", ctx.InvocationID()).
-				Int("accumulated_output_len", len(accumulatedText)).
-				Int("output_schema_len", len(w.outputSchema)).
-				Str("accumulated_output_preview", truncateForLog(accumulatedText, validationFailurePreviewLimit)).
-				Msg("structured wrapper output validation failed")
-			yield(nil, fmt.Errorf("validate structured output: %w", err))
+				Int("attempt", attempt).
+				Int("max_attempts", maxAttempts).
+				Msg("validating output schema")
+
+			jsonOutput, lastOutputErr = extractAndValidateOutputJSON(w.outputSchema, accumulatedText)
+			if lastOutputErr == nil {
+				logger.Debug().
+					Str("invocation_id", ctx.InvocationID()).
+					Int("attempt", attempt).
+					Msg("output schema validation succeeded")
+				break
+			}
+
+			if !errors.Is(lastOutputErr, ErrStructuredOutputSchemaValidation) {
+				logger.Debug().
+					Err(lastOutputErr).
+					Str("invocation_id", ctx.InvocationID()).
+					Int("attempt", attempt).
+					Msg("non-retryable validation error")
+				break
+			}
+
+			if attempt < maxAttempts {
+				logger.Debug().
+					Err(lastOutputErr).
+					Str("invocation_id", ctx.InvocationID()).
+					Int("attempt", attempt).
+					Int("max_attempts", maxAttempts).
+					Msg("output schema validation failed, retrying")
+
+				accumulated.Reset()
+				totalEvents = 0
+				textEventCount = 0
+
+				for ev, err := range w.wrapped.Run(wrappedCtx) {
+					if err != nil {
+						lastOutputErr = err
+						break
+					}
+					if ev == nil {
+						continue
+					}
+					totalEvents++
+					text := eventText(ev)
+					if text != "" {
+						if accumulated.Len()+len(text) > w.maxAccumulatedOutputBytes {
+							lastOutputErr = fmt.Errorf("accumulated output exceeds limit: %d bytes", w.maxAccumulatedOutputBytes)
+							break
+						}
+						textEventCount++
+						accumulated.WriteString(text)
+					}
+					if ev.TurnComplete {
+						break
+					}
+				}
+
+				accumulatedText = accumulated.String()
+			}
+		}
+
+		if lastOutputErr != nil {
+			logger.Debug().
+				Err(lastOutputErr).
+				Str("invocation_id", ctx.InvocationID()).
+				Int("attempts", maxAttempts).
+				Msg("output schema validation failed after all retries")
+			yield(nil, fmt.Errorf("validate structured output: %w", lastOutputErr))
 			return
 		}
 
@@ -357,20 +431,6 @@ func eventText(ev *session.Event) string {
 	return contentText(ev.Content)
 }
 
-func eventContentRole(ev *session.Event) string {
-	if ev == nil || ev.Content == nil {
-		return ""
-	}
-	return ev.Content.Role
-}
-
-func eventPartsCount(ev *session.Event) int {
-	if ev == nil || ev.Content == nil {
-		return 0
-	}
-	return len(ev.Content.Parts)
-}
-
 // contentText extracts concatenated text from content parts.
 func contentText(content *genai.Content) string {
 	if content == nil {
@@ -387,7 +447,10 @@ func contentText(content *genai.Content) string {
 }
 
 func validateInputSchema(schema, rawInput string) error {
-	return validateJSONAgainstSchema(rawInput, schema, "input")
+	if err := validateJSONAgainstSchema(rawInput, schema, "input"); err != nil {
+		return errors.Join(ErrStructuredInputSchemaValidation, err)
+	}
+	return nil
 }
 
 func extractAndValidateOutputJSON(schema, rawOutput string) (string, error) {
@@ -396,7 +459,7 @@ func extractAndValidateOutputJSON(schema, rawOutput string) (string, error) {
 		return "", fmt.Errorf("extract output JSON: %w", err)
 	}
 	if err := validateJSONAgainstSchema(candidate, schema, "output"); err != nil {
-		return "", err
+		return "", errors.Join(ErrStructuredOutputSchemaValidation, err)
 	}
 	return candidate, nil
 }

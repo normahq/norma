@@ -23,7 +23,7 @@ profiles:
       cgo: false
     distributions:
       npm:
-        package: '@metalagman/norma'
+        package: '@normahq/norma'
         registry: https://registry.npmjs.org
         access: public
         include-readme: true
@@ -52,7 +52,7 @@ profiles:
       cgo: false
     distributions:
       npm:
-        package: '@metalagman/acp-dump'
+        package: '@normahq/acp-dump'
         registry: https://registry.npmjs.org
         access: public
         include-readme: true
@@ -81,7 +81,7 @@ profiles:
       cgo: false
     distributions:
       npm:
-        package: '@metalagman/mcp-dump'
+        package: '@normahq/mcp-dump'
         registry: https://registry.npmjs.org
         access: public
         include-readme: true
@@ -110,7 +110,7 @@ profiles:
       cgo: false
     distributions:
       npm:
-        package: '@metalagman/acp-repl'
+        package: '@normahq/acp-repl'
         registry: https://registry.npmjs.org
         access: public
         include-readme: true
@@ -139,7 +139,7 @@ profiles:
       cgo: false
     distributions:
       npm:
-        package: '@metalagman/codex-acp-bridge'
+        package: '@normahq/codex-acp-bridge'
         registry: https://registry.npmjs.org
         access: public
         include-readme: true

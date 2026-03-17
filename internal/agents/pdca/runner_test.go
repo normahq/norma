@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"strconv"
@@ -13,6 +14,7 @@ import (
 	"testing"
 
 	acp "github.com/coder/acp-go-sdk"
+	"github.com/metalagman/norma/internal/adk/structuredio"
 	"github.com/metalagman/norma/internal/agents/pdca/contracts"
 	"github.com/metalagman/norma/internal/agents/pdca/roles/plan"
 	"github.com/metalagman/norma/internal/config"
@@ -412,4 +414,18 @@ func parseJSONLines(t *testing.T, data []byte) []map[string]any {
 		t.Fatalf("scan json lines: %v", err)
 	}
 	return lines
+}
+
+func TestRunnerWrapsErrorsWithPercentW(t *testing.T) {
+	t.Parallel()
+
+	err := fmt.Errorf("outer: %w", structuredio.ErrStructuredOutputSchemaValidation)
+	assert.True(t, errors.Is(err, structuredio.ErrStructuredOutputSchemaValidation),
+		"errors.Is should work through %%w wrapping")
+	assert.True(t, errors.Is(err, structuredio.ErrStructuredIOSchemaValidation),
+		"errors.Is should work through %%w wrapping to umbrella error")
+
+	err = fmt.Errorf("outer: %w", fmt.Errorf("inner: %w", structuredio.ErrStructuredIOSchemaValidation))
+	assert.True(t, errors.Is(err, structuredio.ErrStructuredIOSchemaValidation),
+		"errors.Is should work through nested %%w wrapping")
 }

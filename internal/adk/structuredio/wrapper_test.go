@@ -3,11 +3,13 @@ package structuredio
 import (
 	"bytes"
 	"context"
+	"errors"
 	"strings"
 	"sync/atomic"
 	"testing"
 
 	"github.com/rs/zerolog"
+
 	adkagent "google.golang.org/adk/agent"
 	"google.golang.org/adk/runner"
 	"google.golang.org/adk/session"
@@ -18,6 +20,52 @@ import (
 const (
 	validStructuredOutputJSON = `{"output":"done"}`
 )
+
+func TestSentinelErrors(t *testing.T) {
+	t.Parallel()
+
+	// Test invalid input returns input sentinel
+	innerValid := newStaticOutputAgent(t, validStructuredOutputJSON, nil)
+	wrapped, err := NewAgent(innerValid)
+	if err != nil {
+		t.Fatalf("NewAgent() error = %v", err)
+	}
+
+	_, runErr := runSingleTurn(t, wrapped, "not-json")
+	if runErr == nil {
+		t.Fatal("expected error for invalid input")
+	}
+	if !errors.Is(runErr, ErrStructuredInputSchemaValidation) {
+		t.Fatalf("error = %v, want error satisfying ErrStructuredInputSchemaValidation", runErr)
+	}
+	if !errors.Is(runErr, ErrStructuredIOSchemaValidation) {
+		t.Fatalf("error = %v, want error satisfying ErrStructuredIOSchemaValidation", runErr)
+	}
+	if errors.Is(runErr, ErrStructuredOutputSchemaValidation) {
+		t.Fatal("error should not satisfy ErrStructuredOutputSchemaValidation for input validation failure")
+	}
+
+	// Test invalid output returns output sentinel
+	innerInvalidOutput := newStaticOutputAgent(t, `{"status":"ok"}`, nil)
+	wrapped2, err := NewAgent(innerInvalidOutput)
+	if err != nil {
+		t.Fatalf("NewAgent() error = %v", err)
+	}
+
+	_, runErr = runSingleTurn(t, wrapped2, `{"input":"hello"}`)
+	if runErr == nil {
+		t.Fatal("expected error for invalid output")
+	}
+	if !errors.Is(runErr, ErrStructuredOutputSchemaValidation) {
+		t.Fatalf("error = %v, want error satisfying ErrStructuredOutputSchemaValidation", runErr)
+	}
+	if !errors.Is(runErr, ErrStructuredIOSchemaValidation) {
+		t.Fatalf("error = %v, want error satisfying ErrStructuredIOSchemaValidation", runErr)
+	}
+	if errors.Is(runErr, ErrStructuredInputSchemaValidation) {
+		t.Fatal("error should not satisfy ErrStructuredInputSchemaValidation for output validation failure")
+	}
+}
 
 func TestNewAgent_RequiresWrapped(t *testing.T) {
 	t.Parallel()
@@ -104,7 +152,7 @@ func TestWrapperAgentValidationCases(t *testing.T) {
 			input:           `{"input":"hello"}`,
 			output:          `{"status":"ok"}`,
 			wantErrContains: "validate structured output",
-			wantInnerCalls:  1,
+			wantInnerCalls:  2,
 		},
 		{
 			name:              "valid_input_output",
@@ -239,10 +287,7 @@ func TestWrapperAgentLogsOutputValidationFailureWithContextLogger(t *testing.T) 
 	}
 
 	logs := logBuf.String()
-	if !strings.Contains(logs, "received underlying agent event") {
-		t.Fatalf("logs = %q, want per-event underlying agent logs", logs)
-	}
-	if !strings.Contains(logs, "structured wrapper output validation failed") {
+	if !strings.Contains(logs, "output schema validation failed") {
 		t.Fatalf("logs = %q, want validation failure message", logs)
 	}
 	if !strings.Contains(logs, "accumulated_output_preview") {
@@ -689,4 +734,153 @@ func assertContainsAll(t *testing.T, got string, wantParts ...string) {
 			t.Fatalf("text does not contain %q; text=%q", part, got)
 		}
 	}
+}
+
+func newMultiOutputAgent(t *testing.T, outputs []string, calls *int32, runErr error) adkagent.Agent {
+	t.Helper()
+
+	outputIdx := 0
+	a, err := adkagent.New(adkagent.Config{
+		Name:        "MultiOutputAgent",
+		Description: "Multi-output agent for retry testing",
+		Run: func(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, error] {
+			return func(yield func(*session.Event, error) bool) {
+				if calls != nil {
+					atomic.AddInt32(calls, 1)
+				}
+
+				if runErr != nil {
+					ev := session.NewEvent(ctx.InvocationID())
+					if !yield(ev, runErr) {
+						return
+					}
+					return
+				}
+
+				output := outputs[outputIdx]
+				if outputIdx < len(outputs)-1 {
+					outputIdx++
+				}
+
+				ev := session.NewEvent(ctx.InvocationID())
+				ev.Content = genai.NewContentFromText(output, genai.RoleModel)
+				if !yield(ev, nil) {
+					return
+				}
+
+				final := session.NewEvent(ctx.InvocationID())
+				final.TurnComplete = true
+				_ = yield(final, nil)
+			}
+		},
+	})
+	if err != nil {
+		t.Fatalf("agent.New() error = %v", err)
+	}
+	return a
+}
+
+func TestRetryMatrix(t *testing.T) {
+	t.Parallel()
+
+	t.Run("invalid_input_no_retry", func(t *testing.T) {
+		t.Parallel()
+
+		var callCount int32
+		inner := newStaticOutputAgent(t, validStructuredOutputJSON, &callCount)
+		wrapped, err := NewAgent(inner)
+		if err != nil {
+			t.Fatalf("NewAgent() error = %v", err)
+		}
+
+		_, runErr := runSingleTurn(t, wrapped, "not-json")
+		if runErr == nil {
+			t.Fatal("expected error for invalid input")
+		}
+		if !errors.Is(runErr, ErrStructuredInputSchemaValidation) {
+			t.Fatalf("error should satisfy ErrStructuredInputSchemaValidation, got %v", runErr)
+		}
+		if !errors.Is(runErr, ErrStructuredIOSchemaValidation) {
+			t.Fatalf("error should satisfy ErrStructuredIOSchemaValidation, got %v", runErr)
+		}
+		if atomic.LoadInt32(&callCount) != 0 {
+			t.Errorf("inner agent should not be called for input validation failure, got %d calls", callCount)
+		}
+	})
+
+	t.Run("invalid_output_then_valid_retries", func(t *testing.T) {
+		t.Parallel()
+
+		var callCount int32
+		invalidOutput := `{"invalid":"response"}`
+		validOutput := validStructuredOutputJSON
+
+		inner := newMultiOutputAgent(t, []string{invalidOutput, validOutput}, &callCount, nil)
+		wrapped, err := NewAgent(inner, WithOutputValidationRetries(1))
+		if err != nil {
+			t.Fatalf("NewAgent() error = %v", err)
+		}
+
+		_, runErr := runSingleTurn(t, wrapped, `{"input":"hello"}`)
+		if runErr != nil {
+			t.Fatalf("expected success after retry, got error: %v", runErr)
+		}
+		if atomic.LoadInt32(&callCount) != 2 {
+			t.Errorf("expected 2 calls (initial + retry), got %d", callCount)
+		}
+	})
+
+	t.Run("invalid_output_all_attempts_exhausted", func(t *testing.T) {
+		t.Parallel()
+
+		var callCount int32
+		invalidOutput := `{"invalid":"response"}`
+
+		inner := newMultiOutputAgent(t, []string{invalidOutput, invalidOutput}, &callCount, nil)
+		wrapped, err := NewAgent(inner, WithOutputValidationRetries(1))
+		if err != nil {
+			t.Fatalf("NewAgent() error = %v", err)
+		}
+
+		_, runErr := runSingleTurn(t, wrapped, `{"input":"hello"}`)
+		if runErr == nil {
+			t.Fatal("expected error after exhausted retries")
+		}
+		if !errors.Is(runErr, ErrStructuredOutputSchemaValidation) {
+			t.Fatalf("error should satisfy ErrStructuredOutputSchemaValidation, got %v", runErr)
+		}
+		if !errors.Is(runErr, ErrStructuredIOSchemaValidation) {
+			t.Fatalf("error should satisfy ErrStructuredIOSchemaValidation (umbrella), got %v", runErr)
+		}
+		if atomic.LoadInt32(&callCount) != 2 {
+			t.Errorf("expected 2 calls (initial + 1 retry), got %d", callCount)
+		}
+	})
+
+	t.Run("non_schema_errors_no_schema_sentinel", func(t *testing.T) {
+		t.Parallel()
+
+		var callCount int32
+		executionErr := errors.New("execution error")
+
+		inner := newMultiOutputAgent(t, []string{validStructuredOutputJSON}, &callCount, executionErr)
+		wrapped, err := NewAgent(inner)
+		if err != nil {
+			t.Fatalf("NewAgent() error = %v", err)
+		}
+
+		_, runErr := runSingleTurn(t, wrapped, `{"input":"hello"}`)
+		if runErr == nil {
+			t.Fatal("expected error from inner agent")
+		}
+		if errors.Is(runErr, ErrStructuredInputSchemaValidation) {
+			t.Fatal("non-schema error should not satisfy ErrStructuredInputSchemaValidation")
+		}
+		if errors.Is(runErr, ErrStructuredOutputSchemaValidation) {
+			t.Fatal("non-schema error should not satisfy ErrStructuredOutputSchemaValidation")
+		}
+		if errors.Is(runErr, ErrStructuredIOSchemaValidation) {
+			t.Fatal("non-schema error should not satisfy ErrStructuredIOSchemaValidation")
+		}
+	})
 }

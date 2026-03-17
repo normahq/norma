@@ -379,9 +379,6 @@ func (a *runtime) runStep(ctx agent.InvocationContext, iteration int, roleName s
 	if err := os.MkdirAll(filepath.Join(stepDir, "logs"), 0o700); err != nil {
 		return nil, err
 	}
-	if err := os.MkdirAll(filepath.Join(stepDir, "artifacts"), 0o700); err != nil {
-		return nil, err
-	}
 
 	l := log.With().
 		Str("component", "pdca").

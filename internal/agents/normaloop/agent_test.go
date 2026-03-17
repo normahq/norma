@@ -36,6 +36,15 @@ type mockTracker struct {
 
 	markStatusCalls []string
 	setRunCalls     []string
+
+	closeWithReasonCalls       []struct{ id, reason string }
+	addRelatedLinkCalls        []struct{ from, to string }
+	listBlockedDependentsCalls []string
+	listBlockedDependentsResp  []task.Task
+	addFollowUpCalls           []struct{ parentID, title, goal string }
+	addFollowUpResp            string
+	addLabelCalls              []struct{ id, label string }
+	removeLabelCalls           []struct{ id, label string }
 }
 
 func (m *mockTracker) Add(context.Context, string, string, []task.AcceptanceCriterion, *string) (string, error) {
@@ -111,16 +120,42 @@ func (m *mockTracker) setLeafState(leafErr error, leafTasks []task.Task) {
 func (m *mockTracker) UpdateWorkflowState(context.Context, string, string) error {
 	return nil
 }
-func (m *mockTracker) AddLabel(context.Context, string, string) error        { return nil }
-func (m *mockTracker) RemoveLabel(context.Context, string, string) error     { return nil }
-func (m *mockTracker) SetNotes(context.Context, string, string) error        { return nil }
-func (m *mockTracker) CloseWithReason(context.Context, string, string) error { return nil }
-func (m *mockTracker) AddRelatedLink(context.Context, string, string) error  { return nil }
-func (m *mockTracker) ListBlockedDependents(context.Context, string) ([]task.Task, error) {
-	return nil, nil
+func (m *mockTracker) AddLabel(_ context.Context, id string, label string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.addLabelCalls = append(m.addLabelCalls, struct{ id, label string }{id, label})
+	return nil
 }
-func (m *mockTracker) AddFollowUp(context.Context, string, string, string, []task.AcceptanceCriterion) (string, error) {
-	return "", nil
+func (m *mockTracker) RemoveLabel(_ context.Context, id string, label string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.removeLabelCalls = append(m.removeLabelCalls, struct{ id, label string }{id, label})
+	return nil
+}
+func (m *mockTracker) SetNotes(context.Context, string, string) error { return nil }
+func (m *mockTracker) CloseWithReason(_ context.Context, id string, reason string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.closeWithReasonCalls = append(m.closeWithReasonCalls, struct{ id, reason string }{id, reason})
+	return nil
+}
+func (m *mockTracker) AddRelatedLink(_ context.Context, from string, to string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.addRelatedLinkCalls = append(m.addRelatedLinkCalls, struct{ from, to string }{from, to})
+	return nil
+}
+func (m *mockTracker) ListBlockedDependents(_ context.Context, id string) ([]task.Task, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.listBlockedDependentsCalls = append(m.listBlockedDependentsCalls, id)
+	return m.listBlockedDependentsResp, nil
+}
+func (m *mockTracker) AddFollowUp(_ context.Context, parentID string, title string, goal string, _ []task.AcceptanceCriterion) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.addFollowUpCalls = append(m.addFollowUpCalls, struct{ parentID, title, goal string }{parentID, title, goal})
+	return m.addFollowUpResp, nil
 }
 
 type mockRunStore struct {
@@ -356,5 +391,246 @@ func TestRunSelectorBackoff(t *testing.T) {
 	step, _ = stepVal.(int)
 	if step != 0 {
 		t.Errorf("expected backoff step reset to 0, got %d", step)
+	}
+}
+
+func TestRunTaskByIDReplanDecision(t *testing.T) {
+	t.Parallel()
+
+	taskID := "norma-replan1"
+	replanDecision := "replan"
+	tracker := &mockTracker{
+		tasksByID: map[string]task.Task{
+			taskID: {
+				ID:       taskID,
+				Status:   statusTodo,
+				Goal:     "test goal",
+				ParentID: "norma-parent",
+			},
+		},
+		addFollowUpResp: "norma-replan1-new",
+	}
+	tmp := t.TempDir()
+	w := &loopRuntime{
+		logger:     zerolog.Nop(),
+		workingDir: "",
+		normaDir:   tmp,
+		tracker:    tracker,
+		runStore:   &mockRunStore{statusByRunID: map[string]string{}},
+		factory: &mockFactory{
+			outcome: runpkg.AgentOutcome{Status: "passed", Decision: &replanDecision},
+		},
+	}
+
+	err := w.runTaskByID(context.Background(), taskID)
+	if err != nil {
+		t.Fatalf("runTaskByID() error = %v", err)
+	}
+
+	wantCalls := []string{statusPlanning}
+	if !slices.Equal(tracker.markStatusCalls, wantCalls) {
+		t.Fatalf("mark status calls = %v, want %v", tracker.markStatusCalls, wantCalls)
+	}
+
+	if len(tracker.addFollowUpCalls) != 1 {
+		t.Fatalf("addFollowUpCalls = %d, want 1", len(tracker.addFollowUpCalls))
+	}
+	if tracker.addFollowUpCalls[0].parentID != "norma-parent" {
+		t.Errorf("addFollowUp parentID = %v, want norma-parent", tracker.addFollowUpCalls[0].parentID)
+	}
+	if len(tracker.addRelatedLinkCalls) != 1 {
+		t.Fatalf("addRelatedLinkCalls = %d, want 1", len(tracker.addRelatedLinkCalls))
+	}
+	if tracker.addRelatedLinkCalls[0].from != taskID {
+		t.Errorf("addRelatedLink from = %v, want %s", tracker.addRelatedLinkCalls[0].from, taskID)
+	}
+	if len(tracker.closeWithReasonCalls) != 1 {
+		t.Fatalf("closeWithReasonCalls = %d, want 1", len(tracker.closeWithReasonCalls))
+	}
+	if tracker.closeWithReasonCalls[0].id != taskID {
+		t.Errorf("closeWithReason id = %v, want %s", tracker.closeWithReasonCalls[0].id, taskID)
+	}
+}
+
+func TestHandleReplanRemovesStaleLabels(t *testing.T) {
+	t.Parallel()
+
+	taskID := "norma-stale-1"
+	tracker := &mockTracker{
+		tasksByID: map[string]task.Task{
+			taskID: {
+				ID:       taskID,
+				Status:   statusTodo,
+				Goal:     "test goal",
+				Title:    "Test Task",
+				ParentID: "norma-parent",
+			},
+		},
+		addFollowUpResp: "norma-stale-1-replan",
+	}
+	w := &loopRuntime{
+		logger:  zerolog.Nop(),
+		tracker: tracker,
+	}
+
+	task, err := tracker.Task(context.Background(), taskID)
+	if err != nil {
+		t.Fatalf("Task() error = %v", err)
+	}
+
+	err = w.handleReplan(context.Background(), taskID, task)
+	if err != nil {
+		t.Fatalf("handleReplan() error = %v", err)
+	}
+
+	expectedLabels := []string{"norma-has-plan", "norma-has-do", "norma-has-check"}
+	if len(tracker.removeLabelCalls) != len(expectedLabels) {
+		t.Fatalf("removeLabelCalls = %d, want %d", len(tracker.removeLabelCalls), len(expectedLabels))
+	}
+
+	removedLabels := make(map[string]bool)
+	for _, call := range tracker.removeLabelCalls {
+		if call.id != taskID {
+			t.Errorf("removeLabel id = %v, want %s", call.id, taskID)
+		}
+		removedLabels[call.label] = true
+	}
+	for _, label := range expectedLabels {
+		if !removedLabels[label] {
+			t.Errorf("expected label %q to be removed", label)
+		}
+	}
+}
+
+func TestHandleReplanWiresBlockedDependents(t *testing.T) {
+	t.Parallel()
+
+	oldTaskID := "norma-old-1"
+	newTaskID := "norma-new-1"
+	blockedTaskID := "norma-blocked-1"
+
+	tracker := &mockTracker{
+		tasksByID: map[string]task.Task{
+			oldTaskID: {
+				ID:       oldTaskID,
+				Status:   statusTodo,
+				Goal:     "test goal",
+				Title:    "Old Task",
+				ParentID: "norma-parent",
+			},
+			blockedTaskID: {
+				ID:     blockedTaskID,
+				Status: statusTodo,
+				Goal:   "blocked task",
+			},
+		},
+		addFollowUpResp:           newTaskID,
+		listBlockedDependentsResp: []task.Task{{ID: blockedTaskID}},
+	}
+	w := &loopRuntime{
+		logger:  zerolog.Nop(),
+		tracker: tracker,
+	}
+
+	task, err := tracker.Task(context.Background(), oldTaskID)
+	if err != nil {
+		t.Fatalf("Task() error = %v", err)
+	}
+
+	err = w.handleReplan(context.Background(), oldTaskID, task)
+	if err != nil {
+		t.Fatalf("handleReplan() error = %v", err)
+	}
+
+	if len(tracker.listBlockedDependentsCalls) != 1 {
+		t.Fatalf("listBlockedDependentsCalls = %d, want 1", len(tracker.listBlockedDependentsCalls))
+	}
+	if tracker.listBlockedDependentsCalls[0] != oldTaskID {
+		t.Errorf("listBlockedDependentsCalls[0] = %v, want %s", tracker.listBlockedDependentsCalls[0], oldTaskID)
+	}
+}
+
+func TestHandleReplanAddsReplanLabel(t *testing.T) {
+	t.Parallel()
+
+	taskID := "norma-replan-label-1"
+	tracker := &mockTracker{
+		tasksByID: map[string]task.Task{
+			taskID: {
+				ID:       taskID,
+				Status:   statusTodo,
+				Goal:     "test goal",
+				Title:    "Test Task",
+				ParentID: "norma-parent",
+			},
+		},
+		addFollowUpResp: "norma-replan-label-1-new",
+	}
+	w := &loopRuntime{
+		logger:  zerolog.Nop(),
+		tracker: tracker,
+	}
+
+	task, err := tracker.Task(context.Background(), taskID)
+	if err != nil {
+		t.Fatalf("Task() error = %v", err)
+	}
+
+	err = w.handleReplan(context.Background(), taskID, task)
+	if err != nil {
+		t.Fatalf("handleReplan() error = %v", err)
+	}
+
+	found := false
+	for _, call := range tracker.addLabelCalls {
+		if call.id == taskID && call.label == "replan-needed" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected replan-needed label to be added to task %s", taskID)
+	}
+}
+
+func TestHandleReplanClosesWithReason(t *testing.T) {
+	t.Parallel()
+
+	taskID := "norma-close-1"
+	tracker := &mockTracker{
+		tasksByID: map[string]task.Task{
+			taskID: {
+				ID:       taskID,
+				Status:   statusTodo,
+				Goal:     "test goal",
+				Title:    "Test Task",
+				ParentID: "norma-parent",
+			},
+		},
+		addFollowUpResp: "norma-close-1-new",
+	}
+	w := &loopRuntime{
+		logger:  zerolog.Nop(),
+		tracker: tracker,
+	}
+
+	task, err := tracker.Task(context.Background(), taskID)
+	if err != nil {
+		t.Fatalf("Task() error = %v", err)
+	}
+
+	err = w.handleReplan(context.Background(), taskID, task)
+	if err != nil {
+		t.Fatalf("handleReplan() error = %v", err)
+	}
+
+	if len(tracker.closeWithReasonCalls) != 1 {
+		t.Fatalf("closeWithReasonCalls = %d, want 1", len(tracker.closeWithReasonCalls))
+	}
+	if tracker.closeWithReasonCalls[0].id != taskID {
+		t.Errorf("closeWithReason id = %v, want %s", tracker.closeWithReasonCalls[0].id, taskID)
+	}
+	if tracker.closeWithReasonCalls[0].reason != "wont do: replan needed" {
+		t.Errorf("closeWithReason reason = %v, want 'wont do: replan needed'", tracker.closeWithReasonCalls[0].reason)
 	}
 }

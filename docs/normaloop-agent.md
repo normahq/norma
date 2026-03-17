@@ -93,7 +93,7 @@ After workflow returns:
 
 - Beads (`bd`): task/backlog source of truth
 - SQLite (`.norma/norma.db`): run/step/event state
-- Filesystem (`.norma/runs/...`): per-step artifacts/logs/workspaces
+- Filesystem (`.norma/runs/...`): per-step logs/workspaces, shared artifacts/
 
 ## Related Files
 

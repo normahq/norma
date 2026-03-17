@@ -225,7 +225,7 @@ func (a *Agent) logADKEvent(ev *session.Event, msg string) {
 	if ev == nil {
 		return
 	}
-	logEvent := a.logger.Debug().
+	logEvent := a.logger.Trace().
 		Str("invocation_id", ev.InvocationID).
 		Bool("partial", ev.Partial).
 		Bool("turn_complete", ev.TurnComplete)
@@ -233,13 +233,8 @@ func (a *Agent) logADKEvent(ev *session.Event, msg string) {
 	if ev.FinishReason != "" {
 		logEvent = logEvent.Str("finish_reason", string(ev.FinishReason))
 	}
-	if ev.UsageMetadata != nil {
-		logEvent = logEvent.Int32("prompt_tokens", ev.UsageMetadata.PromptTokenCount).
-			Int32("candidates_tokens", ev.UsageMetadata.CandidatesTokenCount).
-			Int32("total_tokens", ev.UsageMetadata.TotalTokenCount)
-	}
 	if ev.Content != nil {
-		logEvent = logEvent.Int("parts_count", len(ev.Content.Parts))
+		logEvent = logEvent.Bool("has_content", true)
 	}
 	logEvent.Msg(msg)
 }
