@@ -49,4 +49,8 @@ type Tracker interface {
 	AddLabel(ctx context.Context, id string, label string) error
 	RemoveLabel(ctx context.Context, id string, label string) error
 	SetNotes(ctx context.Context, id string, notes string) error
+	CloseWithReason(ctx context.Context, id string, reason string) error
+	AddRelatedLink(ctx context.Context, id1, id2 string) error
+	ListBlockedDependents(ctx context.Context, id string) ([]Task, error)
+	AddFollowUp(ctx context.Context, parentID, title, goal string, criteria []AcceptanceCriterion) (string, error)
 }

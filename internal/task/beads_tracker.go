@@ -326,6 +326,62 @@ func (t *BeadsTracker) SetNotes(ctx context.Context, id string, notes string) er
 	return err
 }
 
+// CloseWithReason closes a task with an explicit close reason.
+func (t *BeadsTracker) CloseWithReason(ctx context.Context, id string, reason string) error {
+	_, err := t.exec(ctx, "close", id, "--reason", reason, "--json", "--quiet")
+	if err != nil {
+		return err
+	}
+
+	allLabels := []string{
+		normaStatusPlanning, normaStatusDoing, normaStatusChecking, normaStatusActing,
+		"norma-has-plan", "norma-has-do", "norma-has-check",
+	}
+	for _, l := range allLabels {
+		_, _ = t.exec(ctx, "update", id, "--remove-label", l, "--json", "--quiet")
+	}
+	return nil
+}
+
+// AddRelatedLink creates a bidirectional relates_to link between two issues.
+func (t *BeadsTracker) AddRelatedLink(ctx context.Context, id1, id2 string) error {
+	if strings.TrimSpace(id1) == "" || strings.TrimSpace(id2) == "" {
+		return fmt.Errorf("both issue IDs are required")
+	}
+	_, err := t.exec(ctx, "dep", "relate", id1, id2, "--json", "--quiet")
+	return err
+}
+
+// ListBlockedDependents returns issues that depend on the given issue.
+func (t *BeadsTracker) ListBlockedDependents(ctx context.Context, id string) ([]Task, error) {
+	if strings.TrimSpace(id) == "" {
+		return nil, fmt.Errorf("issue id is required")
+	}
+	args := []string{"dep", "list", id, "--direction", "up", "--json", "--quiet"}
+	out, err := t.exec(ctx, args...)
+	if err != nil {
+		return nil, fmt.Errorf("bd dep list up: %w", err)
+	}
+
+	var issues []BeadsIssue
+	if len(out) > 0 {
+		if err := json.Unmarshal(out, &issues); err != nil {
+			return nil, fmt.Errorf("parse bd dep list: %w", err)
+		}
+	}
+
+	var tasks []Task
+	for _, issue := range issues {
+		tasks = append(tasks, t.toTask(issue))
+	}
+	return tasks, nil
+}
+
+// AddFollowUp creates a follow-up task with parent context.
+func (t *BeadsTracker) AddFollowUp(ctx context.Context, parentID, title, goal string, criteria []AcceptanceCriterion) (string, error) {
+	return t.AddTaskDetailed(ctx, parentID, title, goal, criteria, nil)
+}
+
 // Update updates title and goal.
 func (t *BeadsTracker) Update(ctx context.Context, id string, title, goal string) error {
 	description := strings.TrimSpace(goal)

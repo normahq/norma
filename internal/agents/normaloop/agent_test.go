@@ -111,9 +111,17 @@ func (m *mockTracker) setLeafState(leafErr error, leafTasks []task.Task) {
 func (m *mockTracker) UpdateWorkflowState(context.Context, string, string) error {
 	return nil
 }
-func (m *mockTracker) AddLabel(context.Context, string, string) error    { return nil }
-func (m *mockTracker) RemoveLabel(context.Context, string, string) error { return nil }
-func (m *mockTracker) SetNotes(context.Context, string, string) error    { return nil }
+func (m *mockTracker) AddLabel(context.Context, string, string) error        { return nil }
+func (m *mockTracker) RemoveLabel(context.Context, string, string) error     { return nil }
+func (m *mockTracker) SetNotes(context.Context, string, string) error        { return nil }
+func (m *mockTracker) CloseWithReason(context.Context, string, string) error { return nil }
+func (m *mockTracker) AddRelatedLink(context.Context, string, string) error  { return nil }
+func (m *mockTracker) ListBlockedDependents(context.Context, string) ([]task.Task, error) {
+	return nil, nil
+}
+func (m *mockTracker) AddFollowUp(context.Context, string, string, string, []task.AcceptanceCriterion) (string, error) {
+	return "", nil
+}
 
 type mockRunStore struct {
 	statusByRunID map[string]string
