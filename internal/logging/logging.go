@@ -27,6 +27,7 @@ func Init(debug, trace bool) {
 		Out:        os.Stderr,
 		TimeFormat: time.RFC3339,
 	}).With().Timestamp().Logger()
+	zerolog.DefaultContextLogger = &log.Logger
 }
 
 // DebugEnabled reports whether debug logging is enabled.

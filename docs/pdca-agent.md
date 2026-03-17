@@ -77,6 +77,7 @@ Act behavior:
   - `output.json`
   - `logs/stdout.txt`
   - `logs/stderr.txt`
+  - `logs/events.log` (ADK event stream as JSONL)
 
 ## State Model
 

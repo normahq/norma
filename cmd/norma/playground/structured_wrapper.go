@@ -14,7 +14,7 @@ import (
 	acp "github.com/coder/acp-go-sdk"
 	"github.com/metalagman/norma/internal/adk/agentconfig"
 	"github.com/metalagman/norma/internal/adk/agentfactory"
-	adkstructured "github.com/metalagman/norma/internal/adk/structured"
+	adkstructured "github.com/metalagman/norma/internal/adk/structuredio"
 	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 	adkagent "google.golang.org/adk/agent"

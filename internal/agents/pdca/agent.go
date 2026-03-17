@@ -449,10 +449,16 @@ func (a *runtime) runStep(ctx agent.InvocationContext, iteration int, roleName s
 	}
 	defer func() { _ = stderrFile.Close() }()
 
+	eventsFile, err := os.OpenFile(filepath.Join(stepDir, "logs", "events.log"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("create events log file: %w", err)
+	}
+	defer func() { _ = eventsFile.Close() }()
+
 	multiStdout, multiStderr := agentOutputWriters(logging.DebugEnabled(), stdoutFile, stderrFile)
 
 	startTime := time.Now()
-	lastOut, _, exitCode, err := runner.Run(ctx, req, multiStdout, multiStderr)
+	lastOut, _, exitCode, err := runner.Run(ctx, req, multiStdout, multiStderr, eventsFile)
 	if err != nil {
 		return nil, fmt.Errorf("run role %q agent (exit code %d): %w", roleName, exitCode, err)
 	}
