@@ -162,6 +162,9 @@ func (w *Factory) Finalize(ctx context.Context, meta runpkg.RunMeta, payload run
 	if effectiveVerdict != "" {
 		res.Verdict = &effectiveVerdict
 	}
+	if decision != "" {
+		res.Decision = &decision
+	}
 
 	return res, nil
 }

@@ -268,3 +268,99 @@ func TestDeriveFinalOutcome(t *testing.T) {
 		})
 	}
 }
+
+func TestDecisionPropagation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		state        stubState
+		wantDecision string
+		wantVerdict  string
+		wantStatus   string
+	}{
+		{
+			name: "decision propagates to outcome",
+			state: stubState{
+				values: map[string]any{
+					"verdict":   "FAIL",
+					"decision":  "replan",
+					"iteration": 3,
+				},
+			},
+			wantDecision: "replan",
+			wantVerdict:  "FAIL",
+			wantStatus:   "failed",
+		},
+		{
+			name: "close decision propagates to outcome",
+			state: stubState{
+				values: map[string]any{
+					"decision":  "close",
+					"iteration": 2,
+				},
+			},
+			wantDecision: "close",
+			wantVerdict:  "PASS",
+			wantStatus:   "passed",
+		},
+		{
+			name: "continue decision propagates to outcome",
+			state: stubState{
+				values: map[string]any{
+					"verdict":   "PASS",
+					"decision":  "continue",
+					"iteration": 1,
+				},
+			},
+			wantDecision: "continue",
+			wantVerdict:  "PASS",
+			wantStatus:   "passed",
+		},
+		{
+			name: "decision from task_state propagates to outcome",
+			state: stubState{
+				values: map[string]any{
+					"iteration": 5,
+					"task_state": &contracts.TaskState{
+						Check: &check.CheckOutput{
+							Verdict: &check.CheckVerdict{
+								Status: "PASS",
+							},
+						},
+						Act: &act.ActOutput{
+							Decision: "close",
+						},
+					},
+				},
+			},
+			wantDecision: "close",
+			wantVerdict:  "PASS",
+			wantStatus:   "passed",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			verdict, decision, iteration, err := parseFinalState(tc.state)
+			if err != nil {
+				t.Fatalf("parseFinalState() unexpected error: %v", err)
+			}
+
+			status, effectiveVerdict := deriveFinalOutcome(verdict, decision)
+
+			if decision != tc.wantDecision {
+				t.Fatalf("decision = %q, want %q", decision, tc.wantDecision)
+			}
+			if effectiveVerdict != tc.wantVerdict {
+				t.Fatalf("verdict = %q, want %q", effectiveVerdict, tc.wantVerdict)
+			}
+			if status != tc.wantStatus {
+				t.Fatalf("status = %q, want %q", status, tc.wantStatus)
+			}
+			_ = iteration
+		})
+	}
+}
