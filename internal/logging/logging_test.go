@@ -1,6 +1,7 @@
 package logging
 
 import (
+	"log/slog"
 	"os"
 	"testing"
 
@@ -8,9 +9,15 @@ import (
 )
 
 func TestInitDefault(t *testing.T) {
-	Init(false, false)
+	_ = Init()
 	if zerolog.GlobalLevel() != zerolog.InfoLevel {
 		t.Errorf("expected InfoLevel, got %v", zerolog.GlobalLevel())
+	}
+	if slog.Default().Handler().Enabled(nil, slog.LevelDebug) {
+		t.Error("expected slog level info, but debug enabled")
+	}
+	if !slog.Default().Handler().Enabled(nil, slog.LevelInfo) {
+		t.Error("expected slog level info enabled")
 	}
 	if DebugEnabled() {
 		t.Error("expected DebugEnabled() to be false")
@@ -21,9 +28,12 @@ func TestInitDefault(t *testing.T) {
 }
 
 func TestInitDebug(t *testing.T) {
-	Init(true, false)
+	_ = Init(WithDebug(true))
 	if zerolog.GlobalLevel() != zerolog.DebugLevel {
 		t.Errorf("expected DebugLevel, got %v", zerolog.GlobalLevel())
+	}
+	if !slog.Default().Handler().Enabled(nil, slog.LevelDebug) {
+		t.Error("expected slog level debug enabled")
 	}
 	if !DebugEnabled() {
 		t.Error("expected DebugEnabled() to be true")
@@ -34,9 +44,12 @@ func TestInitDebug(t *testing.T) {
 }
 
 func TestInitTrace(t *testing.T) {
-	Init(false, true)
+	_ = Init(WithTrace(true))
 	if zerolog.GlobalLevel() != zerolog.TraceLevel {
 		t.Errorf("expected TraceLevel, got %v", zerolog.GlobalLevel())
+	}
+	if !slog.Default().Handler().Enabled(nil, slog.LevelDebug-4) {
+		t.Error("expected slog level trace enabled")
 	}
 	if TraceEnabled() != true {
 		t.Error("expected TraceEnabled() to be true")
@@ -44,7 +57,7 @@ func TestInitTrace(t *testing.T) {
 }
 
 func TestInitTraceOverridesDebug(t *testing.T) {
-	Init(true, true)
+	_ = Init(WithDebug(true), WithTrace(true))
 	if zerolog.GlobalLevel() != zerolog.TraceLevel {
 		t.Errorf("expected TraceLevel, got %v", zerolog.GlobalLevel())
 	}
@@ -54,35 +67,31 @@ func TestInitTraceOverridesDebug(t *testing.T) {
 }
 
 func TestDebugEnabled(t *testing.T) {
-	Init(true, false)
+	_ = Init(WithDebug(true))
 	if !DebugEnabled() {
 		t.Error("expected DebugEnabled() to be true when debug=true")
 	}
 
-	Init(false, false)
+	_ = Init(WithDebug(false))
 	if DebugEnabled() {
 		t.Error("expected DebugEnabled() to be false when debug=false")
 	}
 }
 
 func TestTraceEnabled(t *testing.T) {
-	Init(false, true)
+	_ = Init(WithTrace(true))
 	if !TraceEnabled() {
 		t.Error("expected TraceEnabled() to be true when trace=true")
 	}
 
-	Init(false, false)
+	_ = Init(WithTrace(false))
 	if TraceEnabled() {
 		t.Error("expected TraceEnabled() to be false when trace=false")
 	}
 }
 
-func TestConsoleWriter(t *testing.T) {
-	Init(false, false)
-
-	if zerolog.GlobalLevel() != zerolog.InfoLevel {
-		t.Error("expected logger to be initialized with InfoLevel")
-	}
+func TestJSONEnabled(t *testing.T) {
+	_ = Init(WithJson(true))
 }
 
 func TestMain(m *testing.M) {

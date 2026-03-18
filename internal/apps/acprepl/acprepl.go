@@ -36,7 +36,7 @@ func RunREPL(
 ) error {
 	lockedStderr := &replSyncWriter{writer: stderr}
 	l := zerolog.Ctx(ctx)
-	ui := newACPToolTerminal(stdin, stdout, lockedStderr, l)
+	ui := newACPToolTerminal(stdin, stdout, lockedStderr)
 
 	l.Debug().
 		Str("working_dir", workingDir).
@@ -93,7 +93,7 @@ func RunREPL(
 			l.Debug().Msg("received exit command, exiting REPL")
 			return nil
 		}
-		if err := runACPToolTurn(ctx, runner, sess, ui, l, trimmedPrompt); err != nil {
+		if err := runACPToolTurn(ctx, runner, sess, ui, trimmedPrompt); err != nil {
 			return err
 		}
 	}
@@ -124,9 +124,9 @@ func runACPToolTurn(
 	r *runnerpkg.Runner,
 	sess session.Session,
 	ui *acpToolTerminal,
-	logger *zerolog.Logger,
 	prompt string,
 ) error {
+	logger := zerolog.Ctx(ctx)
 	trimmedPrompt := strings.TrimSpace(prompt)
 	logger.Debug().
 		Str("session_id", sess.ID()).
@@ -188,16 +188,14 @@ type acpToolTerminal struct {
 	reader *bufio.Reader
 	stdout io.Writer
 	stderr io.Writer
-	logger *zerolog.Logger
 	mu     sync.Mutex
 }
 
-func newACPToolTerminal(stdin io.Reader, stdout, stderr io.Writer, logger *zerolog.Logger) *acpToolTerminal {
+func newACPToolTerminal(stdin io.Reader, stdout, stderr io.Writer) *acpToolTerminal {
 	return &acpToolTerminal{
 		reader: bufio.NewReader(stdin),
 		stdout: stdout,
 		stderr: stderr,
-		logger: logger,
 	}
 }
 
@@ -225,15 +223,16 @@ func (t *acpToolTerminal) Println(args ...any) {
 	_, _ = fmt.Fprintln(t.stdout, args...)
 }
 
-func (t *acpToolTerminal) RequestPermission(_ context.Context, req acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error) {
+func (t *acpToolTerminal) RequestPermission(ctx context.Context, req acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
+	logger := zerolog.Ctx(ctx)
 	title := ""
 	if req.ToolCall.Title != nil {
 		title = *req.ToolCall.Title
 	}
-	t.logger.Debug().
+	logger.Debug().
 		Str("permission_title", title).
 		Int("option_count", len(req.Options)).
 		Msg("permission requested")
@@ -266,6 +265,7 @@ func (t *acpToolTerminal) RequestPermission(_ context.Context, req acp.RequestPe
 	selected := req.Options[choice-1]
 	return acp.RequestPermissionResponse{Outcome: acp.NewRequestPermissionOutcomeSelected(selected.OptionId)}, nil
 }
+
 
 type replSyncWriter struct {
 	mu     sync.Mutex

@@ -40,8 +40,8 @@ All contributors MUST:
 ## 0.3) Logging policy
 
 To ensure consistent and high-quality logging across all components:
-- **Zerolog only**: All components MUST use `github.com/rs/zerolog` for logging.
-- **Prohibited libraries**: Usage of `logrus`, `zap`, `slog`, or the standard `log` package is strictly prohibited.
+- **Zerolog and slog**: All components MUST use `github.com/rs/zerolog` or `log/slog` for logging.
+- **Prohibited libraries**: Usage of `logrus`, `zap`, or the standard `log` package is strictly prohibited.
 - **Global configuration**: Use the global logger initialized via `internal/logging.Init()`.
 - **Structured logging**: Prefer structured logging (e.g., `log.Info().Str("key", value).Msg("message")`) over formatted strings.
 

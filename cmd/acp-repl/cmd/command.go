@@ -49,7 +49,7 @@ func Command() *cobra.Command {
 	cmd.Flags().StringVar(&sessionMode, "mode", "", "session mode requested via ACP session/set_mode")
 	cmd.Flags().BoolVar(&debugLogs, "debug", false, "enable debug logging")
 	cmd.PersistentPreRun = func(cmd *cobra.Command, _ []string) {
-		logging.Init(debugLogs, false)
+		_ = logging.Init(logging.WithDebug(debugLogs))
 	}
 	return cmd
 }
