@@ -30,6 +30,131 @@ func TestBuildCodexMCPCommand(t *testing.T) {
 	}
 }
 
+func TestValidateMCPServersEmpty(t *testing.T) {
+	result, err := validateMCPServers(nil)
+	if err != nil {
+		t.Fatalf("validateMCPServers(nil) error = %v, want nil", err)
+	}
+	if result != nil {
+		t.Fatalf("validateMCPServers(nil) = %v, want nil", result)
+	}
+
+	result, err = validateMCPServers([]acp.McpServer{})
+	if err != nil {
+		t.Fatalf("validateMCPServers([]) error = %v, want nil", err)
+	}
+	if result != nil {
+		t.Fatalf("validateMCPServers([]) = %v, want nil", result)
+	}
+}
+
+func TestValidateMCPServersStdio(t *testing.T) {
+	servers := []acp.McpServer{
+		{
+			Stdio: &acp.McpServerStdio{
+				Name:    "my-server",
+				Command: "node",
+				Args:    []string{"server.js"},
+			},
+		},
+	}
+	result, err := validateMCPServers(servers)
+	if err != nil {
+		t.Fatalf("validateMCPServers(stdio) error = %v, want nil", err)
+	}
+	if len(result) != 1 {
+		t.Fatalf("len(result) = %d, want 1", len(result))
+	}
+	if _, ok := result["my-server"]; !ok {
+		t.Fatalf("result does not contain 'my-server'")
+	}
+}
+
+func TestValidateMCPServersHttp(t *testing.T) {
+	servers := []acp.McpServer{
+		{
+			Http: &acp.McpServerHttp{
+				Name: "http-server",
+				Url:  "http://localhost:8080",
+			},
+		},
+	}
+	result, err := validateMCPServers(servers)
+	if err != nil {
+		t.Fatalf("validateMCPServers(http) error = %v, want nil", err)
+	}
+	if len(result) != 1 {
+		t.Fatalf("len(result) = %d, want 1", len(result))
+	}
+	if _, ok := result["http-server"]; !ok {
+		t.Fatalf("result does not contain 'http-server'")
+	}
+}
+
+func TestValidateMCPServersRejectsSse(t *testing.T) {
+	servers := []acp.McpServer{
+		{
+			Sse: &acp.McpServerSse{
+				Name: "sse-server",
+				Url:  "http://localhost:8080/sse",
+			},
+		},
+	}
+	_, err := validateMCPServers(servers)
+	if err == nil {
+		t.Fatal("validateMCPServers(sse) error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "sse") {
+		t.Fatalf("error = %q, want containing 'sse'", err.Error())
+	}
+}
+
+func TestValidateMCPServersRejectsNoTransport(t *testing.T) {
+	servers := []acp.McpServer{
+		{},
+	}
+	_, err := validateMCPServers(servers)
+	if err == nil {
+		t.Fatal("validateMCPServers(no transport) error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "transport") {
+		t.Fatalf("error = %q, want containing 'transport'", err.Error())
+	}
+}
+
+func TestValidateMCPServersRejectsDuplicateNames(t *testing.T) {
+	servers := []acp.McpServer{
+		{
+			Stdio: &acp.McpServerStdio{Name: "server1", Command: "echo"},
+		},
+		{
+			Stdio: &acp.McpServerStdio{Name: "server1", Command: "echo"},
+		},
+	}
+	_, err := validateMCPServers(servers)
+	if err == nil {
+		t.Fatal("validateMCPServers(duplicate) error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "duplicated") {
+		t.Fatalf("error = %q, want containing 'duplicated'", err.Error())
+	}
+}
+
+func TestValidateMCPServersRejectsEmptyName(t *testing.T) {
+	servers := []acp.McpServer{
+		{
+			Stdio: &acp.McpServerStdio{Name: "", Command: "echo"},
+		},
+	}
+	_, err := validateMCPServers(servers)
+	if err == nil {
+		t.Fatal("validateMCPServers(empty name) error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "name is required") {
+		t.Fatalf("error = %q, want containing 'name is required'", err.Error())
+	}
+}
+
 func TestBuildCodexMCPCommandDoesNotInjectModelConfig(t *testing.T) {
 	got := buildCodexMCPCommand(Options{
 		CodexModel: "gpt-5.4",
@@ -74,6 +199,7 @@ func TestBuildCodexToolInvocationIncludesCodexConfigOnInitialCall(t *testing.T) 
 			Sandbox:               "workspace-write",
 		},
 		"",
+		nil,
 	)
 	if toolName != codexToolName {
 		t.Fatalf("toolName = %q, want %q", toolName, codexToolName)
@@ -124,6 +250,7 @@ func TestBuildCodexToolInvocationReplyOmitsCodexConfig(t *testing.T) {
 			Sandbox: "workspace-write",
 		},
 		"",
+		nil,
 	)
 	if toolName != codexReplyToolName {
 		t.Fatalf("toolName = %q, want %q", toolName, codexReplyToolName)
@@ -152,12 +279,91 @@ func TestBuildCodexToolInvocationSessionModelOverridesConfiguredModel(t *testing
 		"hello",
 		codexToolConfig{Model: "gpt-default"},
 		"gpt-session",
+		nil,
 	)
 	if toolName != codexToolName {
 		t.Fatalf("toolName = %q, want %q", toolName, codexToolName)
 	}
 	if got := mapArgString(args, "model"); got != "gpt-session" {
 		t.Fatalf("model = %q, want %q", got, "gpt-session")
+	}
+}
+
+func TestBuildCodexToolInvocationIncludesMCPServersOnFirstTurn(t *testing.T) {
+	mcpServers := map[string]acp.McpServer{
+		"my-filesystem": {
+			Stdio: &acp.McpServerStdio{
+				Name:    "my-filesystem",
+				Command: "npx",
+				Args:    []string{"-y", "@modelcontextprotocol/server-filesystem", "/tmp"},
+			},
+		},
+		"my-http": {
+			Http: &acp.McpServerHttp{
+				Name: "my-http",
+				Url:  "http://localhost:8080",
+				Headers: []acp.HttpHeader{
+					{Name: "Authorization", Value: "Bearer token"},
+				},
+			},
+		},
+	}
+	toolName, args := buildCodexToolInvocation(
+		"",
+		"/tmp/work",
+		"list files",
+		codexToolConfig{Model: "gpt-5.2-codex"},
+		"",
+		mcpServers,
+	)
+	if toolName != codexToolName {
+		t.Fatalf("toolName = %q, want %q", toolName, codexToolName)
+	}
+	mcpServersArg, ok := args["mcpServers"].([]map[string]any)
+	if !ok {
+		t.Fatalf("mcpServers type = %T, want []map[string]any", args["mcpServers"])
+	}
+	if len(mcpServersArg) != 2 {
+		t.Fatalf("len(mcpServers) = %d, want 2", len(mcpServersArg))
+	}
+	serverMap := make(map[string]map[string]any)
+	for _, s := range mcpServersArg {
+		name, _ := s["name"].(string)
+		serverMap[name] = s
+	}
+	if _, ok := serverMap["my-filesystem"]; !ok {
+		t.Fatal("mcpServers does not contain my-filesystem")
+	}
+	if serverMap["my-filesystem"]["transport"] != "stdio" {
+		t.Fatalf("my-filesystem transport = %v, want stdio", serverMap["my-filesystem"]["transport"])
+	}
+	if _, ok := serverMap["my-http"]; !ok {
+		t.Fatal("mcpServers does not contain my-http")
+	}
+	if serverMap["my-http"]["transport"] != "http" {
+		t.Fatalf("my-http transport = %v, want http", serverMap["my-http"]["transport"])
+	}
+}
+
+func TestBuildCodexToolInvocationOmitsMCPServersOnReplyTurn(t *testing.T) {
+	mcpServers := map[string]acp.McpServer{
+		"my-server": {
+			Stdio: &acp.McpServerStdio{Name: "my-server", Command: "echo"},
+		},
+	}
+	toolName, args := buildCodexToolInvocation(
+		"thread-123",
+		"/tmp/work",
+		"continue",
+		codexToolConfig{Model: "gpt-5.2-codex"},
+		"",
+		mcpServers,
+	)
+	if toolName != codexReplyToolName {
+		t.Fatalf("toolName = %q, want %q", toolName, codexReplyToolName)
+	}
+	if _, ok := args["mcpServers"]; ok {
+		t.Fatalf("reply args unexpectedly contain mcpServers: %v", args)
 	}
 }
 

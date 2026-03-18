@@ -145,8 +145,9 @@ func (f *factoryAgentCreator) CreateAgent(ctx context.Context, name string, req 
 		SystemInstruction: req.SystemInstruction,
 		WorkingDirectory:  req.WorkingDirectory,
 		Stderr:            f.req.Stderr,
+		MCPServers:        f.req.MCPServers,
 	}
-	return NewFactory(f.registry).CreateAgent(ctx, name, fullReq)
+	return NewFactoryWithMCPServers(f.registry, f.req.MCPServers).CreateAgent(ctx, name, fullReq)
 }
 
 type poolMemberConfig struct {

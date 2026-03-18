@@ -65,12 +65,13 @@ type codexACPProxyAgent struct {
 }
 
 type codexProxySessionState struct {
-	cwd     string
-	thread  string
-	model   string
-	mode    string
-	backend codexMCPToolSession
-	cancel  context.CancelFunc
+	cwd        string
+	thread     string
+	model      string
+	mode       string
+	mcpServers map[string]acp.McpServer
+	backend    codexMCPToolSession
+	cancel     context.CancelFunc
 }
 
 type codexToolConfig struct {
@@ -157,6 +158,49 @@ func validateEnumValue(label string, value string, allowed map[string]struct{}) 
 	return fmt.Errorf("invalid %s %q", label, trimmed)
 }
 
+func validateMCPServers(servers []acp.McpServer) (map[string]acp.McpServer, error) {
+	if len(servers) == 0 {
+		return nil, nil
+	}
+	result := make(map[string]acp.McpServer, len(servers))
+	for _, server := range servers {
+		var name string
+		hasStdio := false
+		hasHttp := false
+		hasSse := false
+
+		if server.Stdio != nil {
+			hasStdio = true
+			name = strings.TrimSpace(server.Stdio.Name)
+		}
+		if server.Http != nil {
+			hasHttp = true
+			name = strings.TrimSpace(server.Http.Name)
+		}
+		if server.Sse != nil {
+			hasSse = true
+			name = strings.TrimSpace(server.Sse.Name)
+		}
+
+		if !hasStdio && !hasHttp && !hasSse {
+			return nil, fmt.Errorf("mcp server must have at least one transport (stdio or http)")
+		}
+
+		if hasSse {
+			return nil, fmt.Errorf("mcp server %q: transport 'sse' is not supported, only stdio and http are allowed", name)
+		}
+
+		if name == "" {
+			return nil, fmt.Errorf("mcp server name is required")
+		}
+		if _, exists := result[name]; exists {
+			return nil, fmt.Errorf("mcp server with name %q is duplicated", name)
+		}
+		result[name] = server
+	}
+	return result, nil
+}
+
 func cloneMap(src map[string]any) map[string]any {
 	if len(src) == 0 {
 		return nil
@@ -166,6 +210,28 @@ func cloneMap(src map[string]any) map[string]any {
 		dst[key] = value
 	}
 	return dst
+}
+
+func flattenEnvVars(env []acp.EnvVariable) []string {
+	if len(env) == 0 {
+		return nil
+	}
+	result := make([]string, 0, len(env))
+	for _, e := range env {
+		result = append(result, e.Name+"="+e.Value)
+	}
+	return result
+}
+
+func flattenHttpHeaders(headers []acp.HttpHeader) map[string]string {
+	if len(headers) == 0 {
+		return nil
+	}
+	result := make(map[string]string, len(headers))
+	for _, h := range headers {
+		result[h.Name] = h.Value
+	}
+	return result
 }
 
 type codexMCPToolSession interface {
@@ -395,15 +461,22 @@ func (a *codexACPProxyAgent) Cancel(_ context.Context, params acp.CancelNotifica
 func (a *codexACPProxyAgent) NewSession(ctx context.Context, params acp.NewSessionRequest) (acp.NewSessionResponse, error) {
 	sessionID := acp.SessionId(fmt.Sprintf("session-%d", atomic.AddUint64(&a.nextSessionID, 1)))
 
+	mcpServers, err := validateMCPServers(params.McpServers)
+	if err != nil {
+		return acp.NewSessionResponse{}, acp.NewInvalidParams(err.Error())
+	}
+
 	a.mu.Lock()
 	a.sessions[sessionID] = &codexProxySessionState{
-		cwd:   strings.TrimSpace(params.Cwd),
-		model: a.defaultCodexConfig.Model,
+		cwd:        strings.TrimSpace(params.Cwd),
+		model:      a.defaultCodexConfig.Model,
+		mcpServers: mcpServers,
 	}
 	a.mu.Unlock()
 	a.logger.Debug().
 		Str("session_id", string(sessionID)).
 		Str("cwd", strings.TrimSpace(params.Cwd)).
+		Int("mcp_server_count", len(mcpServers)).
 		Msg("created session")
 
 	resp := acp.NewSessionResponse{SessionId: sessionID}
@@ -471,6 +544,7 @@ func (a *codexACPProxyAgent) Prompt(ctx context.Context, params acp.PromptReques
 	threadID := state.thread
 	cwd := state.cwd
 	model := state.model
+	mcpServers := state.mcpServers
 	backend = state.backend
 	a.mu.Unlock()
 
@@ -483,7 +557,7 @@ func (a *codexACPProxyAgent) Prompt(ctx context.Context, params acp.PromptReques
 	}()
 
 	toolID := acp.ToolCallId(fmt.Sprintf("codex-tool-%d", atomic.AddUint64(&a.nextToolID, 1)))
-	toolName, toolArgs := buildCodexToolInvocation(threadID, cwd, userPrompt, a.defaultCodexConfig, model)
+	toolName, toolArgs := buildCodexToolInvocation(threadID, cwd, userPrompt, a.defaultCodexConfig, model, mcpServers)
 	callStartedAt := time.Now()
 	a.logger.Debug().
 		Str("session_id", string(params.SessionId)).
@@ -787,7 +861,7 @@ func logJSON(v any) string {
 	return string(raw[:maxPayloadLen]) + fmt.Sprintf(`...{"truncated_bytes":%d}`, len(raw)-maxPayloadLen)
 }
 
-func buildCodexToolInvocation(threadID, cwd, prompt string, defaultConfig codexToolConfig, sessionModel string) (string, map[string]any) {
+func buildCodexToolInvocation(threadID, cwd, prompt string, defaultConfig codexToolConfig, sessionModel string, sessionMCPServers map[string]acp.McpServer) (string, map[string]any) {
 	args := map[string]any{
 		"prompt": prompt,
 	}
@@ -797,6 +871,30 @@ func buildCodexToolInvocation(threadID, cwd, prompt string, defaultConfig codexT
 	}
 	if strings.TrimSpace(threadID) == "" {
 		defaultConfig.withModel(sessionModel).applyTo(args)
+		if len(sessionMCPServers) > 0 {
+			mcpServersList := make([]map[string]any, 0, len(sessionMCPServers))
+			for _, server := range sessionMCPServers {
+				serverMap := map[string]any{}
+				if server.Stdio != nil {
+					serverMap["name"] = server.Stdio.Name
+					serverMap["command"] = server.Stdio.Command
+					serverMap["args"] = server.Stdio.Args
+					serverMap["env"] = flattenEnvVars(server.Stdio.Env)
+					serverMap["transport"] = "stdio"
+				} else if server.Http != nil {
+					serverMap["name"] = server.Http.Name
+					serverMap["url"] = server.Http.Url
+					serverMap["headers"] = flattenHttpHeaders(server.Http.Headers)
+					serverMap["transport"] = "http"
+				}
+				if len(serverMap) > 0 {
+					mcpServersList = append(mcpServersList, serverMap)
+				}
+			}
+			if len(mcpServersList) > 0 {
+				args["mcpServers"] = mcpServersList
+			}
+		}
 		return "codex", args
 	}
 	args["threadId"] = strings.TrimSpace(threadID)

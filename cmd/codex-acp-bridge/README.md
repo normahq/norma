@@ -36,6 +36,41 @@ codex-acp-bridge --debug
 - Creates separate backend Codex MCP sessions per ACP session.
 - Supports ACP `session/set_model` and propagates the selected model to new Codex tool calls.
 - Accepts ACP `session/set_mode` and resets the backend session, but does not currently propagate mode to Codex MCP tool arguments.
+- Supports per-session MCP servers via ACP `session/new` `mcpServers` parameter (stdio and http transports). SSE transport is not supported.
+
+## MCP Servers
+
+The bridge supports passing MCP servers to the Codex tool via the ACP `session/new` request. On the first turn of a session (no thread ID), any MCP servers provided in the `mcpServers` parameter are passed to the Codex tool as `mcpServers` argument.
+
+Example ACP session/new request with MCP servers:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "session/new",
+  "params": {
+    "cwd": "/workspace",
+    "mcpServers": [
+      {
+        "stdio": {
+          "name": "filesystem",
+          "command": "npx",
+          "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+        }
+      },
+      {
+        "http": {
+          "name": "github",
+          "url": "https://api.github.com"
+        }
+      }
+    ]
+  }
+}
+```
+
+Supported transports: `stdio`, `http`. The `sse` transport is explicitly rejected.
 
 ## Notes
 
