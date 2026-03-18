@@ -10,16 +10,20 @@ import (
 
 // Config is the root configuration.
 type Config struct {
-	Agents    map[string]agentconfig.Config `json:"agents,omitempty"   mapstructure:"agents"`
-	Profiles  map[string]ProfileConfig      `json:"profiles,omitempty" mapstructure:"profiles"`
-	Profile   string                        `json:"profile,omitempty"  mapstructure:"profile"`
-	RoleIDs   map[string]string             `json:"-"                  mapstructure:"-"`
-	Budgets   Budgets                       `json:"budgets"            mapstructure:"budgets"`
-	Retention RetentionPolicy               `json:"retention"          mapstructure:"retention"`
+	Agents     map[string]agentconfig.Config          `json:"agents,omitempty"     mapstructure:"agents"`
+	MCPServers map[string]agentconfig.MCPServerConfig `json:"mcp_servers,omitempty" mapstructure:"mcp_servers"`
+	Profiles   map[string]ProfileConfig               `json:"profiles,omitempty"  mapstructure:"profiles"`
+	Profile    string                                 `json:"profile,omitempty"   mapstructure:"profile"`
+	RoleIDs    map[string]string                      `json:"-"                  mapstructure:"-"`
+	Budgets    Budgets                                `json:"budgets"             mapstructure:"budgets"`
+	Retention  RetentionPolicy                        `json:"retention"          mapstructure:"retention"`
 }
 
 // AgentConfig describes how to run an agent.
 type AgentConfig = agentconfig.Config
+
+// MCPServerConfig describes an MCP server configuration.
+type MCPServerConfig = agentconfig.MCPServerConfig
 
 // ProfileConfig describes an agent profile.
 type ProfileConfig struct {

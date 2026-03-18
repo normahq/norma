@@ -13,6 +13,13 @@
         "$ref": "#/$defs/agentConfig"
       }
     },
+    "mcp_servers": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "$ref": "#/$defs/mcpServerConfig"
+      }
+    },
     "profiles": {
       "type": "object",
       "minProperties": 1,
@@ -101,6 +108,22 @@
             "type": "string",
             "minLength": 1
           }
+        },
+        "mcp_servers": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          ]
         }
       },
       "additionalProperties": false,
@@ -141,6 +164,78 @@
           },
           "then": {
             "required": ["pool"]
+          }
+        }
+      ]
+    },
+    "mcpServerConfig": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["stdio", "http", "sse"]
+        },
+        "cmd": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "env": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "working_dir": {
+          "type": "string",
+          "minLength": 1
+        },
+        "url": {
+          "type": "string",
+          "minLength": 1
+        },
+        "headers": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "stdio"
+              }
+            }
+          },
+          "then": {
+            "required": ["cmd"]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "enum": ["http", "sse"]
+              }
+            }
+          },
+          "then": {
+            "required": ["url"]
           }
         }
       ]

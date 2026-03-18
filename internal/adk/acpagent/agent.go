@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	acp "github.com/coder/acp-go-sdk"
+	"github.com/metalagman/norma/internal/adk/agentconfig"
 	"github.com/rs/zerolog"
 	adkagent "google.golang.org/adk/agent"
 	"google.golang.org/adk/session"
@@ -44,6 +45,8 @@ type Config struct {
 	PermissionHandler PermissionHandler
 	// Logger is the zerolog logger to use for this agent.
 	Logger *zerolog.Logger
+	// MCPServers is the map of MCP server configurations.
+	MCPServers map[string]agentconfig.MCPServerConfig
 }
 
 // Agent adapts an Agentic Computing Protocol (ACP) runtime to the ADK agent interface.

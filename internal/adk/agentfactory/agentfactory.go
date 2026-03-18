@@ -24,6 +24,7 @@ type CreationRequest struct {
 	Stdout            io.Writer
 	Stderr            io.Writer
 	PermissionHandler func(context.Context, acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error)
+	MCPServers        map[string]agentconfig.MCPServerConfig
 }
 
 // constructor is a function that creates a new agent instance.
@@ -31,13 +32,22 @@ type constructor func(ctx context.Context, cfg agentconfig.Config, req CreationR
 
 // Factory is a registry of agent configurations.
 type Factory struct {
-	registry map[string]agentconfig.Config
+	registry   map[string]agentconfig.Config
+	mcpServers map[string]agentconfig.MCPServerConfig
 }
 
 // NewFactory creates a new Factory from a map of agent configurations.
 func NewFactory(agents map[string]agentconfig.Config) *Factory {
 	return &Factory{
 		registry: agents,
+	}
+}
+
+// NewFactoryWithMCPServers creates a new Factory from a map of agent configurations and MCP servers.
+func NewFactoryWithMCPServers(agents map[string]agentconfig.Config, mcpServers map[string]agentconfig.MCPServerConfig) *Factory {
+	return &Factory{
+		registry:   agents,
+		mcpServers: mcpServers,
 	}
 }
 
@@ -51,6 +61,10 @@ func (f *Factory) CreateAgent(ctx context.Context, name string, req CreationRequ
 	cfg, ok := f.registry[name]
 	if !ok {
 		return nil, fmt.Errorf("agent %q not found or unsupported", name)
+	}
+
+	if req.MCPServers == nil {
+		req.MCPServers = f.mcpServers
 	}
 
 	create, ok := constructors[cfg.Type]
@@ -89,6 +103,7 @@ var acpConstructor = func(ctx context.Context, cfg agentconfig.Config, req Creat
 		WorkingDir:        req.WorkingDirectory,
 		Stderr:            req.Stderr,
 		PermissionHandler: req.PermissionHandler,
+		MCPServers:        req.MCPServers,
 	})
 }
 
@@ -111,16 +126,18 @@ var poolConstructor = func(ctx context.Context, cfg agentconfig.Config, req Crea
 		Description:       req.Description,
 		SystemInstruction: req.SystemInstruction,
 		WorkingDirectory:  req.WorkingDirectory,
+		MCPServers:        req.MCPServers,
 	}
 
-	creator := &factoryAgentCreator{registry: registry, req: req}
+	creator := &factoryAgentCreator{registry: registry, mcpServers: req.MCPServers, req: req}
 
 	return poolagent.NewPoolAgent(ctx, req.Name, poolMembers, poolReq, creator)
 }
 
 type factoryAgentCreator struct {
-	registry map[string]agentconfig.Config
-	req      CreationRequest
+	registry   map[string]agentconfig.Config
+	mcpServers map[string]agentconfig.MCPServerConfig
+	req        CreationRequest
 }
 
 func (f *factoryAgentCreator) CreateAgent(ctx context.Context, name string, req poolagent.AgentRequest) (agent.Agent, error) {
@@ -130,8 +147,9 @@ func (f *factoryAgentCreator) CreateAgent(ctx context.Context, name string, req 
 		SystemInstruction: req.SystemInstruction,
 		WorkingDirectory:  req.WorkingDirectory,
 		Stderr:            f.req.Stderr,
+		MCPServers:        f.mcpServers,
 	}
-	return NewFactory(f.registry).CreateAgent(ctx, name, fullReq)
+	return NewFactoryWithMCPServers(f.registry, f.mcpServers).CreateAgent(ctx, name, fullReq)
 }
 
 type poolMemberConfig struct {

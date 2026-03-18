@@ -131,6 +131,12 @@ agents:
       - opencode_acp_agent
       - gemini_acp_agent
 
+# Example MCP server configurations:
+# mcp_servers:
+#   my_mcp_server:
+#     type: stdio
+#     cmd: ["npx", "-y", "@example/mcp-server"]
+
 profiles:
   default:
     pdca:

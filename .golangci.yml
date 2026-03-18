@@ -24,6 +24,7 @@ linters:
     - maintidx
     - embeddedstructfieldcheck
     - funcorder
+    - tagalign
   enable:
     - errcheck
     - govet

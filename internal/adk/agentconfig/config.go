@@ -9,18 +9,42 @@ import (
 	"github.com/go-playground/validator/v10"
 )
 
+// MCPServerType represents the transport type for an MCP server.
+type MCPServerType string
+
+const (
+	// MCPServerTypeStdio is the stdio transport type.
+	MCPServerTypeStdio MCPServerType = "stdio"
+	// MCPServerTypeHTTP is the HTTP transport type.
+	MCPServerTypeHTTP MCPServerType = "http"
+	// MCPServerTypeSSE is the SSE (Server-Sent Events) transport type.
+	MCPServerTypeSSE MCPServerType = "sse"
+)
+
+// MCPServerConfig describes how to connect to an MCP server.
+type MCPServerConfig struct {
+	Type       MCPServerType     `json:"type"                 mapstructure:"type"        validate:"required"`
+	Cmd        []string          `json:"cmd,omitempty"       mapstructure:"cmd"`
+	Args       []string          `json:"args,omitempty"      mapstructure:"args"`
+	Env        map[string]string `json:"env,omitempty"       mapstructure:"env"`
+	WorkingDir string            `json:"working_dir,omitempty" mapstructure:"working_dir"`
+	URL        string            `json:"url,omitempty"       mapstructure:"url"`
+	Headers    map[string]string `json:"headers,omitempty"   mapstructure:"headers"`
+}
+
 // Config describes how to run an agent.
 type Config struct {
-	Type      string   `json:"type"                 mapstructure:"type"       validate:"required"`
-	Cmd       []string `json:"cmd,omitempty"        mapstructure:"cmd"`
-	ExtraArgs []string `json:"extra_args,omitempty" mapstructure:"extra_args"`
-	Model     string   `json:"model,omitempty"      mapstructure:"model"      validate:"omitempty,min=1"`
-	Mode      string   `json:"mode,omitempty"       mapstructure:"mode"       validate:"omitempty,min=1"`
-	BaseURL   string   `json:"base_url,omitempty"   mapstructure:"base_url"   validate:"omitempty,min=1"`
-	APIKey    string   `json:"api_key,omitempty"    mapstructure:"api_key"    validate:"omitempty,min=1"`
-	Timeout   int      `json:"timeout,omitempty"    mapstructure:"timeout"    validate:"omitempty,min=1"`
-	UseTTY    *bool    `json:"use_tty,omitempty"    mapstructure:"use_tty"`
-	Pool      []string `json:"pool,omitempty"       mapstructure:"pool"`
+	Type       string   `json:"type"                 mapstructure:"type"       validate:"required"`
+	Cmd        []string `json:"cmd,omitempty"        mapstructure:"cmd"`
+	ExtraArgs  []string `json:"extra_args,omitempty" mapstructure:"extra_args"`
+	Model      string   `json:"model,omitempty"      mapstructure:"model"      validate:"omitempty,min=1"`
+	Mode       string   `json:"mode,omitempty"       mapstructure:"mode"       validate:"omitempty,min=1"`
+	BaseURL    string   `json:"base_url,omitempty"   mapstructure:"base_url"   validate:"omitempty,min=1"`
+	APIKey     string   `json:"api_key,omitempty"    mapstructure:"api_key"    validate:"omitempty,min=1"`
+	Timeout    int      `json:"timeout,omitempty"    mapstructure:"timeout"    validate:"omitempty,min=1"`
+	UseTTY     *bool    `json:"use_tty,omitempty"    mapstructure:"use_tty"`
+	Pool       []string `json:"pool,omitempty"       mapstructure:"pool"`
+	MCPServers any      `json:"mcp_servers,omitempty" mapstructure:"mcp_servers"`
 }
 
 var configValidator = newConfigValidator()
@@ -163,6 +187,93 @@ func IsACPType(agentType string) bool {
 // IsPlannerSupportedType reports whether planner mode supports the agent type.
 func IsPlannerSupportedType(agentType string) bool {
 	return IsACPType(agentType)
+}
+
+// SupportedMCPServerTypes returns all supported MCP server types.
+func SupportedMCPServerTypes() []MCPServerType {
+	return []MCPServerType{
+		MCPServerTypeStdio,
+		MCPServerTypeHTTP,
+		MCPServerTypeSSE,
+	}
+}
+
+// IsValidMCPServerType reports whether the given type is a valid MCP server type.
+func IsValidMCPServerType(serverType MCPServerType) bool {
+	for _, t := range SupportedMCPServerTypes() {
+		if t == serverType {
+			return true
+		}
+	}
+	return false
+}
+
+// ValidateMCPServerConfig validates an MCP server configuration.
+func ValidateMCPServerConfig(cfg MCPServerConfig) error {
+	errs := make([]string, 0)
+
+	if !IsValidMCPServerType(cfg.Type) {
+		errs = append(errs, fmt.Sprintf("type must be one of: %v", SupportedMCPServerTypes()))
+	}
+
+	switch cfg.Type {
+	case MCPServerTypeStdio:
+		if len(cfg.Cmd) == 0 {
+			errs = append(errs, "cmd is required for stdio type")
+		}
+	case MCPServerTypeHTTP, MCPServerTypeSSE:
+		if strings.TrimSpace(cfg.URL) == "" {
+			errs = append(errs, "url is required for http/sse type")
+		}
+	}
+
+	for i, arg := range cfg.Cmd {
+		if arg == "" {
+			errs = append(errs, fmt.Sprintf("cmd[%d] must have at least 1 character", i))
+		}
+	}
+	for i, arg := range cfg.Args {
+		if arg == "" {
+			errs = append(errs, fmt.Sprintf("args[%d] must have at least 1 character", i))
+		}
+	}
+
+	if len(errs) == 0 {
+		return nil
+	}
+	sort.Strings(errs)
+	return fmt.Errorf("mcp server config validation failed: %s", strings.Join(errs, "; "))
+}
+
+// GetMCPServerNames returns the list of MCP server names from an agent's MCPServers field.
+// It handles both single string and array of strings formats.
+func GetMCPServerNames(mcpServers any) ([]string, error) {
+	if mcpServers == nil {
+		return nil, nil
+	}
+
+	switch v := mcpServers.(type) {
+	case string:
+		if strings.TrimSpace(v) == "" {
+			return nil, fmt.Errorf("mcp_servers string value cannot be empty")
+		}
+		return []string{strings.TrimSpace(v)}, nil
+	case []any:
+		names := make([]string, 0, len(v))
+		for i, item := range v {
+			s, ok := item.(string)
+			if !ok {
+				return nil, fmt.Errorf("mcp_servers[%d] must be a String", i)
+			}
+			if strings.TrimSpace(s) == "" {
+				return nil, fmt.Errorf("mcp_servers[%d] cannot be empty", i)
+			}
+			names = append(names, strings.TrimSpace(s))
+		}
+		return names, nil
+	default:
+		return nil, fmt.Errorf("mcp_servers must be a string or array of strings, got %T", mcpServers)
+	}
 }
 
 // NormalizeACPConfig canonicalizes ACP aliases to generic_acp while preserving behavior.

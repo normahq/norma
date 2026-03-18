@@ -167,6 +167,50 @@ pool "my_pool": all 2 members failed
   [2] fallback_agent: create agent "fallback_agent": ...
 ```
 
+## MCP Servers Configuration
+
+Norma supports configuring **MCP (Model Context Protocol) servers** that can be referenced by agents. MCP servers provide additional tools and capabilities to agents that support them.
+
+### Configuration
+
+MCP servers are defined in a top-level `mcp_servers` section, and agents reference them by name:
+
+```yaml
+mcp_servers:
+  my_mcp_server:
+    type: stdio
+    cmd: ["npx", "-y", "@example/mcp-server"]
+    args: ["--arg1", "value1"]
+    env:
+      API_KEY: ${API_KEY}
+    working_dir: /path/to/workdir
+
+agents:
+  my_agent:
+    type: gemini_acp
+    model: gemini-3-flash-preview
+    mcp_servers:
+      - my_mcp_server
+```
+
+### Transport Types
+
+- **stdio**: Local subprocess communication via stdin/stdout
+  - Requires `cmd` (executable) and optional `args`, `env`, `working_dir`
+- **http**: HTTP transport for remote MCP servers
+  - Requires `url` and optional `headers`
+- **sse**: Server-Sent Events transport
+  - Requires `url` and optional `headers`
+
+### Agent References
+
+Agents can reference MCP servers in two ways:
+
+- **Single server**: `mcp_servers: server_name` (string)
+- **Multiple servers**: `mcp_servers: [server1, server2]` (array)
+
+Pool agents automatically pass MCP server configurations to their member agents.
+
 ## References
 
 - Canonical workflow and contracts: `AGENTS.md`
