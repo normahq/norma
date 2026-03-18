@@ -1,6 +1,7 @@
 package logging
 
 import (
+	"context"
 	"log/slog"
 	"os"
 	"testing"
@@ -13,10 +14,10 @@ func TestInitDefault(t *testing.T) {
 	if zerolog.GlobalLevel() != zerolog.InfoLevel {
 		t.Errorf("expected InfoLevel, got %v", zerolog.GlobalLevel())
 	}
-	if slog.Default().Handler().Enabled(nil, slog.LevelDebug) {
+	if slog.Default().Handler().Enabled(context.TODO(), slog.LevelDebug) {
 		t.Error("expected slog level info, but debug enabled")
 	}
-	if !slog.Default().Handler().Enabled(nil, slog.LevelInfo) {
+	if !slog.Default().Handler().Enabled(context.TODO(), slog.LevelInfo) {
 		t.Error("expected slog level info enabled")
 	}
 	if DebugEnabled() {
@@ -32,7 +33,7 @@ func TestInitDebug(t *testing.T) {
 	if zerolog.GlobalLevel() != zerolog.DebugLevel {
 		t.Errorf("expected DebugLevel, got %v", zerolog.GlobalLevel())
 	}
-	if !slog.Default().Handler().Enabled(nil, slog.LevelDebug) {
+	if !slog.Default().Handler().Enabled(context.TODO(), slog.LevelDebug) {
 		t.Error("expected slog level debug enabled")
 	}
 	if !DebugEnabled() {
@@ -48,7 +49,7 @@ func TestInitTrace(t *testing.T) {
 	if zerolog.GlobalLevel() != zerolog.TraceLevel {
 		t.Errorf("expected TraceLevel, got %v", zerolog.GlobalLevel())
 	}
-	if !slog.Default().Handler().Enabled(nil, slog.LevelDebug-4) {
+	if !slog.Default().Handler().Enabled(context.TODO(), slog.LevelDebug-4) {
 		t.Error("expected slog level trace enabled")
 	}
 	if TraceEnabled() != true {
