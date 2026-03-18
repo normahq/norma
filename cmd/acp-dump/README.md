@@ -12,7 +12,8 @@ Examples:
 
 ```bash
 acp-dump -- opencode acp
-acp-dump --json -- opencode acp --debug
+acp-dump --json -- opencode acp
+acp-dump --debug -- opencode acp
 ```
 
 ## Flags

@@ -3,11 +3,11 @@ package main
 import (
 	"os"
 
-	toolapps "github.com/metalagman/norma/internal/apps/tools"
+	acprepl "github.com/metalagman/norma/internal/apps/acprepl"
 )
 
 func main() {
-	if err := toolapps.NewACPReplCommand(toolapps.StandaloneRuntimeConfig(), toolapps.ACPREPLDeps{}).Execute(); err != nil {
+	if err := acprepl.Command().Execute(); err != nil {
 		os.Exit(1)
 	}
 }

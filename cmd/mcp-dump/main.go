@@ -3,11 +3,11 @@ package main
 import (
 	"os"
 
-	toolapps "github.com/metalagman/norma/internal/apps/tools"
+	mcpdump "github.com/metalagman/norma/internal/apps/mcpdump"
 )
 
 func main() {
-	if err := toolapps.NewMCPDumpCommand(toolapps.StandaloneRuntimeConfig(), toolapps.MCPDumpDeps{}).Execute(); err != nil {
+	if err := mcpdump.Command().Execute(); err != nil {
 		os.Exit(1)
 	}
 }
