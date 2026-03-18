@@ -50,7 +50,7 @@ func Run(ctx context.Context, cfg RunConfig) (runErr error) {
 	lockedStderr := &syncWriter{writer: cfg.Stderr}
 	logger := logging.Ctx(ctx)
 
-	logger.Info().
+	logger.Debug().
 		Str("working_dir", cfg.WorkingDir).
 		Strs("command", cfg.Command).
 		Msg(startMessage)
