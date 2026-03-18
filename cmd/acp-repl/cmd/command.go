@@ -5,7 +5,8 @@ import (
 	"os"
 
 	"github.com/metalagman/norma/internal/apps/acprepl"
-	"github.com/rs/zerolog"
+	"github.com/metalagman/norma/internal/logging"
+	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
 
@@ -31,14 +32,13 @@ func Command() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("get working directory: %w", err)
 			}
-			logLevel := resolveLogLevel(debugLogs)
+			ctx := log.Logger.WithContext(cmd.Context())
 			return acprepl.RunREPL(
-				cmd.Context(),
+				ctx,
 				workingDir,
 				acpCommand,
 				sessionModel,
 				sessionMode,
-				logLevel,
 				cmd.InOrStdin(),
 				cmd.OutOrStdout(),
 				cmd.ErrOrStderr(),
@@ -48,6 +48,9 @@ func Command() *cobra.Command {
 	cmd.Flags().StringVar(&sessionModel, "model", "", "session model requested via ACP session/set_model")
 	cmd.Flags().StringVar(&sessionMode, "mode", "", "session mode requested via ACP session/set_mode")
 	cmd.Flags().BoolVar(&debugLogs, "debug", false, "enable debug logging")
+	cmd.PersistentPreRun = func(cmd *cobra.Command, _ []string) {
+		logging.Init(debugLogs, false)
+	}
 	return cmd
 }
 
@@ -63,11 +66,4 @@ func requireACPCommandAfterDash(cmd *cobra.Command, args []string) ([]string, er
 		return nil, fmt.Errorf("acp server command is required after --")
 	}
 	return append([]string(nil), args...), nil
-}
-
-func resolveLogLevel(debugLogs bool) zerolog.Level {
-	if debugLogs {
-		return zerolog.DebugLevel
-	}
-	return zerolog.InfoLevel
 }

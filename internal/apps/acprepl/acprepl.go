@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	acp "github.com/coder/acp-go-sdk"
 	"github.com/metalagman/norma/internal/adk/acpagent"
@@ -31,25 +30,22 @@ func RunREPL(
 	command []string,
 	sessionModel string,
 	sessionMode string,
-	logLevel zerolog.Level,
 	stdin io.Reader,
 	stdout io.Writer,
 	stderr io.Writer,
 ) error {
 	lockedStderr := &replSyncWriter{writer: stderr}
-	logger := zerolog.New(zerolog.ConsoleWriter{Out: lockedStderr, TimeFormat: time.RFC3339}).
-		Level(logLevel).
-		With().Timestamp().Str("component", "tool.acp_repl").Logger()
-	ui := newACPToolTerminal(stdin, stdout, lockedStderr, logger)
+	l := zerolog.Ctx(ctx)
+	ui := newACPToolTerminal(stdin, stdout, lockedStderr, l)
 
-	logger.Debug().
+	l.Debug().
 		Str("working_dir", workingDir).
 		Strs("command", command).
 		Msg("starting ACP REPL tool")
 
 	agentRuntime, err := acpagent.New(acpagent.Config{
 		Context:           ctx,
-		Name:              "ToolACPREPL",
+		Name:              "acp_repl_agent",
 		Description:       "Generic ACP REPL tool",
 		Model:             strings.TrimSpace(sessionModel),
 		Mode:              strings.TrimSpace(sessionMode),
@@ -57,35 +53,35 @@ func RunREPL(
 		WorkingDir:        workingDir,
 		Stderr:            lockedStderr,
 		PermissionHandler: ui.RequestPermission,
-		Logger:            &logger,
+		Logger:            l,
 	})
 	if err != nil {
-		logger.Error().Err(err).Msg("failed to create ACP runtime")
+		l.Error().Err(err).Msg("failed to create ACP runtime")
 		return err
 	}
 	defer func() {
 		if closeErr := agentRuntime.Close(); closeErr != nil {
-			logger.Warn().Err(closeErr).Msg("failed to close ACP runtime")
+			l.Warn().Err(closeErr).Msg("failed to close ACP runtime")
 		}
 	}()
 
 	runner, sess, err := newACPToolRunner(ctx, agentRuntime)
 	if err != nil {
-		logger.Error().Err(err).Msg("failed to create ADK runner/session")
+		l.Error().Err(err).Msg("failed to create ADK runner/session")
 		return err
 	}
-	logger.Debug().Str("session_id", sess.ID()).Msg("created ADK session")
-	logger.Debug().Msg("starting interactive REPL")
+	l.Debug().Str("session_id", sess.ID()).Msg("created ADK session")
+	l.Debug().Msg("starting interactive REPL")
 
 	for {
 		line, err := ui.ReadLine("> ")
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				ui.Println()
-				logger.Debug().Msg("received EOF, exiting REPL")
+				l.Debug().Msg("received EOF, exiting REPL")
 				return nil
 			}
-			logger.Error().Err(err).Msg("failed to read REPL input")
+			l.Error().Err(err).Msg("failed to read REPL input")
 			return err
 		}
 		trimmedPrompt := strings.TrimSpace(line)
@@ -94,10 +90,10 @@ func RunREPL(
 		}
 		switch trimmedPrompt {
 		case toolReplCommandExit, toolReplCommandQuit:
-			logger.Debug().Msg("received exit command, exiting REPL")
+			l.Debug().Msg("received exit command, exiting REPL")
 			return nil
 		}
-		if err := runACPToolTurn(ctx, runner, sess, ui, logger, trimmedPrompt); err != nil {
+		if err := runACPToolTurn(ctx, runner, sess, ui, l, trimmedPrompt); err != nil {
 			return err
 		}
 	}
@@ -128,7 +124,7 @@ func runACPToolTurn(
 	r *runnerpkg.Runner,
 	sess session.Session,
 	ui *acpToolTerminal,
-	logger zerolog.Logger,
+	logger *zerolog.Logger,
 	prompt string,
 ) error {
 	trimmedPrompt := strings.TrimSpace(prompt)
@@ -192,11 +188,11 @@ type acpToolTerminal struct {
 	reader *bufio.Reader
 	stdout io.Writer
 	stderr io.Writer
-	logger zerolog.Logger
+	logger *zerolog.Logger
 	mu     sync.Mutex
 }
 
-func newACPToolTerminal(stdin io.Reader, stdout, stderr io.Writer, logger zerolog.Logger) *acpToolTerminal {
+func newACPToolTerminal(stdin io.Reader, stdout, stderr io.Writer, logger *zerolog.Logger) *acpToolTerminal {
 	return &acpToolTerminal{
 		reader: bufio.NewReader(stdin),
 		stdout: stdout,
