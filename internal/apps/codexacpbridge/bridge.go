@@ -1,4 +1,4 @@
-package codexacp
+package codexacpbridge
 
 import (
 	"context"

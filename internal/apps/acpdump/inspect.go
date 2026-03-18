@@ -1,4 +1,4 @@
-package acpinspect
+package acpdump
 
 import (
 	"context"

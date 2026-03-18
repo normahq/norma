@@ -1,4 +1,4 @@
-package tools
+package acprepl
 
 import (
 	"bufio"
@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -15,7 +14,6 @@ import (
 	acp "github.com/coder/acp-go-sdk"
 	"github.com/metalagman/norma/internal/adk/acpagent"
 	"github.com/rs/zerolog"
-	"github.com/spf13/cobra"
 	adkagent "google.golang.org/adk/agent"
 	runnerpkg "google.golang.org/adk/runner"
 	"google.golang.org/adk/session"
@@ -27,26 +25,7 @@ const (
 	toolReplCommandQuit = "quit"
 )
 
-// ACPREPLRunFunc executes an ACP REPL session.
-type ACPREPLRunFunc func(
-	ctx context.Context,
-	workingDir string,
-	command []string,
-	sessionModel string,
-	sessionMode string,
-	logLevel zerolog.Level,
-	stdin io.Reader,
-	stdout io.Writer,
-	stderr io.Writer,
-) error
-
-// ACPREPLDeps customizes ACP REPL command runtime dependencies.
-type ACPREPLDeps struct {
-	RunREPL ACPREPLRunFunc
-}
-
-// RunACPToolREPL runs ACP REPL runtime with explicit log level.
-func RunACPToolREPL(
+func RunREPL(
 	ctx context.Context,
 	workingDir string,
 	command []string,
@@ -124,55 +103,6 @@ func RunACPToolREPL(
 	}
 }
 
-// NewACPReplCommand creates the acp-repl command.
-func NewACPReplCommand(runtime RuntimeConfig, deps ACPREPLDeps) *cobra.Command {
-	runREPL := deps.RunREPL
-	if runREPL == nil {
-		runREPL = RunACPToolREPL
-	}
-
-	sessionModel := ""
-	sessionMode := ""
-	debugLogs := false
-	cmd := &cobra.Command{
-		Use:          "acp-repl [--model <model>] [--mode <mode>] -- <acp-server-cmd> [args...]",
-		Short:        "Run an interactive REPL against any stdio ACP server command",
-		Long:         "Start a stdio ACP server command and run an interactive terminal REPL over ACP.",
-		Example:      "  norma tool acp-repl -- opencode acp\n  norma tool acp-repl --model openai/gpt-5.4 --mode coding -- opencode acp\n  norma tool acp-repl -- gemini --experimental-acp",
-		SilenceUsage: true,
-		Args:         cobra.ArbitraryArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			acpCommand, err := requireACPCommandAfterDash(cmd, args)
-			if err != nil {
-				return err
-			}
-
-			workingDir, err := os.Getwd()
-			if err != nil {
-				return fmt.Errorf("get working directory: %w", err)
-			}
-			logLevel := runtime.resolveLogLevel(zerolog.InfoLevel, debugLogs)
-			return runREPL(
-				cmd.Context(),
-				workingDir,
-				acpCommand,
-				sessionModel,
-				sessionMode,
-				logLevel,
-				cmd.InOrStdin(),
-				cmd.OutOrStdout(),
-				cmd.ErrOrStderr(),
-			)
-		},
-	}
-	cmd.Flags().StringVar(&sessionModel, "model", "", "session model requested via ACP session/set_model")
-	cmd.Flags().StringVar(&sessionMode, "mode", "", "session mode requested via ACP session/set_mode")
-	if runtime.IncludeDebugFlag {
-		cmd.Flags().BoolVar(&debugLogs, "debug", false, "enable debug logging")
-	}
-	return cmd
-}
-
 func newACPToolRunner(ctx context.Context, a adkagent.Agent) (*runnerpkg.Runner, session.Session, error) {
 	sessionService := session.InMemoryService()
 	r, err := runnerpkg.New(runnerpkg.Config{
@@ -210,7 +140,6 @@ func runACPToolTurn(
 	events := r.Run(ctx, "norma-tool-user", sess.ID(), genai.NewContentFromText(trimmedPrompt, genai.RoleUser), adkagent.RunConfig{})
 	var partialResponse strings.Builder
 	finalResponse := ""
-	printedFinal := false
 	eventCount := 0
 	partialCount := 0
 	for ev, err := range events {
@@ -234,7 +163,6 @@ func runACPToolTurn(
 		finalResponse = partialResponse.String()
 	}
 	if finalResponse != "" {
-		printedFinal = true
 		ui.Println(finalResponse)
 	}
 	logger.Debug().
@@ -242,7 +170,6 @@ func runACPToolTurn(
 		Int("event_count", eventCount).
 		Int("partial_count", partialCount).
 		Int("response_len", len(finalResponse)).
-		Bool("printed_final", printedFinal).
 		Msg("completed tool REPL turn")
 	return nil
 }

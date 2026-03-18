@@ -12,8 +12,8 @@ Examples:
 
 ```bash
 acp-repl -- opencode acp
-acp-repl --model opencode/big-pickle --mode coding -- opencode acp
-acp-repl --debug -- opencode acp --debug
+acp-repl --model opencode/big-pickle --mode plan -- opencode acp
+acp-repl --debug -- opencode acp
 ```
 
 ## Flags

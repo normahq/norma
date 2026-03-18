@@ -1,4 +1,4 @@
-package mcpinspect
+package mcpdump
 
 import (
 	"bytes"

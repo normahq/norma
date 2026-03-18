@@ -1,6 +1,6 @@
 //go:build integration && codex
 
-package toolcmd
+package main_test
 
 import (
 	"bytes"
@@ -15,7 +15,7 @@ import (
 
 	acp "github.com/coder/acp-go-sdk"
 	"github.com/metalagman/norma/internal/adk/acpagent"
-	codexacp "github.com/metalagman/norma/internal/codex/acp"
+	"github.com/metalagman/norma/internal/apps/codexacpbridge"
 )
 
 const testTimeout = 45 * time.Second
@@ -56,7 +56,7 @@ func TestCodexACPProxyIntegration_DefaultName(t *testing.T) {
 	if initResp.AgentInfo == nil {
 		t.Fatal("initialize agentInfo is nil")
 	}
-	if initResp.AgentInfo.Name != codexacp.DefaultAgentName {
+	if initResp.AgentInfo.Name != codexacpbridge.DefaultAgentName {
 		t.Fatalf("initialize agentInfo.name = %q, want %q", initResp.AgentInfo.Name, codexacp.DefaultAgentName)
 	}
 }

@@ -4,7 +4,7 @@ import (
 	"context"
 	"io"
 
-	"github.com/metalagman/norma/internal/inspect/acpinspect"
+	"github.com/metalagman/norma/internal/apps/acpdump"
 )
 
 func runACPInfo(
@@ -18,7 +18,7 @@ func runACPInfo(
 	stdout io.Writer,
 	stderr io.Writer,
 ) error {
-	return acpinspect.Run(ctx, acpinspect.RunConfig{
+	return acpdump.Run(ctx, acpdump.RunConfig{
 		Command:      command,
 		WorkingDir:   repoRoot,
 		SessionModel: sessionModel,

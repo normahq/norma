@@ -3,11 +3,11 @@ package main
 import (
 	"os"
 
-	acpdump "github.com/metalagman/norma/internal/apps/acpdump"
+	"github.com/metalagman/norma/cmd/acp-dump/cmd"
 )
 
 func main() {
-	if err := acpdump.Command().Execute(); err != nil {
+	if err := command.Command().Execute(); err != nil {
 		os.Exit(1)
 	}
 }

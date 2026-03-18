@@ -1,11 +1,12 @@
 package toolcmd
 
 import (
-	acpdump "github.com/metalagman/norma/internal/apps/acpdump"
-	acprepl "github.com/metalagman/norma/internal/apps/acprepl"
-	codexacpbridge "github.com/metalagman/norma/internal/apps/codexacpbridge"
-	mcpdump "github.com/metalagman/norma/internal/apps/mcpdump"
 	"github.com/spf13/cobra"
+
+	acpdump "github.com/metalagman/norma/cmd/acp-dump/cmd"
+	acprepl "github.com/metalagman/norma/cmd/acp-repl/cmd"
+	codexacpbridge "github.com/metalagman/norma/cmd/codex-acp-bridge/cmd"
+	mcpdump "github.com/metalagman/norma/cmd/mcp-dump/cmd"
 )
 
 // Command builds the `norma tool` command group.

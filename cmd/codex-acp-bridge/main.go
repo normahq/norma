@@ -3,11 +3,11 @@ package main
 import (
 	"os"
 
-	codexacpbridge "github.com/metalagman/norma/internal/apps/codexacpbridge"
+	"github.com/metalagman/norma/cmd/codex-acp-bridge/cmd"
 )
 
 func main() {
-	if err := codexacpbridge.Command().Execute(); err != nil {
+	if err := command.Command().Execute(); err != nil {
 		os.Exit(1)
 	}
 }
