@@ -5,6 +5,7 @@ import (
 	"io"
 
 	"github.com/metalagman/norma/internal/apps/acpdump"
+	"github.com/rs/zerolog/log"
 )
 
 func runACPInfo(
@@ -18,11 +19,14 @@ func runACPInfo(
 	stdout io.Writer,
 	stderr io.Writer,
 ) error {
+	if component != "" {
+		ctx = log.Ctx(ctx).With().Str("component", component).Logger().WithContext(ctx)
+	}
+
 	return acpdump.Run(ctx, acpdump.RunConfig{
 		Command:      command,
 		WorkingDir:   repoRoot,
 		SessionModel: sessionModel,
-		Component:    component,
 		StartMessage: startMsg,
 		JSONOutput:   jsonOutput,
 		Stdout:       stdout,

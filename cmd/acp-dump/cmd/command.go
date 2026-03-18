@@ -1,12 +1,12 @@
 package command
 
 import (
-	"context"
 	"fmt"
 	"os"
 
 	"github.com/metalagman/norma/internal/apps/acpdump"
-	"github.com/rs/zerolog"
+	"github.com/metalagman/norma/internal/logging"
+	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
 
@@ -31,14 +31,15 @@ func Command() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			logLevel := resolveLogLevel(debugLogs)
-			return acpdump.Run(context.Background(), acpdump.RunConfig{
+
+			_ = logging.Init(logging.WithDebug(debugLogs))
+			ctx := log.Logger.With().Str("component", "tool.acp_dump").Logger().WithContext(cmd.Context())
+
+			return acpdump.Run(ctx, acpdump.RunConfig{
 				Command:      serverCommand,
 				WorkingDir:   workingDir,
-				Component:    "tool.acp_dump",
 				StartMessage: "inspecting ACP agent from custom command",
 				JSONOutput:   jsonOutput,
-				LogLevel:     logLevel,
 				Stdout:       cmd.OutOrStdout(),
 				Stderr:       cmd.ErrOrStderr(),
 			})
@@ -61,11 +62,4 @@ func requireACPCommandAfterDash(cmd *cobra.Command, args []string) ([]string, er
 		return nil, fmt.Errorf("acp server command is required after --")
 	}
 	return append([]string(nil), args...), nil
-}
-
-func resolveLogLevel(debugLogs bool) zerolog.Level {
-	if debugLogs {
-		return zerolog.DebugLevel
-	}
-	return zerolog.ErrorLevel
 }

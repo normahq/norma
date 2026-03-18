@@ -7,11 +7,10 @@ import (
 	"io"
 	"strings"
 	"sync"
-	"time"
 
 	acp "github.com/coder/acp-go-sdk"
 	"github.com/metalagman/norma/internal/adk/acpagent"
-	"github.com/rs/zerolog"
+	"github.com/metalagman/norma/internal/logging"
 )
 
 // RunConfig describes how ACP inspection should run.
@@ -19,10 +18,8 @@ type RunConfig struct {
 	Command      []string
 	WorkingDir   string
 	SessionModel string
-	Component    string
 	StartMessage string
 	JSONOutput   bool
-	LogLevel     zerolog.Level
 	Stdout       io.Writer
 	Stderr       io.Writer
 }
@@ -45,19 +42,13 @@ func Run(ctx context.Context, cfg RunConfig) error {
 		cfg.Stderr = io.Discard
 	}
 
-	component := strings.TrimSpace(cfg.Component)
-	if component == "" {
-		component = "acp.inspect"
-	}
 	startMessage := strings.TrimSpace(cfg.StartMessage)
 	if startMessage == "" {
 		startMessage = "inspecting ACP agent"
 	}
 
 	lockedStderr := &syncWriter{writer: cfg.Stderr}
-	logger := zerolog.New(zerolog.ConsoleWriter{Out: lockedStderr, TimeFormat: time.RFC3339}).
-		Level(cfg.LogLevel).
-		With().Timestamp().Str("component", component).Logger()
+	logger := logging.Ctx(ctx)
 
 	logger.Info().
 		Str("working_dir", cfg.WorkingDir).
@@ -68,7 +59,7 @@ func Run(ctx context.Context, cfg RunConfig) error {
 		Command:    cfg.Command,
 		WorkingDir: cfg.WorkingDir,
 		Stderr:     lockedStderr,
-		Logger:     &logger,
+		Logger:     logger,
 	})
 	if err != nil {
 		return fmt.Errorf("create acp client: %w", err)

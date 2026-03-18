@@ -1,12 +1,12 @@
 package command
 
 import (
-	"context"
 	"fmt"
 	"os"
 
 	"github.com/metalagman/norma/internal/apps/mcpdump"
-	"github.com/rs/zerolog"
+	"github.com/metalagman/norma/internal/logging"
+	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
 
@@ -31,14 +31,15 @@ func Command() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			logLevel := resolveLogLevel(debugLogs)
-			return mcpdump.Run(context.Background(), mcpdump.RunConfig{
+
+			_ = logging.Init(logging.WithDebug(debugLogs))
+			ctx := log.Logger.With().Str("component", "tool.mcp_dump").Logger().WithContext(cmd.Context())
+
+			return mcpdump.Run(ctx, mcpdump.RunConfig{
 				Command:      serverCommand,
 				WorkingDir:   workingDir,
-				Component:    "tool.mcp_dump",
 				StartMessage: "inspecting MCP server from custom command",
 				JSONOutput:   jsonOutput,
-				LogLevel:     logLevel,
 				Stdout:       cmd.OutOrStdout(),
 				Stderr:       cmd.ErrOrStderr(),
 			})
@@ -61,11 +62,4 @@ func requireMCPCommandAfterDash(cmd *cobra.Command, args []string) ([]string, er
 		return nil, fmt.Errorf("mcp server command is required after --")
 	}
 	return append([]string(nil), args...), nil
-}
-
-func resolveLogLevel(debugLogs bool) zerolog.Level {
-	if debugLogs {
-		return zerolog.DebugLevel
-	}
-	return zerolog.ErrorLevel
 }

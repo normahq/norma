@@ -18,7 +18,8 @@ func TestRunJSONIncludesCapabilitiesAndTools(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 
-	err := Run(context.Background(), RunConfig{
+	ctx := context.Background()
+	err := Run(ctx, RunConfig{
 		Command:    []string{wrapper, "mcp-server"},
 		WorkingDir: t.TempDir(),
 		JSONOutput: true,
@@ -64,7 +65,8 @@ func TestRunHumanOutputIncludesCapabilitiesAndTools(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 
-	err := Run(context.Background(), RunConfig{
+	ctx := context.Background()
+	err := Run(ctx, RunConfig{
 		Command:    []string{wrapper, "mcp-server", "--trace"},
 		WorkingDir: t.TempDir(),
 		Stdout:     &stdout,
@@ -92,7 +94,8 @@ func TestRunToolsOnlyMarksUnsupportedFeatures(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 
-	err := Run(context.Background(), RunConfig{
+	ctx := context.Background()
+	err := Run(ctx, RunConfig{
 		Command:    []string{wrapper, "mcp-server"},
 		WorkingDir: t.TempDir(),
 		Stdout:     &stdout,

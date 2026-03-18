@@ -9,8 +9,8 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
-	"time"
 
+	"github.com/metalagman/norma/internal/logging"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/rs/zerolog"
 )
@@ -19,10 +19,8 @@ import (
 type RunConfig struct {
 	Command      []string
 	WorkingDir   string
-	Component    string
 	StartMessage string
 	JSONOutput   bool
-	LogLevel     zerolog.Level
 	Stdout       io.Writer
 	Stderr       io.Writer
 }
@@ -56,19 +54,13 @@ func Run(ctx context.Context, cfg RunConfig) error {
 		cfg.Stderr = io.Discard
 	}
 
-	component := strings.TrimSpace(cfg.Component)
-	if component == "" {
-		component = "mcp.inspect"
-	}
 	startMessage := strings.TrimSpace(cfg.StartMessage)
 	if startMessage == "" {
 		startMessage = "inspecting MCP server"
 	}
 
 	lockedStderr := &syncWriter{writer: cfg.Stderr}
-	logger := zerolog.New(zerolog.ConsoleWriter{Out: lockedStderr, TimeFormat: time.RFC3339}).
-		Level(cfg.LogLevel).
-		With().Timestamp().Str("component", component).Logger()
+	logger := logging.Ctx(ctx)
 
 	logger.Info().
 		Str("working_dir", cfg.WorkingDir).
@@ -87,11 +79,11 @@ func Run(ctx context.Context, cfg RunConfig) error {
 	return writeInspectHuman(cfg.Stdout, output)
 }
 
-func inspectMCPServer(ctx context.Context, workingDir string, command []string, stderr io.Writer, logger zerolog.Logger) (*inspectOutput, error) {
+func inspectMCPServer(ctx context.Context, workingDir string, command []string, stderr io.Writer, logger *zerolog.Logger) (*inspectOutput, error) {
 	return inspectMCPServerRaw(ctx, workingDir, command, stderr, logger)
 }
 
-func inspectMCPServerRaw(ctx context.Context, workingDir string, command []string, stderr io.Writer, logger zerolog.Logger) (*inspectOutput, error) {
+func inspectMCPServerRaw(ctx context.Context, workingDir string, command []string, stderr io.Writer, logger *zerolog.Logger) (*inspectOutput, error) {
 	transport, err := newMCPCommandTransport(ctx, workingDir, command, stderr)
 	if err != nil {
 		return nil, err
