@@ -19,7 +19,6 @@ func Command() *cobra.Command {
 		Use:          "acp-repl [--model <model>] [--mode <mode>] -- <acp-server-cmd> [args...]",
 		Short:        "Run an interactive REPL against any stdio ACP server command",
 		Long:         "Start a stdio ACP server command and run an interactive terminal REPL over ACP.",
-		Example:      "  acp-repl -- opencode acp\n  acp-repl --model openai/gpt-5.4 --mode coding -- opencode acp\n  acp-repl -- gemini --experimental-acp",
 		SilenceUsage: true,
 		Args:         cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -51,6 +50,7 @@ func Command() *cobra.Command {
 	cmd.PersistentPreRun = func(cmd *cobra.Command, _ []string) {
 		_ = logging.Init(logging.WithDebug(debugLogs))
 	}
+	cmd.Example = "  acp-repl -- opencode acp\n  acp-repl --model openai/gpt-5.4 --mode coding -- opencode acp\n  acp-repl -- gemini --experimental-acp"
 	return cmd
 }
 

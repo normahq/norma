@@ -13,7 +13,7 @@ import (
 	"time"
 
 	acp "github.com/coder/acp-go-sdk"
-	normalogging "github.com/metalagman/norma/internal/logging"
+	"github.com/metalagman/norma/internal/logging"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/rs/zerolog"
 )
@@ -47,14 +47,13 @@ type Options struct {
 	CodexModel                 string
 	CodexProfile               string
 	CodexSandbox               string
-	LogLevel                   *zerolog.Level
 }
 
 type codexACPProxyAgent struct {
 	agentName          string
 	defaultCodexConfig codexToolConfig
 	sessionFactory     codexMCPToolSessionFactory
-	logger             zerolog.Logger
+	logger             *zerolog.Logger
 
 	connMu sync.RWMutex
 	conn   codexACPSessionUpdater
@@ -188,21 +187,7 @@ func RunProxy(ctx context.Context, workingDir string, opts Options, stdin io.Rea
 		return err
 	}
 	lockedStderr := &syncWriter{writer: stderr}
-	logLevel := zerolog.InfoLevel
-	if opts.LogLevel != nil {
-		logLevel = *opts.LogLevel
-	} else if normalogging.DebugEnabled() {
-		logLevel = zerolog.DebugLevel
-	}
-	logger := zerolog.New(zerolog.ConsoleWriter{
-		Out:        lockedStderr,
-		TimeFormat: time.RFC3339,
-	}).
-		Level(logLevel).
-		With().
-		Timestamp().
-		Str("component", "codex.acp.proxy").
-		Logger()
+	logger := logging.Ctx(ctx)
 
 	command := buildCodexMCPCommand(opts)
 	agentName := strings.TrimSpace(opts.Name)
@@ -246,7 +231,7 @@ func buildCodexMCPCommand(opts Options) []string {
 	return command
 }
 
-func validateCodexMCPFactory(ctx context.Context, factory codexMCPToolSessionFactory, cwd string, logger zerolog.Logger) error {
+func validateCodexMCPFactory(ctx context.Context, factory codexMCPToolSessionFactory, cwd string, logger *zerolog.Logger) error {
 	session, err := factory(ctx, cwd)
 	if err != nil {
 		return err
@@ -265,7 +250,7 @@ func connectCodexMCPProxySession(
 	command []string,
 	agentName string,
 	stderr io.Writer,
-	logger zerolog.Logger,
+	logger *zerolog.Logger,
 ) (codexMCPToolSession, error) {
 	if len(command) == 0 {
 		return nil, errors.New("empty codex command")
@@ -286,7 +271,7 @@ func connectCodexMCPProxySession(
 	return session, nil
 }
 
-func ensureCodexProxyTools(ctx context.Context, session codexMCPToolSession, logger zerolog.Logger) error {
+func ensureCodexProxyTools(ctx context.Context, session codexMCPToolSession, logger *zerolog.Logger) error {
 	logger.Debug().
 		Str("proto", "mcp").
 		Str("method", "tools/list").
@@ -334,7 +319,7 @@ func ensureCodexProxyTools(ctx context.Context, session codexMCPToolSession, log
 	return nil
 }
 
-func newCodexACPProxyAgent(mcpSession codexMCPToolSession, agentName string, defaultCodexConfig codexToolConfig, logger zerolog.Logger) *codexACPProxyAgent {
+func newCodexACPProxyAgent(mcpSession codexMCPToolSession, agentName string, defaultCodexConfig codexToolConfig, logger *zerolog.Logger) *codexACPProxyAgent {
 	return newCodexACPProxyAgentWithFactory(
 		func(context.Context, string) (codexMCPToolSession, error) { return mcpSession, nil },
 		agentName,
@@ -347,7 +332,7 @@ func newCodexACPProxyAgentWithFactory(
 	sessionFactory codexMCPToolSessionFactory,
 	agentName string,
 	defaultCodexConfig codexToolConfig,
-	logger zerolog.Logger,
+	logger *zerolog.Logger,
 ) *codexACPProxyAgent {
 	name := strings.TrimSpace(agentName)
 	if name == "" {
@@ -357,7 +342,7 @@ func newCodexACPProxyAgentWithFactory(
 		agentName:          name,
 		defaultCodexConfig: defaultCodexConfig.withModel(defaultCodexConfig.Model),
 		sessionFactory:     sessionFactory,
-		logger:             logger.With().Str("agent_name", name).Logger(),
+		logger:             logger,
 		sessions:           make(map[acp.SessionId]*codexProxySessionState),
 	}
 }
@@ -687,7 +672,7 @@ func (a *codexACPProxyAgent) ensureSessionBackend(ctx context.Context, sessionID
 	if err != nil {
 		return fmt.Errorf("create codex session backend: %w", err)
 	}
-	if err := ensureCodexProxyTools(ctx, backend, a.logger.With().Str("session_id", string(sessionID)).Logger()); err != nil {
+	if err := ensureCodexProxyTools(ctx, backend, a.logger); err != nil {
 		_ = backend.Close()
 		_ = awaitBackendStop(backend, 2*time.Second)
 		return err

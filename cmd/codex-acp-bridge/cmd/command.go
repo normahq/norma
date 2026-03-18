@@ -7,7 +7,8 @@ import (
 	"strings"
 
 	"github.com/metalagman/norma/internal/apps/codexacpbridge"
-	"github.com/rs/zerolog"
+	"github.com/metalagman/norma/internal/logging"
+	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
 
@@ -34,9 +35,11 @@ func Command() *cobra.Command {
 				}
 				runOpts.CodexConfig = config
 			}
-			level := resolveLogLevel(debugLogs)
-			runOpts.LogLevel = &level
-			return codexacpbridge.RunProxy(cmd.Context(), workingDir, runOpts, cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr())
+
+			_ = logging.Init(logging.WithDebug(debugLogs))
+			ctx := log.Logger.With().Str("component", "codex.acp.proxy").Logger().WithContext(cmd.Context())
+
+			return codexacpbridge.RunProxy(ctx, workingDir, runOpts, cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr())
 		},
 	}
 	cmd.Flags().StringVar(&opts.Name, "name", opts.Name, "ACP agent name exposed via initialize")
@@ -56,11 +59,4 @@ func Command() *cobra.Command {
   codex-acp-bridge --name team-codex
   codex-acp-bridge --codex-approval-policy on-request --codex-config '{"env":"dev"}'`
 	return cmd
-}
-
-func resolveLogLevel(debugLogs bool) zerolog.Level {
-	if debugLogs {
-		return zerolog.DebugLevel
-	}
-	return zerolog.ErrorLevel
 }

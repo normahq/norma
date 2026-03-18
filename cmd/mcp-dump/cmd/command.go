@@ -18,7 +18,6 @@ func Command() *cobra.Command {
 		Use:          "mcp-dump [--json] -- <mcp-server-cmd> [args...]",
 		Short:        "Inspect any stdio MCP server command",
 		Long:         "Start a stdio MCP server command and print initialize/capability information.",
-		Example:      "  mcp-dump -- codex mcp-server\n  mcp-dump --json -- codex mcp-server --sandbox workspace-write",
 		SilenceUsage: true,
 		Args:         cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -47,6 +46,7 @@ func Command() *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "print output as JSON")
 	cmd.Flags().BoolVar(&debugLogs, "debug", false, "enable debug logging")
+	cmd.Example = "  mcp-dump -- codex mcp-server\n  mcp-dump --json -- codex mcp-server --sandbox workspace-write"
 	return cmd
 }
 

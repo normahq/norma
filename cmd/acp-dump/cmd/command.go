@@ -18,7 +18,6 @@ func Command() *cobra.Command {
 		Use:          "acp-dump [--json] -- <acp-server-cmd> [args...]",
 		Short:        "Inspect any stdio ACP server command",
 		Long:         "Start a stdio ACP server command and print ACP initialize/session information.",
-		Example:      "  acp-dump -- opencode acp\n  acp-dump --json -- gemini --experimental-acp",
 		SilenceUsage: true,
 		Args:         cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -47,6 +46,7 @@ func Command() *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "print output as JSON")
 	cmd.Flags().BoolVar(&debugLogs, "debug", false, "enable debug logging")
+	cmd.Example = "  acp-dump -- opencode acp\n  acp-dump --json -- gemini --experimental-acp"
 	return cmd
 }
 

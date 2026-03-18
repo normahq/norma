@@ -41,8 +41,9 @@ func TestBuildCodexMCPCommandDoesNotInjectModelConfig(t *testing.T) {
 }
 
 func TestRunProxyRejectsInvalidCodexSandbox(t *testing.T) {
+	ctx := context.Background()
 	err := RunProxy(
-		context.Background(),
+		ctx,
 		t.TempDir(),
 		Options{CodexSandbox: "invalid"},
 		strings.NewReader(""),
@@ -226,7 +227,8 @@ func TestCodexACPProxyPromptUsesCodexThenReply(t *testing.T) {
 		},
 	}
 	updater := &fakeACPSessionUpdater{}
-	agent := newCodexACPProxyAgent(fakeSession, "test-agent", codexToolConfig{}, zerolog.Nop())
+	l := zerolog.Nop()
+	agent := newCodexACPProxyAgent(fakeSession, "test-agent", codexToolConfig{}, &l)
 	agent.setConnection(updater)
 
 	newResp, err := agent.NewSession(context.Background(), acp.NewSessionRequest{Cwd: "/tmp/work"})
@@ -295,7 +297,8 @@ func TestCodexACPProxyCancelStopsPrompt(t *testing.T) {
 		},
 	}
 	updater := &fakeACPSessionUpdater{}
-	agent := newCodexACPProxyAgent(fakeSession, "test-agent", codexToolConfig{}, zerolog.Nop())
+	l := zerolog.Nop()
+	agent := newCodexACPProxyAgent(fakeSession, "test-agent", codexToolConfig{}, &l)
 	agent.setConnection(updater)
 
 	newResp, err := agent.NewSession(context.Background(), acp.NewSessionRequest{Cwd: "/tmp/work"})
@@ -342,6 +345,7 @@ func TestCodexACPProxyCancelStopsPrompt(t *testing.T) {
 func TestCodexACPProxySessionFactoryCreatesDistinctBackendsPerSession(t *testing.T) {
 	backends := make([]*fakeCodexMCPToolSession, 0, 2)
 	factoryCalls := 0
+	l := zerolog.Nop()
 	agent := newCodexACPProxyAgentWithFactory(
 		func(context.Context, string) (codexMCPToolSession, error) {
 			factoryCalls++
@@ -353,7 +357,7 @@ func TestCodexACPProxySessionFactoryCreatesDistinctBackendsPerSession(t *testing
 		},
 		"test-agent",
 		codexToolConfig{},
-		zerolog.Nop(),
+		&l,
 	)
 	agent.setConnection(&fakeACPSessionUpdater{})
 
@@ -379,6 +383,7 @@ func TestCodexACPProxySessionFactoryCreatesDistinctBackendsPerSession(t *testing
 
 func TestCodexACPProxySetModelResetsThreadAndBackend(t *testing.T) {
 	backends := make([]*fakeCodexMCPToolSession, 0, 2)
+	l := zerolog.Nop()
 	agent := newCodexACPProxyAgentWithFactory(
 		func(context.Context, string) (codexMCPToolSession, error) {
 			backend := &fakeCodexMCPToolSession{
@@ -397,7 +402,7 @@ func TestCodexACPProxySetModelResetsThreadAndBackend(t *testing.T) {
 		},
 		"test-agent",
 		codexToolConfig{},
-		zerolog.Nop(),
+		&l,
 	)
 	agent.setConnection(&fakeACPSessionUpdater{})
 
@@ -446,6 +451,7 @@ func TestCodexACPProxySetModelResetsThreadAndBackend(t *testing.T) {
 
 func TestCodexACPProxySetModeResetsThreadAndBackend(t *testing.T) {
 	backends := make([]*fakeCodexMCPToolSession, 0, 2)
+	l := zerolog.Nop()
 	agent := newCodexACPProxyAgentWithFactory(
 		func(context.Context, string) (codexMCPToolSession, error) {
 			backend := &fakeCodexMCPToolSession{
@@ -464,7 +470,7 @@ func TestCodexACPProxySetModeResetsThreadAndBackend(t *testing.T) {
 		},
 		"test-agent",
 		codexToolConfig{},
-		zerolog.Nop(),
+		&l,
 	)
 	agent.setConnection(&fakeACPSessionUpdater{})
 
@@ -505,7 +511,8 @@ func TestCodexACPProxySetModeResetsThreadAndBackend(t *testing.T) {
 }
 
 func TestCodexACPProxyInitializeUsesConfiguredAgentName(t *testing.T) {
-	agent := newCodexACPProxyAgent(&fakeCodexMCPToolSession{}, "team-codex", codexToolConfig{}, zerolog.Nop())
+	l := zerolog.Nop()
+	agent := newCodexACPProxyAgent(&fakeCodexMCPToolSession{}, "team-codex", codexToolConfig{}, &l)
 	resp, err := agent.Initialize(context.Background(), acp.InitializeRequest{})
 	if err != nil {
 		t.Fatalf("Initialize() error = %v", err)
@@ -519,7 +526,8 @@ func TestCodexACPProxyInitializeUsesConfiguredAgentName(t *testing.T) {
 }
 
 func TestCodexACPProxyInitializeUsesDefaultAgentNameWhenEmpty(t *testing.T) {
-	agent := newCodexACPProxyAgent(&fakeCodexMCPToolSession{}, "", codexToolConfig{}, zerolog.Nop())
+	l := zerolog.Nop()
+	agent := newCodexACPProxyAgent(&fakeCodexMCPToolSession{}, "", codexToolConfig{}, &l)
 	resp, err := agent.Initialize(context.Background(), acp.InitializeRequest{})
 	if err != nil {
 		t.Fatalf("Initialize() error = %v", err)
@@ -549,8 +557,9 @@ func TestRunProxyStartsCodexMCPServer(t *testing.T) {
 	t.Setenv("PATH", codexDir+string(os.PathListSeparator)+originalPath)
 
 	var stderr bytes.Buffer
+	ctx := context.Background()
 	runErr := RunProxy(
-		context.Background(),
+		ctx,
 		t.TempDir(),
 		Options{},
 		strings.NewReader(""),
