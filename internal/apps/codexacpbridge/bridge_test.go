@@ -20,6 +20,8 @@ import (
 const (
 	codexToolName      = "codex"
 	codexReplyToolName = "codex-reply"
+	mcpTransportStdio  = "stdio"
+	mcpTransportHTTP   = "http"
 )
 
 func TestBuildCodexMCPCommand(t *testing.T) {
@@ -334,14 +336,14 @@ func TestBuildCodexToolInvocationIncludesMCPServersOnFirstTurn(t *testing.T) {
 	if _, ok := serverMap["my-filesystem"]; !ok {
 		t.Fatal("mcpServers does not contain my-filesystem")
 	}
-	if serverMap["my-filesystem"]["transport"] != "stdio" {
-		t.Fatalf("my-filesystem transport = %v, want stdio", serverMap["my-filesystem"]["transport"])
+	if serverMap["my-filesystem"]["transport"] != mcpTransportStdio {
+		t.Fatalf("my-filesystem transport = %v, want %s", serverMap["my-filesystem"]["transport"], mcpTransportStdio)
 	}
 	if _, ok := serverMap["my-http"]; !ok {
 		t.Fatal("mcpServers does not contain my-http")
 	}
-	if serverMap["my-http"]["transport"] != "http" {
-		t.Fatalf("my-http transport = %v, want http", serverMap["my-http"]["transport"])
+	if serverMap["my-http"]["transport"] != mcpTransportHTTP {
+		t.Fatalf("my-http transport = %v, want %s", serverMap["my-http"]["transport"], mcpTransportHTTP)
 	}
 }
 
@@ -652,6 +654,64 @@ func TestCodexACPProxySetModelResetsThreadAndBackend(t *testing.T) {
 	secondCalls := backends[1].callsSnapshot()
 	if len(secondCalls) == 0 || secondCalls[0].Name != codexToolName {
 		t.Fatalf("second backend calls = %+v, want thread-reset %q call", secondCalls, codexToolName)
+	}
+}
+
+func TestCodexACPProxySetModelPreservesMCPServers(t *testing.T) {
+	fakeSession := &fakeCodexMCPToolSession{
+		listTools: []*mcp.Tool{{Name: codexToolName}, {Name: codexReplyToolName}},
+	}
+	l := zerolog.Nop()
+	agent := newCodexACPProxyAgent(fakeSession, "test", codexToolConfig{}, &l)
+	agent.setConnection(&fakeACPSessionUpdater{})
+
+	mcpServers := []acp.McpServer{{
+		Stdio: &acp.McpServerStdio{
+			Name:    "preserved-server",
+			Command: "echo",
+		},
+	}}
+
+	// 1. Create session with mcpServers
+	resp, err := agent.NewSession(context.Background(), acp.NewSessionRequest{
+		McpServers: mcpServers,
+	})
+	if err != nil {
+		t.Fatalf("NewSession() error = %v", err)
+	}
+
+	// 2. Change model (should trigger backend reset)
+	if _, err := agent.SetSessionModel(context.Background(), acp.SetSessionModelRequest{
+		SessionId: resp.SessionId,
+		ModelId:   "new-model",
+	}); err != nil {
+		t.Fatalf("SetSessionModel() error = %v", err)
+	}
+
+	// 3. Prompt (should use new backend, but include mcpServers because thread is reset)
+	_, err = agent.Prompt(context.Background(), acp.PromptRequest{
+		SessionId: resp.SessionId,
+		Prompt:    []acp.ContentBlock{acp.TextBlock("hi")},
+	})
+	if err != nil {
+		t.Fatalf("Prompt() error = %v", err)
+	}
+
+	calls := fakeSession.callsSnapshot()
+	if len(calls) != 1 {
+		t.Fatalf("calls = %d, want 1", len(calls))
+	}
+
+	args := calls[0].Arguments.(map[string]any)
+	serverList, ok := args["mcpServers"].([]map[string]any)
+	if !ok {
+		t.Fatalf("mcpServers not found in args after SetSessionModel")
+	}
+	if len(serverList) != 1 {
+		t.Fatalf("serverList len = %d, want 1", len(serverList))
+	}
+	if serverList[0]["name"] != "preserved-server" {
+		t.Errorf("name = %v, want preserved-server", serverList[0]["name"])
 	}
 }
 
@@ -989,5 +1049,93 @@ type proxyCodexToolOutput struct {
 func mustHelper(err error) {
 	if err != nil {
 		panic(err)
+	}
+}
+
+func TestNewSession_WithMCP_Stdio(t *testing.T) {
+	testNewSessionWithMCPTransport(t, acp.McpServer{
+		Stdio: &acp.McpServerStdio{
+			Name:    "my-stdio",
+			Command: "echo",
+		},
+	}, "my-stdio", mcpTransportStdio)
+}
+
+func TestNewSession_WithMCP_HTTP(t *testing.T) {
+	testNewSessionWithMCPTransport(t, acp.McpServer{
+		Http: &acp.McpServerHttp{
+			Name: "my-http",
+			Url:  "http://localhost",
+		},
+	}, "my-http", mcpTransportHTTP)
+}
+
+func testNewSessionWithMCPTransport(t *testing.T, server acp.McpServer, wantName, wantTransport string) {
+	t.Helper()
+
+	fakeSession := &fakeCodexMCPToolSession{
+		listTools: []*mcp.Tool{{Name: codexToolName}, {Name: codexReplyToolName}},
+	}
+	l := zerolog.Nop()
+	agent := newCodexACPProxyAgent(fakeSession, "test", codexToolConfig{}, &l)
+	agent.setConnection(&fakeACPSessionUpdater{})
+
+	resp, err := agent.NewSession(context.Background(), acp.NewSessionRequest{
+		McpServers: []acp.McpServer{server},
+	})
+	if err != nil {
+		t.Fatalf("NewSession() error = %v", err)
+	}
+
+	_, err = agent.Prompt(context.Background(), acp.PromptRequest{
+		SessionId: resp.SessionId,
+		Prompt:    []acp.ContentBlock{acp.TextBlock("hi")},
+	})
+	if err != nil {
+		t.Fatalf("Prompt() error = %v", err)
+	}
+
+	calls := fakeSession.callsSnapshot()
+	if len(calls) != 1 {
+		t.Fatalf("calls = %d, want 1", len(calls))
+	}
+
+	args := calls[0].Arguments.(map[string]any)
+	serverList, ok := args["mcpServers"].([]map[string]any)
+	if !ok {
+		t.Fatalf("mcpServers not found in args")
+	}
+	if len(serverList) != 1 {
+		t.Fatalf("serverList len = %d, want 1", len(serverList))
+	}
+	if serverList[0]["name"] != wantName {
+		t.Errorf("name = %v, want %s", serverList[0]["name"], wantName)
+	}
+	if serverList[0]["transport"] != wantTransport {
+		t.Errorf("transport = %v, want %s", serverList[0]["transport"], wantTransport)
+	}
+}
+
+func TestNewSession_WithMCP_RejectInvalid(t *testing.T) {
+	fakeSession := &fakeCodexMCPToolSession{}
+	l := zerolog.Nop()
+	agent := newCodexACPProxyAgent(fakeSession, "test", codexToolConfig{}, &l)
+
+	// No transport
+	_, err := agent.NewSession(context.Background(), acp.NewSessionRequest{
+		McpServers: []acp.McpServer{{}},
+	})
+	if err == nil {
+		t.Fatal("expected error for empty server config")
+	}
+
+	// SSE (not supported)
+	_, err = agent.NewSession(context.Background(), acp.NewSessionRequest{
+		McpServers: []acp.McpServer{{
+			Sse: &acp.McpServerSse{Name: "sse", Url: "http://sse"},
+		}},
+	})
+	if err == nil {
+		t.Fatal("expected error for sse transport")
 	}
 }

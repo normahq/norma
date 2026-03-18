@@ -174,7 +174,7 @@ func mustNewACPSession(t *testing.T, client *Client, stderr *bytes.Buffer, cwd s
 	ctx, cancel := context.WithTimeout(context.Background(), opencodeIntegrationTimeout)
 	defer cancel()
 
-	resp, err := client.NewSession(ctx, cwd)
+	resp, err := client.NewSession(ctx, cwd, nil)
 	if err != nil {
 		failWithDetails(t, "session/new failed", err, stderr.String())
 	}

@@ -74,7 +74,7 @@ func Run(ctx context.Context, cfg RunConfig) error {
 	if err != nil {
 		return fmt.Errorf("initialize acp client: %w", err)
 	}
-	sessionResp, err := client.CreateSession(ctx, cfg.WorkingDir, cfg.SessionModel, "")
+	sessionResp, err := client.CreateSession(ctx, cfg.WorkingDir, cfg.SessionModel, "", nil)
 	if err != nil {
 		return fmt.Errorf("create acp session: %w", err)
 	}

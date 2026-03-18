@@ -1,0 +1,168 @@
+package acpdump
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"encoding/json"
+	"io"
+	"os"
+	"strings"
+	"testing"
+
+	"github.com/metalagman/norma/internal/logging"
+	"github.com/rs/zerolog/log"
+)
+
+func TestRunSuppressesPeerDisconnectInfoByDefault(t *testing.T) {
+	t.Setenv("GO_WANT_ACPDUMP_HELPER", "1")
+	if err := logging.Init(); err != nil {
+		t.Fatalf("logging.Init() error = %v", err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	err := Run(log.Logger.WithContext(context.Background()), RunConfig{
+		Command:    acpDumpHelperCommand(),
+		WorkingDir: t.TempDir(),
+		Stdout:     &stdout,
+		Stderr:     &stderr,
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	if got := stderr.String(); strings.Contains(got, "peer connection closed") {
+		t.Fatalf("stderr contains peer disconnect noise: %q", got)
+	}
+}
+
+func TestRunShowsPeerDisconnectDiagnosticsInDebug(t *testing.T) {
+	t.Setenv("GO_WANT_ACPDUMP_HELPER", "1")
+	if err := logging.Init(logging.WithDebug(true)); err != nil {
+		t.Fatalf("logging.Init() error = %v", err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	err := Run(log.Logger.WithContext(context.Background()), RunConfig{
+		Command:    acpDumpHelperCommand(),
+		WorkingDir: t.TempDir(),
+		Stdout:     &stdout,
+		Stderr:     &stderr,
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	if got := stderr.String(); !strings.Contains(got, "peer connection closed") {
+		t.Fatalf("stderr = %q, want peer disconnect diagnostics in debug mode", got)
+	}
+}
+
+func TestACPDumpHelperProcess(t *testing.T) {
+	if os.Getenv("GO_WANT_ACPDUMP_HELPER") != "1" {
+		return
+	}
+	runACPDumpHelper(os.Stdin, os.Stdout)
+	os.Exit(0)
+}
+
+func acpDumpHelperCommand() []string {
+	return []string{os.Args[0], "-test.run=TestACPDumpHelperProcess", "--"}
+}
+
+func runACPDumpHelper(stdin io.Reader, stdout io.Writer) {
+	scanner := bufio.NewScanner(stdin)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		var req helperEnvelope
+		if err := json.Unmarshal([]byte(line), &req); err != nil {
+			continue
+		}
+
+		switch req.Method {
+		case "initialize":
+			writeHelperResponse(stdout, req.ID, map[string]any{
+				"protocolVersion": 1,
+				"agentInfo": map[string]any{
+					"name":    "acpdump-helper",
+					"version": "1.0.0",
+				},
+				"agentCapabilities": map[string]any{
+					"loadSession": false,
+					"mcpCapabilities": map[string]any{
+						"http": false,
+						"sse":  false,
+					},
+					"promptCapabilities": map[string]any{
+						"audio":           false,
+						"image":           false,
+						"embeddedContext": false,
+					},
+				},
+				"authMethods": []any{},
+			})
+		case "session/new":
+			writeHelperResponse(stdout, req.ID, map[string]any{
+				"sessionId": "session-1",
+			})
+		case "session/set_model":
+			writeHelperResponse(stdout, req.ID, map[string]any{})
+		case "session/set_mode":
+			writeHelperResponse(stdout, req.ID, map[string]any{})
+		default:
+			writeHelperError(stdout, req.ID, -32601, "Method not found")
+		}
+	}
+}
+
+type helperEnvelope struct {
+	JSONRPC string          `json:"jsonrpc"`
+	ID      json.RawMessage `json:"id,omitempty"`
+	Method  string          `json:"method,omitempty"`
+}
+
+func writeHelperResponse(stdout io.Writer, id json.RawMessage, result any) {
+	writeHelperEnvelope(stdout, map[string]any{
+		"jsonrpc": "2.0",
+		"id":      mustJSONRaw(id),
+		"result":  result,
+	})
+}
+
+func writeHelperError(stdout io.Writer, id json.RawMessage, code int, message string) {
+	writeHelperEnvelope(stdout, map[string]any{
+		"jsonrpc": "2.0",
+		"id":      mustJSONRaw(id),
+		"error": map[string]any{
+			"code":    code,
+			"message": message,
+		},
+	})
+}
+
+func writeHelperEnvelope(stdout io.Writer, env map[string]any) {
+	b, err := json.Marshal(env)
+	if err != nil {
+		panic(err)
+	}
+	b = append(b, '\n')
+	if _, err := stdout.Write(b); err != nil {
+		panic(err)
+	}
+}
+
+func mustJSONRaw(v json.RawMessage) any {
+	if len(v) == 0 {
+		return nil
+	}
+	var out any
+	if err := json.Unmarshal(v, &out); err != nil {
+		panic(err)
+	}
+	return out
+}

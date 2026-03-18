@@ -20,6 +20,32 @@ import (
 
 const testTimeout = 45 * time.Second
 
+func TestCodexACPProxyIntegration_NewSessionWithMCP(t *testing.T) {
+	workingDir := requireCodexEnvironment(t)
+	normaBin := buildNormaBinary(t, workingDir)
+
+	client, stderr := newToolACPClient(t, workingDir, normaBin)
+	_ = mustInitialize(t, client, stderr)
+
+	// Define a valid MCP server
+	mcpServers := []acp.McpServer{{
+		Stdio: &acp.McpServerStdio{
+			Name:    "test-stdio",
+			Command: "echo",
+			Args:    []string{"hello"},
+		},
+	}}
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	// NewSession call with MCP servers
+	_, err := client.NewSession(ctx, workingDir, mcpServers)
+	if err != nil {
+		failWithDetails(t, "session/new failed with mcpServers", err, stderr.String())
+	}
+}
+
 func TestCodexACPProxyIntegration_InitializeAndNewSession(t *testing.T) {
 	workingDir := requireCodexEnvironment(t)
 	normaBin := buildNormaBinary(t, workingDir)
@@ -57,7 +83,7 @@ func TestCodexACPProxyIntegration_DefaultName(t *testing.T) {
 		t.Fatal("initialize agentInfo is nil")
 	}
 	if initResp.AgentInfo.Name != codexacpbridge.DefaultAgentName {
-		t.Fatalf("initialize agentInfo.name = %q, want %q", initResp.AgentInfo.Name, codexacp.DefaultAgentName)
+		t.Fatalf("initialize agentInfo.name = %q, want %q", initResp.AgentInfo.Name, codexacpbridge.DefaultAgentName)
 	}
 }
 
@@ -174,7 +200,7 @@ func mustNewSession(t *testing.T, client *acpagent.Client, stderr *bytes.Buffer,
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	resp, err := client.NewSession(ctx, cwd)
+	resp, err := client.NewSession(ctx, cwd, nil)
 	if err != nil {
 		failWithDetails(t, "session/new failed", err, stderr.String())
 	}

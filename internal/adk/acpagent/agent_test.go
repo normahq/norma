@@ -45,7 +45,8 @@ func TestClientPromptReceivesUpdates(t *testing.T) {
 	if _, err := client.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
-	sess, err := client.NewSession(context.Background(), t.TempDir())
+	sess, err := client.NewSession(context.Background(), t.TempDir(), nil)
+
 	if err != nil {
 		t.Fatalf("NewSession() error = %v", err)
 	}
@@ -92,7 +93,7 @@ func TestClientCreateSessionSetsModel(t *testing.T) {
 	if _, err := client.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
-	sess, err := client.CreateSession(context.Background(), t.TempDir(), "openai/gpt-5.4", "")
+	sess, err := client.CreateSession(context.Background(), t.TempDir(), "openai/gpt-5.4", "", nil)
 	if err != nil {
 		t.Fatalf("CreateSession() error = %v", err)
 	}
@@ -115,7 +116,7 @@ func TestClientCreateSessionIgnoresSetModelUnsupported(t *testing.T) {
 	if _, err := client.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
-	sess, err := client.CreateSession(context.Background(), t.TempDir(), "openai/gpt-5.4", "")
+	sess, err := client.CreateSession(context.Background(), t.TempDir(), "openai/gpt-5.4", "", nil)
 	if err != nil {
 		t.Fatalf("CreateSession() error = %v", err)
 	}
@@ -138,7 +139,7 @@ func TestClientCreateSessionFailsOnSetModelRequestError(t *testing.T) {
 	if _, err := client.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
-	_, err = client.CreateSession(context.Background(), t.TempDir(), "openai/gpt-5.4", "")
+	_, err = client.CreateSession(context.Background(), t.TempDir(), "openai/gpt-5.4", "", nil)
 	if err == nil {
 		t.Fatal("CreateSession() error = nil, want set model error")
 	}
@@ -158,7 +159,7 @@ func TestClientCreateSessionSetsMode(t *testing.T) {
 	if _, err := client.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
-	sess, err := client.CreateSession(context.Background(), t.TempDir(), "", "code")
+	sess, err := client.CreateSession(context.Background(), t.TempDir(), "", "code", nil)
 	if err != nil {
 		t.Fatalf("CreateSession() error = %v", err)
 	}
@@ -181,7 +182,7 @@ func TestClientCreateSessionIgnoresSetModeUnsupported(t *testing.T) {
 	if _, err := client.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
-	sess, err := client.CreateSession(context.Background(), t.TempDir(), "", "code")
+	sess, err := client.CreateSession(context.Background(), t.TempDir(), "", "code", nil)
 	if err != nil {
 		t.Fatalf("CreateSession() error = %v", err)
 	}
@@ -204,9 +205,67 @@ func TestClientCreateSessionFailsOnSetModeRequestError(t *testing.T) {
 	if _, err := client.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
-	_, err = client.CreateSession(context.Background(), t.TempDir(), "", "code")
+	_, err = client.CreateSession(context.Background(), t.TempDir(), "", "code", nil)
 	if err == nil {
 		t.Fatal("CreateSession() error = nil, want set mode error")
+	}
+}
+
+func TestClientSuppressesPeerDisconnectInfoByDefault(t *testing.T) {
+	prev := zerolog.GlobalLevel()
+	zerolog.SetGlobalLevel(zerolog.InfoLevel)
+	t.Cleanup(func() {
+		zerolog.SetGlobalLevel(prev)
+	})
+
+	var stderr bytes.Buffer
+	client, err := NewClient(context.Background(), ClientConfig{
+		Command: helperCommand(t),
+		Stderr:  &stderr,
+	})
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+
+	if _, err := client.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	if _, err := client.NewSession(context.Background(), t.TempDir(), nil); err != nil {
+		t.Fatalf("NewSession() error = %v", err)
+	}
+
+	_ = client.Close()
+	if got := stderr.String(); strings.Contains(got, "peer connection closed") {
+		t.Fatalf("stderr contains peer disconnect noise: %q", got)
+	}
+}
+
+func TestClientLogsPeerDisconnectInfoInDebug(t *testing.T) {
+	prev := zerolog.GlobalLevel()
+	zerolog.SetGlobalLevel(zerolog.DebugLevel)
+	t.Cleanup(func() {
+		zerolog.SetGlobalLevel(prev)
+	})
+
+	var stderr bytes.Buffer
+	client, err := NewClient(context.Background(), ClientConfig{
+		Command: helperCommand(t),
+		Stderr:  &stderr,
+	})
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+
+	if _, err := client.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	if _, err := client.NewSession(context.Background(), t.TempDir(), nil); err != nil {
+		t.Fatalf("NewSession() error = %v", err)
+	}
+
+	_ = client.Close()
+	if got := stderr.String(); !strings.Contains(got, "peer connection closed") {
+		t.Fatalf("stderr = %q, want peer disconnect diagnostic in debug mode", got)
 	}
 }
 
@@ -225,7 +284,8 @@ func TestClientHandlesPermissionRequest(t *testing.T) {
 	if _, err := client.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
-	sess, err := client.NewSession(context.Background(), t.TempDir())
+	sess, err := client.NewSession(context.Background(), t.TempDir(), nil)
+
 	if err != nil {
 		t.Fatalf("NewSession() error = %v", err)
 	}
@@ -306,11 +366,11 @@ func TestClientPromptAllowsConcurrentDifferentSessions(t *testing.T) {
 	if _, err := client.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
-	sess1, err := client.NewSession(context.Background(), t.TempDir())
+	sess1, err := client.NewSession(context.Background(), t.TempDir(), nil)
 	if err != nil {
 		t.Fatalf("NewSession() error = %v", err)
 	}
-	sess2, err := client.NewSession(context.Background(), t.TempDir())
+	sess2, err := client.NewSession(context.Background(), t.TempDir(), nil)
 	if err != nil {
 		t.Fatalf("NewSession() error = %v", err)
 	}
@@ -348,7 +408,8 @@ func TestClientPromptRejectsConcurrentSameSession(t *testing.T) {
 	if _, err := client.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
-	sess, err := client.NewSession(context.Background(), t.TempDir())
+	sess, err := client.NewSession(context.Background(), t.TempDir(), nil)
+
 	if err != nil {
 		t.Fatalf("NewSession() error = %v", err)
 	}
@@ -857,6 +918,40 @@ func TestAgentRunMapsACPEventsToADKEvents(t *testing.T) {
 	}
 }
 
+func TestClientCreateSessionSetsMCPServers(t *testing.T) {
+	expectedServers := []acp.McpServer{
+		{
+			Stdio: &acp.McpServerStdio{
+				Name:    "test-server",
+				Command: "echo",
+				Args:    []string{"hello"},
+			},
+		},
+	}
+	expectedJSON, _ := json.Marshal(expectedServers)
+
+	client, err := NewClient(context.Background(), ClientConfig{
+		Command: helperCommandWithEnv(t, map[string]string{
+			"GO_EXPECT_MCP_SERVERS": string(expectedJSON),
+		}),
+	})
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	if _, err := client.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	sess, err := client.NewSession(context.Background(), t.TempDir(), expectedServers)
+	if err != nil {
+		t.Fatalf("NewSession() error = %v", err)
+	}
+	if got := strings.TrimSpace(string(sess.SessionId)); got == "" {
+		t.Fatal("NewSession() returned empty session id")
+	}
+}
+
 func helperCommand(t *testing.T) []string {
 	return helperCommandWithEnv(t, nil)
 }
@@ -894,6 +989,7 @@ func runACPHelper(stdin *os.File, stdout *os.File) {
 	expectedClientVersion := os.Getenv("GO_EXPECT_CLIENT_VERSION")
 	expectedSessionModel := os.Getenv("GO_EXPECT_SESSION_MODEL")
 	expectedSessionMode := os.Getenv("GO_EXPECT_SESSION_MODE")
+	expectedMCPServers := os.Getenv("GO_EXPECT_MCP_SERVERS")
 	disableSetModel := os.Getenv("GO_DISABLE_SET_MODEL") == "1"
 	disableSetMode := os.Getenv("GO_DISABLE_SET_MODE") == "1"
 
@@ -922,6 +1018,38 @@ func runACPHelper(stdin *os.File, stdout *os.File) {
 			}
 			writeEnvelope(stdout, helperEnvelope{JSONRPC: "2.0", ID: msg.ID, Result: mustJSON(helperInitializeResponse{ProtocolVersion: acp.ProtocolVersionNumber})})
 		case acp.AgentMethodSessionNew:
+			if expectedMCPServers != "" {
+				var req helperNewSessionRequest
+				must(json.Unmarshal(msg.Params, &req))
+				gotJSON, _ := json.Marshal(req.McpServers)
+				// Basic string comparison of JSON might be flaky if key order differs,
+				// but for simple struct it might work if mostly empty.
+				// Better to unmarshal expected and compare.
+				var expected []acp.McpServer
+				must(json.Unmarshal([]byte(expectedMCPServers), &expected))
+
+				// Re-marshal both to ensure consistent ordering/formatting if possible,
+				// or just check count and first element name.
+				if len(req.McpServers) != len(expected) {
+					writeEnvelope(stdout, helperEnvelope{
+						JSONRPC: "2.0",
+						ID:      msg.ID,
+						Error:   &helperError{Code: -32000, Message: fmt.Sprintf("unexpected mcp servers count: %d, want %d", len(req.McpServers), len(expected))},
+					})
+					continue
+				}
+				if len(expected) > 0 {
+					if req.McpServers[0].Stdio == nil || expected[0].Stdio == nil || req.McpServers[0].Stdio.Name != expected[0].Stdio.Name {
+						writeEnvelope(stdout, helperEnvelope{
+							JSONRPC: "2.0",
+							ID:      msg.ID,
+							Error:   &helperError{Code: -32000, Message: fmt.Sprintf("unexpected mcp server: %s", string(gotJSON))},
+						})
+						continue
+					}
+				}
+			}
+
 			sessionCount++
 			sessionID := fmt.Sprintf("session-%d", sessionCount)
 			writeEnvelope(stdout, helperEnvelope{JSONRPC: "2.0", ID: msg.ID, Result: mustJSON(helperNewSessionResponse{SessionID: sessionID})})
@@ -1105,6 +1233,11 @@ type helperImplementation struct {
 
 type helperNewSessionResponse struct {
 	SessionID string `json:"sessionId"`
+}
+
+type helperNewSessionRequest struct {
+	Cwd        string          `json:"cwd"`
+	McpServers []acp.McpServer `json:"mcpServers,omitempty"`
 }
 
 type helperPromptResponse struct {

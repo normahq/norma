@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os/exec"
 	"strings"
 	"sync"
@@ -181,10 +182,19 @@ func NewClient(ctx context.Context, cfg ClientConfig) (*Client, error) {
 	wireWriter := newWireLoggingWriter(stdin, l)
 	wireReader := newWireLoggingReader(stdout, l, c.enqueueUpdateFromWire)
 	c.conn = acp.NewClientSideConnection(c, wireWriter, wireReader)
+	c.conn.SetLogger(newACPConnectionLogger(stderr))
 
 	go c.dispatchUpdates()
 	go c.waitLoop()
 	return c, nil
+}
+
+func newACPConnectionLogger(stderr io.Writer) *slog.Logger {
+	level := slog.LevelWarn
+	if zerolog.GlobalLevel() <= zerolog.DebugLevel {
+		level = slog.LevelInfo
+	}
+	return slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: level}))
 }
 
 // Initialize performs ACP protocol initialization and validates protocol
@@ -223,9 +233,9 @@ func (c *Client) Authenticate(ctx context.Context, methodID string) error {
 }
 
 // NewSession creates a new ACP session in the provided working directory.
-func (c *Client) NewSession(ctx context.Context, cwd string) (acp.NewSessionResponse, error) {
-	c.logger.Debug().Str("cwd", cwd).Msg("sending acp session/new")
-	resp, err := c.conn.NewSession(ctx, acp.NewSessionRequest{Cwd: cwd, McpServers: []acp.McpServer{}})
+func (c *Client) NewSession(ctx context.Context, cwd string, mcpServers []acp.McpServer) (acp.NewSessionResponse, error) {
+	c.logger.Debug().Str("cwd", cwd).Int("mcp_servers", len(mcpServers)).Msg("sending acp session/new")
+	resp, err := c.conn.NewSession(ctx, acp.NewSessionRequest{Cwd: cwd, McpServers: mcpServers})
 	if err != nil {
 		return acp.NewSessionResponse{}, err
 	}
@@ -238,8 +248,8 @@ func (c *Client) NewSession(ctx context.Context, cwd string) (acp.NewSessionResp
 
 // CreateSession creates a new ACP session and applies configured session
 // model/mode when requested.
-func (c *Client) CreateSession(ctx context.Context, cwd, model, mode string) (acp.NewSessionResponse, error) {
-	resp, err := c.NewSession(ctx, cwd)
+func (c *Client) CreateSession(ctx context.Context, cwd, model, mode string, mcpServers []acp.McpServer) (acp.NewSessionResponse, error) {
+	resp, err := c.NewSession(ctx, cwd, mcpServers)
 	if err != nil {
 		return acp.NewSessionResponse{}, err
 	}

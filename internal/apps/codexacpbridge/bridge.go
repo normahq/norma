@@ -461,9 +461,13 @@ func (a *codexACPProxyAgent) Cancel(_ context.Context, params acp.CancelNotifica
 func (a *codexACPProxyAgent) NewSession(ctx context.Context, params acp.NewSessionRequest) (acp.NewSessionResponse, error) {
 	sessionID := acp.SessionId(fmt.Sprintf("session-%d", atomic.AddUint64(&a.nextSessionID, 1)))
 
-	mcpServers, err := validateMCPServers(params.McpServers)
-	if err != nil {
-		return acp.NewSessionResponse{}, acp.NewInvalidParams(err.Error())
+	var mcpServers map[string]acp.McpServer
+	if len(params.McpServers) > 0 {
+		var err error
+		mcpServers, err = validateMCPServers(params.McpServers)
+		if err != nil {
+			return acp.NewSessionResponse{}, acp.NewInvalidParams(err.Error())
+		}
 	}
 
 	a.mu.Lock()

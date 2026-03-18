@@ -173,7 +173,7 @@ func mustNewSession(t *testing.T, client *acpagent.Client, stderr *bytes.Buffer,
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	resp, err := client.NewSession(ctx, cwd)
+	resp, err := client.NewSession(ctx, cwd, nil)
 	if err != nil {
 		failWithDetails(t, "session/new failed", err, stderr.String())
 	}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"iter"
+	"sort"
 	"strings"
 	"sync"
 
@@ -62,6 +63,7 @@ type Agent struct {
 	logger       zerolog.Logger
 	sessionMu    sync.Mutex
 	remoteByADK  map[string]string
+	mcpServers   []acp.McpServer
 }
 
 const (
@@ -115,6 +117,14 @@ func New(cfg Config) (*Agent, error) {
 		return nil, fmt.Errorf("initialize acp client: %w", err)
 	}
 
+	mcpServers, err := convertMCPServers(cfg.MCPServers)
+	if err != nil {
+		if closeErr := client.Close(); closeErr != nil {
+			l.Error().Err(closeErr).Msg("failed to close acp client after mcp config conversion failure")
+		}
+		return nil, fmt.Errorf("convert mcp servers: %w", err)
+	}
+
 	a := &Agent{
 		client:       client,
 		workingDir:   cfg.WorkingDir,
@@ -123,6 +133,7 @@ func New(cfg Config) (*Agent, error) {
 		systemPrompt: strings.TrimSpace(cfg.SystemPrompt),
 		logger:       l,
 		remoteByADK:  make(map[string]string),
+		mcpServers:   mcpServers,
 	}
 	base, err := adkagent.New(adkagent.Config{
 		Name:        cfg.Name,
@@ -297,7 +308,7 @@ func (a *Agent) ensureRemoteSession(ctx context.Context, adkSessionID string) (s
 		a.logger.Debug().Str("adk_session_id", adkSessionID).Str("acp_session_id", sessionID).Msg("reusing acp session for adk session")
 		return sessionID, nil
 	}
-	resp, err := a.client.CreateSession(ctx, a.workingDir, a.sessionModel, a.sessionMode)
+	resp, err := a.client.CreateSession(ctx, a.workingDir, a.sessionModel, a.sessionMode, a.mcpServers)
 	if err != nil {
 		return "", err
 	}
@@ -328,6 +339,88 @@ func extractPromptText(content *genai.Content) string {
 		builder.WriteString(part.Text)
 	}
 	return strings.TrimSpace(builder.String())
+}
+
+func convertMCPServers(configs map[string]agentconfig.MCPServerConfig) ([]acp.McpServer, error) {
+	if len(configs) == 0 {
+		return nil, nil
+	}
+	servers := make([]acp.McpServer, 0, len(configs))
+	keys := make([]string, 0, len(configs))
+	for k := range configs {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	for _, name := range keys {
+		cfg := configs[name]
+		svr := acp.McpServer{}
+		switch cfg.Type {
+		case agentconfig.MCPServerTypeStdio:
+			if len(cfg.Cmd) == 0 {
+				return nil, fmt.Errorf("mcp server %q: stdio type requires command", name)
+			}
+			svr.Stdio = &acp.McpServerStdio{
+				Name:    name,
+				Command: cfg.Cmd[0],
+				Env:     envToEnvVars(cfg.Env),
+			}
+			if len(cfg.Cmd) > 1 {
+				svr.Stdio.Args = make([]string, 0, len(cfg.Cmd)-1+len(cfg.Args))
+				svr.Stdio.Args = append(svr.Stdio.Args, cfg.Cmd[1:]...)
+				svr.Stdio.Args = append(svr.Stdio.Args, cfg.Args...)
+			} else {
+				svr.Stdio.Args = cfg.Args
+			}
+		case agentconfig.MCPServerTypeHTTP:
+			svr.Http = &acp.McpServerHttp{
+				Name:    name,
+				Url:     cfg.URL,
+				Headers: headersToHttpHeaders(cfg.Headers),
+			}
+		case agentconfig.MCPServerTypeSSE:
+			svr.Sse = &acp.McpServerSse{
+				Name: name,
+				Url:  cfg.URL,
+			}
+		default:
+			return nil, fmt.Errorf("unsupported mcp server type %q", cfg.Type)
+		}
+		servers = append(servers, svr)
+	}
+	return servers, nil
+}
+
+func envToEnvVars(env map[string]string) []acp.EnvVariable {
+	if len(env) == 0 {
+		return nil
+	}
+	vars := make([]acp.EnvVariable, 0, len(env))
+	keys := make([]string, 0, len(env))
+	for k := range env {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		vars = append(vars, acp.EnvVariable{Name: k, Value: env[k]})
+	}
+	return vars
+}
+
+func headersToHttpHeaders(headers map[string]string) []acp.HttpHeader {
+	if len(headers) == 0 {
+		return nil
+	}
+	h := make([]acp.HttpHeader, 0, len(headers))
+	keys := make([]string, 0, len(headers))
+	for k := range headers {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		h = append(h, acp.HttpHeader{Name: k, Value: headers[k]})
+	}
+	return h
 }
 
 func mapACPUpdateToEvent(logger zerolog.Logger, invocationID string, ext ExtendedSessionNotification) (*session.Event, bool) {
