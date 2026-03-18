@@ -395,13 +395,17 @@ func (c *Client) Prompt(ctx context.Context, sessionID, prompt string) (<-chan E
 
 // Close stops the ACP subprocess and waits for cleanup to finish.
 func (c *Client) Close() error {
-	_ = c.stdin.Close()
+	if err := c.stdin.Close(); err != nil {
+		c.logger.Warn().Err(err).Msg("failed to close stdin")
+	}
 	if c.cmd.Process != nil {
-		_ = c.cmd.Process.Kill()
+		if err := c.cmd.Process.Kill(); err != nil {
+			c.logger.Warn().Err(err).Msg("failed to kill acp process")
+		}
 	}
 	<-c.closed
 	if c.closeErr != nil && !errors.Is(c.closeErr, io.EOF) {
-		return c.closeErr
+		return fmt.Errorf("acp client close: %w", c.closeErr)
 	}
 	return nil
 }

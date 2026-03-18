@@ -109,7 +109,9 @@ func New(cfg Config) (*Agent, error) {
 		return nil, err
 	}
 	if _, err := client.Initialize(ctx); err != nil {
-		_ = client.Close()
+		if closeErr := client.Close(); closeErr != nil {
+			l.Error().Err(closeErr).Msg("failed to close acp client after initialize failure")
+		}
 		return nil, fmt.Errorf("initialize acp client: %w", err)
 	}
 
@@ -128,7 +130,9 @@ func New(cfg Config) (*Agent, error) {
 		Run:         a.run,
 	})
 	if err != nil {
-		_ = client.Close()
+		if closeErr := client.Close(); closeErr != nil {
+			l.Error().Err(closeErr).Msg("failed to close acp client after adk agent creation failure")
+		}
 		return nil, fmt.Errorf("create adk acp agent: %w", err)
 	}
 	a.Agent = base
@@ -137,7 +141,10 @@ func New(cfg Config) (*Agent, error) {
 
 // Close shuts down the underlying ACP client process.
 func (a *Agent) Close() error {
-	return a.client.Close()
+	if err := a.client.Close(); err != nil {
+		return fmt.Errorf("close acp client: %w", err)
+	}
+	return nil
 }
 
 func (a *Agent) run(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, error] {
