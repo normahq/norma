@@ -126,18 +126,16 @@ var poolConstructor = func(ctx context.Context, cfg agentconfig.Config, req Crea
 		Description:       req.Description,
 		SystemInstruction: req.SystemInstruction,
 		WorkingDirectory:  req.WorkingDirectory,
-		MCPServers:        req.MCPServers,
 	}
 
-	creator := &factoryAgentCreator{registry: registry, mcpServers: req.MCPServers, req: req}
+	creator := &factoryAgentCreator{registry: registry, req: req}
 
 	return poolagent.NewPoolAgent(ctx, req.Name, poolMembers, poolReq, creator)
 }
 
 type factoryAgentCreator struct {
-	registry   map[string]agentconfig.Config
-	mcpServers map[string]agentconfig.MCPServerConfig
-	req        CreationRequest
+	registry map[string]agentconfig.Config
+	req      CreationRequest
 }
 
 func (f *factoryAgentCreator) CreateAgent(ctx context.Context, name string, req poolagent.AgentRequest) (agent.Agent, error) {
@@ -147,9 +145,8 @@ func (f *factoryAgentCreator) CreateAgent(ctx context.Context, name string, req 
 		SystemInstruction: req.SystemInstruction,
 		WorkingDirectory:  req.WorkingDirectory,
 		Stderr:            f.req.Stderr,
-		MCPServers:        f.mcpServers,
 	}
-	return NewFactoryWithMCPServers(f.registry, f.mcpServers).CreateAgent(ctx, name, fullReq)
+	return NewFactory(f.registry).CreateAgent(ctx, name, fullReq)
 }
 
 type poolMemberConfig struct {

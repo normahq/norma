@@ -27,7 +27,6 @@ type AgentRequest struct {
 	Description       string
 	SystemInstruction string
 	WorkingDirectory  string
-	MCPServers        map[string]agentconfig.MCPServerConfig
 }
 
 type PoolExecutor struct {
