@@ -125,6 +125,11 @@ agents:
   custom_generic_acp_agent:
     type: generic_acp
     cmd: ["custom-acp-cli", "--acp"]
+  fallback_pool:
+    type: pool
+    pool:
+      - opencode_acp_agent
+      - gemini_acp_agent
 
 profiles:
   default:
@@ -155,6 +160,13 @@ profiles:
       check: codex_acp_agent
       act: codex_acp_agent
     planner: gemini_acp_agent
+  pool_fallback:
+    pdca:
+      plan: fallback_pool
+      do: fallback_pool
+      check: fallback_pool
+      act: fallback_pool
+    planner: fallback_pool
 budgets:
   max_iterations: 5
 retention:

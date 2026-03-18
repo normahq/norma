@@ -10,6 +10,8 @@ import (
 	"github.com/coder/acp-go-sdk"
 	"github.com/metalagman/norma/internal/adk/acpagent"
 	"github.com/metalagman/norma/internal/adk/agentconfig"
+	"github.com/metalagman/norma/internal/adk/poolagent"
+
 	"google.golang.org/adk/agent"
 )
 
@@ -25,7 +27,7 @@ type CreationRequest struct {
 }
 
 // constructor is a function that creates a new agent instance.
-type constructor func(ctx context.Context, cfg agentconfig.Config, req CreationRequest) (agent.Agent, error)
+type constructor func(ctx context.Context, cfg agentconfig.Config, req CreationRequest, registry map[string]agentconfig.Config) (agent.Agent, error)
 
 // Factory is a registry of agent configurations.
 type Factory struct {
@@ -56,7 +58,7 @@ func (f *Factory) CreateAgent(ctx context.Context, name string, req CreationRequ
 		return nil, fmt.Errorf("unsupported agent type %q for agent %q", cfg.Type, name)
 	}
 
-	ag, err := create(ctx, cfg, req)
+	ag, err := create(ctx, cfg, req, f.registry)
 	if err != nil {
 		return nil, fmt.Errorf("create agent %q: %w", name, err)
 	}
@@ -67,9 +69,10 @@ func (f *Factory) CreateAgent(ctx context.Context, name string, req CreationRequ
 // constructors registry.
 var constructors = map[string]constructor{
 	agentconfig.AgentTypeGenericACP: acpConstructor,
+	agentconfig.AgentTypePool:       poolConstructor,
 }
 
-var acpConstructor = func(ctx context.Context, cfg agentconfig.Config, req CreationRequest) (agent.Agent, error) {
+var acpConstructor = func(ctx context.Context, cfg agentconfig.Config, req CreationRequest, _ map[string]agentconfig.Config) (agent.Agent, error) {
 	cmd, err := ResolveACPCommand(cfg)
 	if err != nil {
 		return nil, err
@@ -87,6 +90,82 @@ var acpConstructor = func(ctx context.Context, cfg agentconfig.Config, req Creat
 		Stderr:            req.Stderr,
 		PermissionHandler: req.PermissionHandler,
 	})
+}
+
+var poolConstructor = func(ctx context.Context, cfg agentconfig.Config, req CreationRequest, registry map[string]agentconfig.Config) (agent.Agent, error) {
+	members, err := validatePoolMembers(req.Name, cfg.Pool, registry)
+	if err != nil {
+		return nil, err
+	}
+
+	poolMembers := make([]poolagent.MemberConfig, len(members))
+	for i, m := range members {
+		poolMembers[i] = poolagent.MemberConfig{
+			Name: m.Name,
+			Cfg:  m.Cfg,
+		}
+	}
+
+	poolReq := poolagent.AgentRequest{
+		Name:              req.Name,
+		Description:       req.Description,
+		SystemInstruction: req.SystemInstruction,
+		WorkingDirectory:  req.WorkingDirectory,
+	}
+
+	creator := &factoryAgentCreator{registry: registry, req: req}
+
+	return poolagent.NewPoolAgent(ctx, req.Name, poolMembers, poolReq, creator)
+}
+
+type factoryAgentCreator struct {
+	registry map[string]agentconfig.Config
+	req      CreationRequest
+}
+
+func (f *factoryAgentCreator) CreateAgent(ctx context.Context, name string, req poolagent.AgentRequest) (agent.Agent, error) {
+	fullReq := CreationRequest{
+		Name:              req.Name,
+		Description:       req.Description,
+		SystemInstruction: req.SystemInstruction,
+		WorkingDirectory:  req.WorkingDirectory,
+		Stderr:            f.req.Stderr,
+	}
+	return NewFactory(f.registry).CreateAgent(ctx, name, fullReq)
+}
+
+type poolMemberConfig struct {
+	Name string
+	Cfg  agentconfig.Config
+}
+
+func validatePoolMembers(poolName string, pool []string, registry map[string]agentconfig.Config) ([]poolMemberConfig, error) {
+	if len(pool) == 0 {
+		return nil, fmt.Errorf("pool agent requires pool members")
+	}
+
+	members := make([]poolMemberConfig, 0, len(pool))
+	for i, memberName := range pool {
+		memberName = strings.TrimSpace(memberName)
+		if memberName == "" {
+			return nil, fmt.Errorf("pool member at index %d is empty", i)
+		}
+		if memberName == poolName {
+			return nil, fmt.Errorf("pool cannot reference itself")
+		}
+		memberCfg, ok := registry[memberName]
+		if !ok {
+			return nil, fmt.Errorf("pool references unknown agent %q", memberName)
+		}
+		if agentconfig.IsPoolType(memberCfg.Type) {
+			return nil, fmt.Errorf("pool cannot contain nested pool %q", memberName)
+		}
+		members = append(members, poolMemberConfig{
+			Name: memberName,
+			Cfg:  memberCfg,
+		})
+	}
+	return members, nil
 }
 
 // ResolveACPCommand resolves the command for ACP-backed agent types.

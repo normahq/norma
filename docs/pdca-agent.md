@@ -109,6 +109,64 @@ Norma uses the **Agent Control Protocol (ACP)** for all agent communications. Ag
 - Custom agents: `generic_acp` (any binary implementing the ACP protocol).
 - Execution: Each PDCA step creates a fresh agent instance, executes a single turn with mapped JSON input, and closes the runtime after validating the JSON output.
 
+## Pool Agents (Ordered Failover)
+
+Norma supports **pool agents** that provide ordered failover across multiple ACP agent implementations. Pool agents are useful when you want automatic fallback from a primary agent to backup agents.
+
+### Configuration
+
+Pool agents are configured with `type: pool` and a `pool` array listing the agent IDs to try in order:
+
+```yaml
+agents:
+  primary_agent:
+    type: gemini_acp
+    model: gemini-3-flash-preview
+  fallback_agent:
+    type: opencode_acp
+  my_pool:
+    type: pool
+    pool:
+      - primary_agent
+      - fallback_agent
+```
+
+### Behavior
+
+- **Ordered sequential attempts**: Pool agents try each member in order (first to last).
+- **Failover trigger**: Failover occurs only on runtime/invocation failure before a valid response is produced.
+- **All-fail behavior**: If all pool members fail, the returned error includes aggregated failure details from each attempt.
+- **Nested pools**: NOT allowed (MVP constraint).
+- **Self-reference**: NOT allowed.
+
+### Usage in Profiles
+
+Pool agents can be used anywhere a regular agent is used:
+
+```yaml
+profiles:
+  default:
+    pdca:
+      plan: my_pool
+      do: my_pool
+      check: my_pool
+      act: my_pool
+```
+
+### Observability
+
+When all pool members fail, the error message includes:
+- Pool name
+- Number of attempts
+- Each member's error message in order
+
+Example error:
+```
+pool "my_pool": all 2 members failed
+  [1] primary_agent: create agent "primary_agent": ...
+  [2] fallback_agent: create agent "fallback_agent": ...
+```
+
 ## References
 
 - Canonical workflow and contracts: `AGENTS.md`

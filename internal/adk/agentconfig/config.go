@@ -11,7 +11,7 @@ import (
 
 // Config describes how to run an agent.
 type Config struct {
-	Type      string   `json:"type"                 mapstructure:"type"       validate:"required,oneof=generic_acp codex_acp opencode_acp gemini_acp copilot_acp"`
+	Type      string   `json:"type"                 mapstructure:"type"       validate:"required"`
 	Cmd       []string `json:"cmd,omitempty"        mapstructure:"cmd"`
 	ExtraArgs []string `json:"extra_args,omitempty" mapstructure:"extra_args"`
 	Model     string   `json:"model,omitempty"      mapstructure:"model"      validate:"omitempty,min=1"`
@@ -20,6 +20,7 @@ type Config struct {
 	APIKey    string   `json:"api_key,omitempty"    mapstructure:"api_key"    validate:"omitempty,min=1"`
 	Timeout   int      `json:"timeout,omitempty"    mapstructure:"timeout"    validate:"omitempty,min=1"`
 	UseTTY    *bool    `json:"use_tty,omitempty"    mapstructure:"use_tty"`
+	Pool      []string `json:"pool,omitempty"       mapstructure:"pool"`
 }
 
 var configValidator = newConfigValidator()
@@ -49,6 +50,10 @@ func (c Config) Validate() error {
 		}
 	}
 
+	if !IsValidAgentType(c.Type) {
+		errs = append(errs, fmt.Sprintf("type must be one of: %s", strings.Join(SupportedAgentTypes(), ", ")))
+	}
+
 	switch c.Type {
 	case AgentTypeGenericACP:
 		if len(c.Cmd) == 0 {
@@ -57,6 +62,10 @@ func (c Config) Validate() error {
 	case AgentTypeCodexACP, AgentTypeOpenCodeACP, AgentTypeGeminiACP, AgentTypeCopilotACP:
 		if len(c.Cmd) > 0 {
 			errs = append(errs, fmt.Sprintf("cmd must be omitted for type %s", c.Type))
+		}
+	case AgentTypePool:
+		if len(c.Pool) == 0 {
+			errs = append(errs, "pool is required for type pool")
 		}
 	}
 
@@ -68,6 +77,11 @@ func (c Config) Validate() error {
 	for i, arg := range c.ExtraArgs {
 		if arg == "" {
 			errs = append(errs, fmt.Sprintf("extra_args[%d] must have at least 1 character", i))
+		}
+	}
+	for i, member := range c.Pool {
+		if strings.TrimSpace(member) == "" {
+			errs = append(errs, fmt.Sprintf("pool[%d] must have at least 1 character", i))
 		}
 	}
 
@@ -105,7 +119,36 @@ const (
 	AgentTypeOpenCodeACP = "opencode_acp"
 	// AgentTypeCopilotACP is the alias for Copilot CLI ACP mode.
 	AgentTypeCopilotACP = "copilot_acp"
+	// AgentTypePool is the pool type with ordered failover.
+	AgentTypePool = "pool"
 )
+
+// SupportedAgentTypes returns all supported agent types.
+func SupportedAgentTypes() []string {
+	return []string{
+		AgentTypeGenericACP,
+		AgentTypeGeminiACP,
+		AgentTypeCodexACP,
+		AgentTypeOpenCodeACP,
+		AgentTypeCopilotACP,
+		AgentTypePool,
+	}
+}
+
+// IsValidAgentType reports whether the given type is a valid agent type.
+func IsValidAgentType(agentType string) bool {
+	for _, t := range SupportedAgentTypes() {
+		if t == agentType {
+			return true
+		}
+	}
+	return false
+}
+
+// IsPoolType reports whether an agent type is a pool.
+func IsPoolType(agentType string) bool {
+	return strings.TrimSpace(agentType) == AgentTypePool
+}
 
 // IsACPType reports whether an agent type uses the ACP runtime.
 func IsACPType(agentType string) bool {

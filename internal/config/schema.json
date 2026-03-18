@@ -54,7 +54,7 @@
       "properties": {
         "type": {
           "type": "string",
-          "enum": ["generic_acp", "codex_acp", "opencode_acp", "gemini_acp", "copilot_acp"]
+          "enum": ["generic_acp", "codex_acp", "opencode_acp", "gemini_acp", "copilot_acp", "pool"]
         },
         "cmd": {
           "type": "array",
@@ -93,6 +93,14 @@
         },
         "use_tty": {
           "type": "boolean"
+        },
+        "pool": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
         }
       },
       "additionalProperties": false,
@@ -121,6 +129,18 @@
             "not": {
               "required": ["cmd"]
             }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "pool"
+              }
+            }
+          },
+          "then": {
+            "required": ["pool"]
           }
         }
       ]
