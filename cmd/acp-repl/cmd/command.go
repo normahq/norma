@@ -47,8 +47,11 @@ func Command() *cobra.Command {
 	cmd.Flags().StringVar(&sessionModel, "model", "", "session model requested via ACP session/set_model")
 	cmd.Flags().StringVar(&sessionMode, "mode", "", "session mode requested via ACP session/set_mode")
 	cmd.Flags().BoolVar(&debugLogs, "debug", false, "enable debug logging")
-	cmd.PersistentPreRun = func(cmd *cobra.Command, _ []string) {
-		_ = logging.Init(logging.WithDebug(debugLogs))
+	cmd.PersistentPreRunE = func(_ *cobra.Command, _ []string) error {
+		if err := logging.Init(logging.WithDebug(debugLogs)); err != nil {
+			return fmt.Errorf("initialize logging: %w", err)
+		}
+		return nil
 	}
 	cmd.Example = "  acp-repl -- opencode acp\n  acp-repl --model openai/gpt-5.4 --mode coding -- opencode acp\n  acp-repl -- gemini --experimental-acp"
 	return cmd

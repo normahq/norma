@@ -35,8 +35,8 @@ codex-acp-bridge --debug
 - Validates that Codex MCP tools `codex` and `codex-reply` are available.
 - Creates separate backend Codex MCP sessions per ACP session.
 - Supports ACP `session/set_model` and propagates the selected model to new Codex tool calls.
-- Accepts ACP `session/set_mode` and resets the backend session, but does not currently propagate mode to Codex MCP tool arguments.
-- Supports per-session MCP servers via ACP `session/new` `mcpServers` parameter (stdio and http transports). SSE transport is not supported.
+- Accepts ACP `session/set_mode` and resets backend session/thread state, but does not propagate mode to Codex MCP tool arguments.
+- Supports per-session MCP servers via ACP `session/new` `mcpServers` parameter (stdio and http transports). SSE transport is not supported, and each server entry must declare exactly one transport.
 
 ## MCP Servers
 

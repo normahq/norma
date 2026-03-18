@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"iter"
 	"os"
 	"sort"
@@ -266,6 +267,42 @@ func TestClientLogsPeerDisconnectInfoInDebug(t *testing.T) {
 	_ = client.Close()
 	if got := stderr.String(); !strings.Contains(got, "peer connection closed") {
 		t.Fatalf("stderr = %q, want peer disconnect diagnostic in debug mode", got)
+	}
+}
+
+func TestClientCloseSuppressesExpectedProcessExitWarnings(t *testing.T) {
+	var logBuf bytes.Buffer
+	logger := zerolog.New(&logBuf).Level(zerolog.DebugLevel)
+
+	client, err := NewClient(context.Background(), ClientConfig{
+		Command: helperCommand(t),
+		Stderr:  io.Discard,
+		Logger:  &logger,
+	})
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+
+	if _, err := client.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	if _, err := client.NewSession(context.Background(), t.TempDir(), nil); err != nil {
+		t.Fatalf("NewSession() error = %v", err)
+	}
+
+	if err := client.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+
+	got := logBuf.String()
+	if strings.Contains(got, "acp process exited with error") {
+		t.Fatalf("log unexpectedly contains process exit warning: %q", got)
+	}
+	if strings.Contains(got, "failed to kill acp process") {
+		t.Fatalf("log unexpectedly contains kill warning: %q", got)
+	}
+	if strings.Contains(got, "failed to close stdin") {
+		t.Fatalf("log unexpectedly contains stdin close warning: %q", got)
 	}
 }
 
@@ -952,6 +989,29 @@ func TestClientCreateSessionSetsMCPServers(t *testing.T) {
 	}
 }
 
+func TestClientNewSessionSendsEmptyMCPServersArrayWhenNil(t *testing.T) {
+	client, err := NewClient(context.Background(), ClientConfig{
+		Command: helperCommandWithEnv(t, map[string]string{
+			"GO_EXPECT_MCP_SERVERS_RAW": "[]",
+		}),
+	})
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	if _, err := client.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	sess, err := client.NewSession(context.Background(), t.TempDir(), nil)
+	if err != nil {
+		t.Fatalf("NewSession() error = %v", err)
+	}
+	if got := strings.TrimSpace(string(sess.SessionId)); got == "" {
+		t.Fatal("NewSession() returned empty session id")
+	}
+}
+
 func helperCommand(t *testing.T) []string {
 	return helperCommandWithEnv(t, nil)
 }
@@ -990,6 +1050,7 @@ func runACPHelper(stdin *os.File, stdout *os.File) {
 	expectedSessionModel := os.Getenv("GO_EXPECT_SESSION_MODEL")
 	expectedSessionMode := os.Getenv("GO_EXPECT_SESSION_MODE")
 	expectedMCPServers := os.Getenv("GO_EXPECT_MCP_SERVERS")
+	expectedMCPServersRaw := os.Getenv("GO_EXPECT_MCP_SERVERS_RAW")
 	disableSetModel := os.Getenv("GO_DISABLE_SET_MODEL") == "1"
 	disableSetMode := os.Getenv("GO_DISABLE_SET_MODE") == "1"
 
@@ -1018,6 +1079,22 @@ func runACPHelper(stdin *os.File, stdout *os.File) {
 			}
 			writeEnvelope(stdout, helperEnvelope{JSONRPC: "2.0", ID: msg.ID, Result: mustJSON(helperInitializeResponse{ProtocolVersion: acp.ProtocolVersionNumber})})
 		case acp.AgentMethodSessionNew:
+			if expectedMCPServersRaw != "" {
+				var reqRaw struct {
+					McpServers json.RawMessage `json:"mcpServers"`
+				}
+				must(json.Unmarshal(msg.Params, &reqRaw))
+				gotRaw := compactJSONForCompare(reqRaw.McpServers)
+				wantRaw := compactJSONForCompare([]byte(expectedMCPServersRaw))
+				if gotRaw != wantRaw {
+					writeEnvelope(stdout, helperEnvelope{
+						JSONRPC: "2.0",
+						ID:      msg.ID,
+						Error:   &helperError{Code: -32000, Message: fmt.Sprintf("unexpected raw mcp servers payload: %q, want %q", gotRaw, wantRaw)},
+					})
+					continue
+				}
+			}
 			if expectedMCPServers != "" {
 				var req helperNewSessionRequest
 				must(json.Unmarshal(msg.Params, &req))
@@ -1202,6 +1279,14 @@ func must(err error) {
 	if err != nil {
 		panic(err)
 	}
+}
+
+func compactJSONForCompare(raw []byte) string {
+	var out bytes.Buffer
+	if err := json.Compact(&out, raw); err != nil {
+		return strings.TrimSpace(string(raw))
+	}
+	return out.String()
 }
 
 type helperEnvelope struct {

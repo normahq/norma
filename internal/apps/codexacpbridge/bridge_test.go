@@ -655,6 +655,13 @@ func TestCodexACPProxySetModelResetsThreadAndBackend(t *testing.T) {
 	if len(secondCalls) == 0 || secondCalls[0].Name != codexToolName {
 		t.Fatalf("second backend calls = %+v, want thread-reset %q call", secondCalls, codexToolName)
 	}
+	secondArgs, ok := secondCalls[0].Arguments.(map[string]any)
+	if !ok {
+		t.Fatalf("second backend call args type = %T, want map[string]any", secondCalls[0].Arguments)
+	}
+	if _, exists := secondArgs["mode"]; exists {
+		t.Fatalf("mode argument should not be propagated to codex tool call: args=%v", secondArgs)
+	}
 }
 
 func TestCodexACPProxySetModelPreservesMCPServers(t *testing.T) {
@@ -1137,5 +1144,16 @@ func TestNewSession_WithMCP_RejectInvalid(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error for sse transport")
+	}
+
+	// Multiple transports on one server (ambiguous)
+	_, err = agent.NewSession(context.Background(), acp.NewSessionRequest{
+		McpServers: []acp.McpServer{{
+			Stdio: &acp.McpServerStdio{Name: "mixed", Command: "echo"},
+			Http:  &acp.McpServerHttp{Name: "mixed", Url: "http://localhost"},
+		}},
+	})
+	if err == nil {
+		t.Fatal("expected error for multiple transports in one mcp server entry")
 	}
 }

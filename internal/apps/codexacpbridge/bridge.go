@@ -182,8 +182,24 @@ func validateMCPServers(servers []acp.McpServer) (map[string]acp.McpServer, erro
 			name = strings.TrimSpace(server.Sse.Name)
 		}
 
-		if !hasStdio && !hasHttp && !hasSse {
-			return nil, fmt.Errorf("mcp server must have at least one transport (stdio or http)")
+		transportCount := 0
+		if hasStdio {
+			transportCount++
+		}
+		if hasHttp {
+			transportCount++
+		}
+		if hasSse {
+			transportCount++
+		}
+		if transportCount == 0 {
+			return nil, fmt.Errorf("mcp server must specify exactly one transport")
+		}
+		if transportCount > 1 {
+			if name == "" {
+				name = "<unnamed>"
+			}
+			return nil, fmt.Errorf("mcp server %q: exactly one transport is required", name)
 		}
 
 		if hasSse {

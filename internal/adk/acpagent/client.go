@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	acp "github.com/coder/acp-go-sdk"
@@ -89,6 +91,7 @@ type Client struct {
 	dispatchDone chan struct{}
 	closeOnce    sync.Once
 	closeErr     error
+	closing      atomic.Bool
 }
 
 type activePrompt struct {
@@ -234,6 +237,9 @@ func (c *Client) Authenticate(ctx context.Context, methodID string) error {
 
 // NewSession creates a new ACP session in the provided working directory.
 func (c *Client) NewSession(ctx context.Context, cwd string, mcpServers []acp.McpServer) (acp.NewSessionResponse, error) {
+	if mcpServers == nil {
+		mcpServers = []acp.McpServer{}
+	}
 	c.logger.Debug().Str("cwd", cwd).Int("mcp_servers", len(mcpServers)).Msg("sending acp session/new")
 	resp, err := c.conn.NewSession(ctx, acp.NewSessionRequest{Cwd: cwd, McpServers: mcpServers})
 	if err != nil {
@@ -405,30 +411,49 @@ func (c *Client) Prompt(ctx context.Context, sessionID, prompt string) (<-chan E
 
 // Close stops the ACP subprocess and waits for cleanup to finish.
 func (c *Client) Close() error {
-	if err := c.stdin.Close(); err != nil {
+	c.closing.Store(true)
+	if err := c.stdin.Close(); err != nil && !isBenignStdinCloseErr(err) {
 		c.logger.Warn().Err(err).Msg("failed to close stdin")
 	}
+	select {
+	case <-c.closed:
+		return c.finalizeCloseErr()
+	case <-time.After(200 * time.Millisecond):
+	}
 	if c.cmd.Process != nil {
-		if err := c.cmd.Process.Kill(); err != nil {
+		if err := c.cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
 			c.logger.Warn().Err(err).Msg("failed to kill acp process")
 		}
 	}
 	<-c.closed
-	if c.closeErr != nil && !errors.Is(c.closeErr, io.EOF) {
-		return fmt.Errorf("acp client close: %w", c.closeErr)
-	}
-	return nil
+	return c.finalizeCloseErr()
 }
 
 func (c *Client) waitLoop() {
 	err := c.cmd.Wait()
 	if err != nil {
+		if c.closing.Load() {
+			c.logger.Debug().Err(err).Msg("acp process exited during close")
+			c.failAll(io.EOF)
+			return
+		}
 		c.logger.Warn().Err(err).Msg("acp process exited with error")
 		c.failAll(fmt.Errorf("acp process exit: %w", err))
 		return
 	}
 	c.logger.Debug().Msg("acp process exited")
 	c.failAll(io.EOF)
+}
+
+func (c *Client) finalizeCloseErr() error {
+	if c.closeErr != nil && !errors.Is(c.closeErr, io.EOF) {
+		return fmt.Errorf("acp client close: %w", c.closeErr)
+	}
+	return nil
+}
+
+func isBenignStdinCloseErr(err error) bool {
+	return errors.Is(err, os.ErrClosed) || strings.Contains(strings.ToLower(err.Error()), "file already closed")
 }
 
 // RequestPermission handles ACP permission callbacks.

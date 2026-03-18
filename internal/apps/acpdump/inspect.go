@@ -31,7 +31,7 @@ type inspectOutput struct {
 }
 
 // Run connects to an ACP server command and prints initialize/session details.
-func Run(ctx context.Context, cfg RunConfig) error {
+func Run(ctx context.Context, cfg RunConfig) (runErr error) {
 	if len(cfg.Command) == 0 {
 		return fmt.Errorf("acp server command is required")
 	}
@@ -66,17 +66,23 @@ func Run(ctx context.Context, cfg RunConfig) error {
 	}
 	defer func() {
 		if closeErr := client.Close(); closeErr != nil {
+			if runErr != nil {
+				logger.Debug().Err(closeErr).Msg("close ACP client after prior run error")
+				return
+			}
 			logger.Warn().Err(closeErr).Msg("failed to close ACP client")
 		}
 	}()
 
 	initResp, err := client.Initialize(ctx)
 	if err != nil {
-		return fmt.Errorf("initialize acp client: %w", err)
+		runErr = fmt.Errorf("initialize acp client: %w", err)
+		return runErr
 	}
 	sessionResp, err := client.CreateSession(ctx, cfg.WorkingDir, cfg.SessionModel, "", nil)
 	if err != nil {
-		return fmt.Errorf("create acp session: %w", err)
+		runErr = fmt.Errorf("create acp session: %w", err)
+		return runErr
 	}
 
 	output := &inspectOutput{
@@ -85,9 +91,11 @@ func Run(ctx context.Context, cfg RunConfig) error {
 		Session:    &sessionResp,
 	}
 	if cfg.JSONOutput {
-		return writeInspectJSON(cfg.Stdout, output)
+		runErr = writeInspectJSON(cfg.Stdout, output)
+		return runErr
 	}
-	return writeInspectHuman(cfg.Stdout, output)
+	runErr = writeInspectHuman(cfg.Stdout, output)
+	return runErr
 }
 
 func writeInspectJSON(stdout io.Writer, output *inspectOutput) error {

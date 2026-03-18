@@ -62,8 +62,10 @@ norma tool codex-acp-bridge --codex-model gpt-5.4 --codex-sandbox workspace-writ
 - Supports ACP cancellation via `session/cancel`.
 - Supports passing per-session MCP servers via ACP `session/new` `mcpServers` parameter.
   - Supported transports: `stdio`, `http`. `sse` is not supported.
+  - Each `mcpServers[]` entry must define exactly one transport.
   - Example: `{"mcpServers": [{"stdio": {"name": "my-tool", "command": "echo", "args": ["hello"]}}]}`
 - `session/set_model` usage preserves existing `mcpServers` configuration.
+- `session/set_mode` is accepted and resets backend session/thread state, but mode is not passed to Codex MCP tool arguments.
 
 ## Config Note (`codex_acp` agent type)
 

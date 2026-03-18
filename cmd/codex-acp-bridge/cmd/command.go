@@ -36,7 +36,9 @@ func Command() *cobra.Command {
 				runOpts.CodexConfig = config
 			}
 
-			_ = logging.Init(logging.WithDebug(debugLogs))
+			if err := logging.Init(logging.WithDebug(debugLogs)); err != nil {
+				return fmt.Errorf("initialize logging: %w", err)
+			}
 			ctx := log.Logger.With().Str("component", "codex.acp.proxy").Logger().WithContext(cmd.Context())
 
 			return codexacpbridge.RunProxy(ctx, workingDir, runOpts, cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr())

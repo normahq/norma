@@ -60,6 +60,54 @@ func TestRunShowsPeerDisconnectDiagnosticsInDebug(t *testing.T) {
 	}
 }
 
+func TestRunSendsEmptyMCPServersArrayWhenUnset(t *testing.T) {
+	t.Setenv("GO_WANT_ACPDUMP_HELPER", "1")
+	if err := logging.Init(); err != nil {
+		t.Fatalf("logging.Init() error = %v", err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	err := Run(log.Logger.WithContext(context.Background()), RunConfig{
+		Command:    acpDumpHelperCommand(),
+		WorkingDir: t.TempDir(),
+		Stdout:     &stdout,
+		Stderr:     &stderr,
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+}
+
+func TestRunInitializeFailureDoesNotWarnOnClose(t *testing.T) {
+	t.Setenv("GO_WANT_ACPDUMP_HELPER", "1")
+	t.Setenv("GO_ACPDUMP_HELPER_FAIL_INITIALIZE", "1")
+	if err := logging.Init(); err != nil {
+		t.Fatalf("logging.Init() error = %v", err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	err := Run(log.Logger.WithContext(context.Background()), RunConfig{
+		Command:    acpDumpHelperCommand(),
+		WorkingDir: t.TempDir(),
+		Stdout:     &stdout,
+		Stderr:     &stderr,
+	})
+	if err == nil {
+		t.Fatal("Run() error = nil, want initialize failure")
+	}
+	if !strings.Contains(err.Error(), "initialize acp client") {
+		t.Fatalf("Run() error = %v, want initialize acp client context", err)
+	}
+	if got := stderr.String(); strings.Contains(got, "failed to close ACP client") {
+		t.Fatalf("stderr contains unexpected close warning: %q", got)
+	}
+	if got := stderr.String(); strings.Contains(got, "acp process exited with error") {
+		t.Fatalf("stderr contains unexpected process exit warning: %q", got)
+	}
+}
+
 func TestACPDumpHelperProcess(t *testing.T) {
 	if os.Getenv("GO_WANT_ACPDUMP_HELPER") != "1" {
 		return
@@ -86,6 +134,10 @@ func runACPDumpHelper(stdin io.Reader, stdout io.Writer) {
 
 		switch req.Method {
 		case "initialize":
+			if os.Getenv("GO_ACPDUMP_HELPER_FAIL_INITIALIZE") == "1" {
+				writeHelperError(stdout, req.ID, -32603, "helper initialize failure")
+				continue
+			}
 			writeHelperResponse(stdout, req.ID, map[string]any{
 				"protocolVersion": 1,
 				"agentInfo": map[string]any{
@@ -107,6 +159,17 @@ func runACPDumpHelper(stdin io.Reader, stdout io.Writer) {
 				"authMethods": []any{},
 			})
 		case "session/new":
+			var sessionReq struct {
+				McpServers json.RawMessage `json:"mcpServers"`
+			}
+			if err := json.Unmarshal(req.Params, &sessionReq); err != nil {
+				writeHelperError(stdout, req.ID, -32602, "Invalid params")
+				continue
+			}
+			if !isJSONArray(sessionReq.McpServers) {
+				writeHelperError(stdout, req.ID, -32602, "Invalid params")
+				continue
+			}
 			writeHelperResponse(stdout, req.ID, map[string]any{
 				"sessionId": "session-1",
 			})
@@ -124,6 +187,7 @@ type helperEnvelope struct {
 	JSONRPC string          `json:"jsonrpc"`
 	ID      json.RawMessage `json:"id,omitempty"`
 	Method  string          `json:"method,omitempty"`
+	Params  json.RawMessage `json:"params,omitempty"`
 }
 
 func writeHelperResponse(stdout io.Writer, id json.RawMessage, result any) {
@@ -165,4 +229,12 @@ func mustJSONRaw(v json.RawMessage) any {
 		panic(err)
 	}
 	return out
+}
+
+func isJSONArray(raw json.RawMessage) bool {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 {
+		return false
+	}
+	return trimmed[0] == '['
 }

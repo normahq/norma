@@ -31,7 +31,9 @@ func Command() *cobra.Command {
 				return err
 			}
 
-			_ = logging.Init(logging.WithDebug(debugLogs))
+			if err := logging.Init(logging.WithDebug(debugLogs)); err != nil {
+				return fmt.Errorf("initialize logging: %w", err)
+			}
 			ctx := log.Logger.With().Str("component", "tool.acp_dump").Logger().WithContext(cmd.Context())
 
 			return acpdump.Run(ctx, acpdump.RunConfig{
