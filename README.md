@@ -87,7 +87,7 @@ agents:
   opencode_acp_agent:
     type: opencode_acp
     model: opencode/big-pickle
-  copilot_acp_agent:
+  copilot_acp:
     type: copilot_acp
 
 profiles:
@@ -106,6 +106,14 @@ profiles:
       check: opencode_acp_agent
       act: opencode_acp_agent
     planner: opencode_acp_agent
+
+  copilot:
+    pdca:
+      plan: copilot_acp
+      do: copilot_acp
+      check: copilot_acp
+      act: copilot_acp
+    planner: copilot_acp
 ```
 budgets:
   max_iterations: 5

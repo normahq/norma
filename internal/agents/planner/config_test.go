@@ -20,15 +20,27 @@ func TestPlannerInstruction_ContainsNormaPlannerPolicy(t *testing.T) {
 	got := plannerInstruction()
 	for _, mustContain := range []string{
 		"You are Norma's planning agent.",
-		"Use MCP tasks tools ('tasks_*')",
-		"Do not call 'bd' directly",
-		"Never claim a 'human' tool exists.",
+		"Use MCP tasks tools ('norma.tasks.*')",
+		"MCP 'norma.tasks.*' tools are the only source of truth for tasks, task status, and task relationships.",
 	} {
 		if !strings.Contains(got, mustContain) {
 			t.Fatalf("plannerInstruction() missing %q: %q", mustContain, got)
 		}
 	}
-	if strings.Contains(got, "Issue Tracker Interface: bd CLI") {
-		t.Fatalf("plannerInstruction() should not reference bd CLI interface directly: %q", got)
+	for _, mustNotContain := range []string{
+		"tracker CLI",
+		"'human' tool",
+	} {
+		if strings.Contains(got, mustNotContain) {
+			t.Fatalf("plannerInstruction() contains forbidden phrase %q: %q", mustNotContain, got)
+		}
+	}
+	for _, token := range []string{
+		string([]byte{98, 101, 97, 100, 115}),
+		string([]byte{98, 100}),
+	} {
+		if strings.Contains(strings.ToLower(got), token) {
+			t.Fatalf("plannerInstruction() contains forbidden token %q: %q", token, got)
+		}
 	}
 }

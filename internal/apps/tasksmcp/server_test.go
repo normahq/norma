@@ -36,28 +36,28 @@ func TestTasksServerListsAllTrackerParityTools(t *testing.T) {
 	slices.Sort(got)
 
 	want := []string{
-		"tasks_add",
-		"tasks_add_dependency",
-		"tasks_add_epic",
-		"tasks_add_feature",
-		"tasks_add_follow_up",
-		"tasks_add_label",
-		"tasks_add_related_link",
-		"tasks_children",
-		"tasks_close_with_reason",
-		"tasks_delete",
-		"tasks_get",
-		"tasks_leaf",
-		"tasks_list",
-		"tasks_list_blocked_dependents",
-		"tasks_list_features",
-		"tasks_mark_done",
-		"tasks_mark_status",
-		"tasks_remove_label",
-		"tasks_set_notes",
-		"tasks_set_run",
-		"tasks_update",
-		"tasks_update_workflow_state",
+		"norma.tasks.add",
+		"norma.tasks.add_dependency",
+		"norma.tasks.add_epic",
+		"norma.tasks.add_feature",
+		"norma.tasks.add_follow_up",
+		"norma.tasks.add_label",
+		"norma.tasks.add_related_link",
+		"norma.tasks.children",
+		"norma.tasks.close_with_reason",
+		"norma.tasks.delete",
+		"norma.tasks.get",
+		"norma.tasks.leaf",
+		"norma.tasks.list",
+		"norma.tasks.list_blocked_dependents",
+		"norma.tasks.list_features",
+		"norma.tasks.mark_done",
+		"norma.tasks.mark_status",
+		"norma.tasks.remove_label",
+		"norma.tasks.set_notes",
+		"norma.tasks.set_run",
+		"norma.tasks.update",
+		"norma.tasks.update_workflow_state",
 	}
 	slices.Sort(want)
 
@@ -77,28 +77,28 @@ func TestTasksToolsSuccess(t *testing.T) {
 		args      map[string]any
 		assertKey string
 	}{
-		{name: "add", toolName: "tasks_add", args: map[string]any{"title": "T", "goal": "G"}, assertKey: "task_id"},
-		{name: "add epic", toolName: "tasks_add_epic", args: map[string]any{"title": "E", "goal": "G"}, assertKey: "task_id"},
-		{name: "add feature", toolName: "tasks_add_feature", args: map[string]any{"epic_id": "norma-epic.1", "title": "F"}, assertKey: "task_id"},
-		{name: "add followup", toolName: "tasks_add_follow_up", args: map[string]any{"parent_id": "norma-parent.1", "title": "FU", "goal": "G"}, assertKey: "task_id"},
-		{name: "list", toolName: "tasks_list", args: map[string]any{"status": "doing"}, assertKey: "tasks"},
-		{name: "list features", toolName: "tasks_list_features", args: map[string]any{"epic_id": "norma-epic.1"}, assertKey: "tasks"},
-		{name: "children", toolName: "tasks_children", args: map[string]any{"parent_id": "norma-parent.1"}, assertKey: "tasks"},
-		{name: "get", toolName: "tasks_get", args: map[string]any{"id": "norma-task.1"}, assertKey: "task"},
-		{name: "mark done", toolName: "tasks_mark_done", args: map[string]any{"id": "norma-task.1"}},
-		{name: "mark status", toolName: "tasks_mark_status", args: map[string]any{"id": "norma-task.1", "status": "doing"}},
-		{name: "update", toolName: "tasks_update", args: map[string]any{"id": "norma-task.1", "title": "new", "goal": "new goal"}},
-		{name: "delete", toolName: "tasks_delete", args: map[string]any{"id": "norma-task.1"}},
-		{name: "set run", toolName: "tasks_set_run", args: map[string]any{"id": "norma-task.1", "run_id": "run-1"}},
-		{name: "add dependency", toolName: "tasks_add_dependency", args: map[string]any{"task_id": "norma-task.1", "depends_on_id": "norma-task.2"}},
-		{name: "leaf", toolName: "tasks_leaf", args: map[string]any{}, assertKey: "tasks"},
-		{name: "workflow state", toolName: "tasks_update_workflow_state", args: map[string]any{"id": "norma-task.1", "state": "planning"}},
-		{name: "add label", toolName: "tasks_add_label", args: map[string]any{"id": "norma-task.1", "label": "norma-has-plan"}},
-		{name: "remove label", toolName: "tasks_remove_label", args: map[string]any{"id": "norma-task.1", "label": "norma-has-plan"}},
-		{name: "set notes", toolName: "tasks_set_notes", args: map[string]any{"id": "norma-task.1", "notes": "{}"}},
-		{name: "close with reason", toolName: "tasks_close_with_reason", args: map[string]any{"id": "norma-task.1", "reason": "done"}},
-		{name: "add related", toolName: "tasks_add_related_link", args: map[string]any{"from_id": "norma-task.1", "to_id": "norma-task.2"}},
-		{name: "list blocked", toolName: "tasks_list_blocked_dependents", args: map[string]any{"id": "norma-task.1"}, assertKey: "tasks"},
+		{name: "add", toolName: "norma.tasks.add", args: map[string]any{"title": "T", "goal": "G"}, assertKey: "task_id"},
+		{name: "add epic", toolName: "norma.tasks.add_epic", args: map[string]any{"title": "E", "goal": "G"}, assertKey: "task_id"},
+		{name: "add feature", toolName: "norma.tasks.add_feature", args: map[string]any{"epic_id": "norma-epic.1", "title": "F"}, assertKey: "task_id"},
+		{name: "add followup", toolName: "norma.tasks.add_follow_up", args: map[string]any{"parent_id": "norma-parent.1", "title": "FU", "goal": "G"}, assertKey: "task_id"},
+		{name: "list", toolName: "norma.tasks.list", args: map[string]any{"status": "doing"}, assertKey: "tasks"},
+		{name: "list features", toolName: "norma.tasks.list_features", args: map[string]any{"epic_id": "norma-epic.1"}, assertKey: "tasks"},
+		{name: "children", toolName: "norma.tasks.children", args: map[string]any{"parent_id": "norma-parent.1"}, assertKey: "tasks"},
+		{name: "get", toolName: "norma.tasks.get", args: map[string]any{"id": "norma-task.1"}, assertKey: "task"},
+		{name: "mark done", toolName: "norma.tasks.mark_done", args: map[string]any{"id": "norma-task.1"}},
+		{name: "mark status", toolName: "norma.tasks.mark_status", args: map[string]any{"id": "norma-task.1", "status": "doing"}},
+		{name: "update", toolName: "norma.tasks.update", args: map[string]any{"id": "norma-task.1", "title": "new", "goal": "new goal"}},
+		{name: "delete", toolName: "norma.tasks.delete", args: map[string]any{"id": "norma-task.1"}},
+		{name: "set run", toolName: "norma.tasks.set_run", args: map[string]any{"id": "norma-task.1", "run_id": "run-1"}},
+		{name: "add dependency", toolName: "norma.tasks.add_dependency", args: map[string]any{"task_id": "norma-task.1", "depends_on_id": "norma-task.2"}},
+		{name: "leaf", toolName: "norma.tasks.leaf", args: map[string]any{}, assertKey: "tasks"},
+		{name: "workflow state", toolName: "norma.tasks.update_workflow_state", args: map[string]any{"id": "norma-task.1", "state": "planning"}},
+		{name: "add label", toolName: "norma.tasks.add_label", args: map[string]any{"id": "norma-task.1", "label": "norma-has-plan"}},
+		{name: "remove label", toolName: "norma.tasks.remove_label", args: map[string]any{"id": "norma-task.1", "label": "norma-has-plan"}},
+		{name: "set notes", toolName: "norma.tasks.set_notes", args: map[string]any{"id": "norma-task.1", "notes": "{}"}},
+		{name: "close with reason", toolName: "norma.tasks.close_with_reason", args: map[string]any{"id": "norma-task.1", "reason": "done"}},
+		{name: "add related", toolName: "norma.tasks.add_related_link", args: map[string]any{"from_id": "norma-task.1", "to_id": "norma-task.2"}},
+		{name: "list blocked", toolName: "norma.tasks.list_blocked_dependents", args: map[string]any{"id": "norma-task.1"}, assertKey: "tasks"},
 	}
 
 	for _, tc := range tests {
@@ -125,7 +125,7 @@ func TestTasksToolValidationErrorShape(t *testing.T) {
 	defer cleanup()
 	_ = session.InitializeResult()
 
-	result := callTool(t, ctx, session, "tasks_mark_done", map[string]any{"id": "   "})
+	result := callTool(t, ctx, session, "norma.tasks.mark_done", map[string]any{"id": "   "})
 	if !result.IsError {
 		t.Fatalf("result.IsError = false, want true")
 	}
@@ -137,8 +137,8 @@ func TestTasksToolValidationErrorShape(t *testing.T) {
 	if errorObj["code"] != codeValidationError {
 		t.Fatalf("error.code = %v, want %q", errorObj["code"], codeValidationError)
 	}
-	if errorObj["operation"] != "tasks_mark_done" {
-		t.Fatalf("error.operation = %v, want %q", errorObj["operation"], "tasks_mark_done")
+	if errorObj["operation"] != "norma.tasks.mark_done" {
+		t.Fatalf("error.operation = %v, want %q", errorObj["operation"], "norma.tasks.mark_done")
 	}
 }
 
@@ -148,7 +148,7 @@ func TestTasksToolBackendErrorShape(t *testing.T) {
 	defer cleanup()
 	_ = session.InitializeResult()
 
-	result := callTool(t, ctx, session, "tasks_mark_done", map[string]any{"id": "norma-task.1"})
+	result := callTool(t, ctx, session, "norma.tasks.mark_done", map[string]any{"id": "norma-task.1"})
 	if !result.IsError {
 		t.Fatalf("result.IsError = false, want true")
 	}
@@ -160,8 +160,8 @@ func TestTasksToolBackendErrorShape(t *testing.T) {
 	if errorObj["code"] != codeBackendError {
 		t.Fatalf("error.code = %v, want %q", errorObj["code"], codeBackendError)
 	}
-	if errorObj["operation"] != "tasks_mark_done" {
-		t.Fatalf("error.operation = %v, want %q", errorObj["operation"], "tasks_mark_done")
+	if errorObj["operation"] != "norma.tasks.mark_done" {
+		t.Fatalf("error.operation = %v, want %q", errorObj["operation"], "norma.tasks.mark_done")
 	}
 }
 
@@ -175,7 +175,7 @@ func TestDirectAndMCPParityCoreWorkflows(t *testing.T) {
 	if err != nil {
 		t.Fatalf("direct AddEpic error = %v", err)
 	}
-	mcpEpic := structuredResultMap(t, callTool(t, ctx, session, "tasks_add_epic", map[string]any{"title": "Epic", "goal": "Goal"}))
+	mcpEpic := structuredResultMap(t, callTool(t, ctx, session, "norma.tasks.add_epic", map[string]any{"title": "Epic", "goal": "Goal"}))
 	if mcpEpic["task_id"] != directEpicID {
 		t.Fatalf("mcp task_id = %v, want %q", mcpEpic["task_id"], directEpicID)
 	}
@@ -184,7 +184,7 @@ func TestDirectAndMCPParityCoreWorkflows(t *testing.T) {
 	if err != nil {
 		t.Fatalf("direct AddFeature error = %v", err)
 	}
-	mcpFeature := structuredResultMap(t, callTool(t, ctx, session, "tasks_add_feature", map[string]any{"epic_id": "norma-epic.1", "title": "Feature"}))
+	mcpFeature := structuredResultMap(t, callTool(t, ctx, session, "norma.tasks.add_feature", map[string]any{"epic_id": "norma-epic.1", "title": "Feature"}))
 	if mcpFeature["task_id"] != directFeatureID {
 		t.Fatalf("mcp task_id = %v, want %q", mcpFeature["task_id"], directFeatureID)
 	}
@@ -193,7 +193,7 @@ func TestDirectAndMCPParityCoreWorkflows(t *testing.T) {
 	if err != nil {
 		t.Fatalf("direct Add error = %v", err)
 	}
-	mcpTask := structuredResultMap(t, callTool(t, ctx, session, "tasks_add", map[string]any{"title": "Task", "goal": "Goal"}))
+	mcpTask := structuredResultMap(t, callTool(t, ctx, session, "norma.tasks.add", map[string]any{"title": "Task", "goal": "Goal"}))
 	if mcpTask["task_id"] != directTaskID {
 		t.Fatalf("mcp task_id = %v, want %q", mcpTask["task_id"], directTaskID)
 	}
@@ -203,7 +203,7 @@ func TestDirectAndMCPParityCoreWorkflows(t *testing.T) {
 	if err != nil {
 		t.Fatalf("direct List error = %v", err)
 	}
-	mcpList := structuredResultMap(t, callTool(t, ctx, session, "tasks_list", map[string]any{"status": status}))
+	mcpList := structuredResultMap(t, callTool(t, ctx, session, "norma.tasks.list", map[string]any{"status": status}))
 	mcpTasks, ok := mcpList["tasks"].([]any)
 	if !ok {
 		t.Fatalf("mcp tasks type = %T, want []any", mcpList["tasks"])
@@ -215,7 +215,7 @@ func TestDirectAndMCPParityCoreWorkflows(t *testing.T) {
 	if err := tracker.AddDependency(ctx, "norma-task.1", "norma-task.2"); err != nil {
 		t.Fatalf("direct AddDependency error = %v", err)
 	}
-	mcpDep := structuredResultMap(t, callTool(t, ctx, session, "tasks_add_dependency", map[string]any{"task_id": "norma-task.1", "depends_on_id": "norma-task.2"}))
+	mcpDep := structuredResultMap(t, callTool(t, ctx, session, "norma.tasks.add_dependency", map[string]any{"task_id": "norma-task.1", "depends_on_id": "norma-task.2"}))
 	if mcpDep["ok"] != true {
 		t.Fatalf("mcp add dependency ok = %v, want true", mcpDep["ok"])
 	}
@@ -223,7 +223,7 @@ func TestDirectAndMCPParityCoreWorkflows(t *testing.T) {
 	if err := tracker.AddLabel(ctx, "norma-task.1", "norma-has-plan"); err != nil {
 		t.Fatalf("direct AddLabel error = %v", err)
 	}
-	mcpLabel := structuredResultMap(t, callTool(t, ctx, session, "tasks_add_label", map[string]any{"id": "norma-task.1", "label": "norma-has-plan"}))
+	mcpLabel := structuredResultMap(t, callTool(t, ctx, session, "norma.tasks.add_label", map[string]any{"id": "norma-task.1", "label": "norma-has-plan"}))
 	if mcpLabel["ok"] != true {
 		t.Fatalf("mcp add label ok = %v, want true", mcpLabel["ok"])
 	}
@@ -231,7 +231,7 @@ func TestDirectAndMCPParityCoreWorkflows(t *testing.T) {
 	if err := tracker.SetNotes(ctx, "norma-task.1", "notes"); err != nil {
 		t.Fatalf("direct SetNotes error = %v", err)
 	}
-	mcpNotes := structuredResultMap(t, callTool(t, ctx, session, "tasks_set_notes", map[string]any{"id": "norma-task.1", "notes": "notes"}))
+	mcpNotes := structuredResultMap(t, callTool(t, ctx, session, "norma.tasks.set_notes", map[string]any{"id": "norma-task.1", "notes": "notes"}))
 	if mcpNotes["ok"] != true {
 		t.Fatalf("mcp set notes ok = %v, want true", mcpNotes["ok"])
 	}
@@ -239,7 +239,7 @@ func TestDirectAndMCPParityCoreWorkflows(t *testing.T) {
 	if err := tracker.MarkStatus(ctx, "norma-task.1", "done"); err != nil {
 		t.Fatalf("direct MarkStatus done error = %v", err)
 	}
-	mcpStatusDone := structuredResultMap(t, callTool(t, ctx, session, "tasks_mark_status", map[string]any{"id": "norma-task.1", "status": "done"}))
+	mcpStatusDone := structuredResultMap(t, callTool(t, ctx, session, "norma.tasks.mark_status", map[string]any{"id": "norma-task.1", "status": "done"}))
 	if mcpStatusDone["ok"] != true {
 		t.Fatalf("mcp mark status done ok = %v, want true", mcpStatusDone["ok"])
 	}
@@ -247,7 +247,7 @@ func TestDirectAndMCPParityCoreWorkflows(t *testing.T) {
 	if err := tracker.MarkStatus(ctx, "norma-task.1", "todo"); err != nil {
 		t.Fatalf("direct MarkStatus todo error = %v", err)
 	}
-	mcpStatusTodo := structuredResultMap(t, callTool(t, ctx, session, "tasks_mark_status", map[string]any{"id": "norma-task.1", "status": "todo"}))
+	mcpStatusTodo := structuredResultMap(t, callTool(t, ctx, session, "norma.tasks.mark_status", map[string]any{"id": "norma-task.1", "status": "todo"}))
 	if mcpStatusTodo["ok"] != true {
 		t.Fatalf("mcp mark status todo ok = %v, want true", mcpStatusTodo["ok"])
 	}
@@ -256,7 +256,7 @@ func TestDirectAndMCPParityCoreWorkflows(t *testing.T) {
 	if err != nil {
 		t.Fatalf("direct LeafTasks error = %v", err)
 	}
-	mcpLeaf := structuredResultMap(t, callTool(t, ctx, session, "tasks_leaf", map[string]any{}))
+	mcpLeaf := structuredResultMap(t, callTool(t, ctx, session, "norma.tasks.leaf", map[string]any{}))
 	mcpLeafTasks, ok := mcpLeaf["tasks"].([]any)
 	if !ok {
 		t.Fatalf("mcp leaf tasks type = %T, want []any", mcpLeaf["tasks"])

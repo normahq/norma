@@ -17,6 +17,7 @@ import (
 	"time"
 
 	acp "github.com/coder/acp-go-sdk"
+	"github.com/metalagman/norma/internal/adk/agentconfig"
 	"github.com/rs/zerolog"
 	"google.golang.org/adk/agent"
 	runnerpkg "google.golang.org/adk/runner"
@@ -252,6 +253,34 @@ func TestClientLogsPeerDisconnectInfoInDebug(t *testing.T) {
 	logger := newACPConnectionLogger(io.Discard)
 	if !logger.Enabled(context.Background(), slog.LevelInfo) {
 		t.Fatal("connection logger should enable info level when global level is debug")
+	}
+}
+
+func TestWireLogBufferSuppressesWirePayloadInDebug(t *testing.T) {
+	var logBuf bytes.Buffer
+	logger := zerolog.New(&logBuf).Level(zerolog.DebugLevel)
+
+	buf := newWireLogBuffer("send", logger, nil)
+	buf.logLine([]byte(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1}}`))
+
+	if got := logBuf.String(); strings.Contains(got, "acp wire") {
+		t.Fatalf("debug log unexpectedly contains trace-only wire payload: %q", got)
+	}
+}
+
+func TestWireLogBufferEmitsWirePayloadInTrace(t *testing.T) {
+	var logBuf bytes.Buffer
+	logger := zerolog.New(&logBuf).Level(zerolog.TraceLevel)
+
+	buf := newWireLogBuffer("recv", logger, nil)
+	buf.logLine([]byte(`{"jsonrpc":"2.0","id":1,"result":{"ok":true}}`))
+
+	got := logBuf.String()
+	if !strings.Contains(got, "acp wire") {
+		t.Fatalf("trace log missing wire payload marker: %q", got)
+	}
+	if !strings.Contains(got, `"direction":"recv"`) {
+		t.Fatalf("trace log missing direction field: %q", got)
 	}
 }
 
@@ -537,6 +566,7 @@ func TestClientLogsLastChunkInSeries(t *testing.T) {
 		activeBySession: map[acp.SessionId]*activePrompt{
 			"session-1": {
 				sessionID: "session-1",
+				logger:    logger,
 				lastChunk: &loggedACPChunk{
 					kind:         "agent_thought_chunk",
 					contentBlock: map[string]any{"type": "unknown"},
@@ -695,6 +725,61 @@ func TestAgentRunDoesNotDuplicatePartialInFinalEvent(t *testing.T) {
 	got := accumulatedText.String()
 	if got != "session-1:hello" {
 		t.Fatalf("accumulated text = %q, want %q", got, "session-1:hello")
+	}
+}
+
+func TestAgentRunUsesInvocationLogger(t *testing.T) {
+	var bootstrapBuf bytes.Buffer
+	bootstrapLogger := zerolog.New(&bootstrapBuf).Level(zerolog.DebugLevel)
+
+	a, err := New(Config{
+		Context:    context.Background(),
+		Command:    helperCommand(t),
+		WorkingDir: t.TempDir(),
+		Logger:     &bootstrapLogger,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = a.Close() }()
+	bootstrapBuf.Reset()
+
+	sessionService := session.InMemoryService()
+	r, err := runnerpkg.New(runnerpkg.Config{
+		AppName:        "test-app",
+		Agent:          a,
+		SessionService: sessionService,
+	})
+	if err != nil {
+		t.Fatalf("runner.New() error = %v", err)
+	}
+	sess, err := sessionService.Create(context.Background(), &session.CreateRequest{AppName: "test-app", UserID: "test-user"})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	var invocationBuf bytes.Buffer
+	invocationLogger := zerolog.New(&invocationBuf).Level(zerolog.DebugLevel).With().Str("source", "invocation").Logger()
+	invocationCtx := invocationLogger.WithContext(context.Background())
+
+	for _, runErr := range r.Run(invocationCtx, "test-user", sess.Session.ID(), genai.NewContentFromText("hello", genai.RoleUser), agent.RunConfig{}) {
+		if runErr != nil {
+			t.Fatalf("runner event error = %v", runErr)
+		}
+	}
+
+	invocationLogs := invocationBuf.String()
+	if !strings.Contains(invocationLogs, `"source":"invocation"`) {
+		t.Fatalf("invocation log missing source marker: %q", invocationLogs)
+	}
+	for _, mustContain := range []string{"starting adk invocation", "sending acp session/prompt"} {
+		if !strings.Contains(invocationLogs, mustContain) {
+			t.Fatalf("invocation log missing %q: %q", mustContain, invocationLogs)
+		}
+	}
+
+	if got := bootstrapBuf.String(); strings.Contains(got, "starting adk invocation") || strings.Contains(got, "sending acp session/prompt") {
+		t.Fatalf("bootstrap logger unexpectedly received invocation logs: %q", got)
 	}
 }
 
@@ -994,6 +1079,54 @@ func TestClientNewSessionSendsEmptyMCPServersArrayWhenNil(t *testing.T) {
 	}
 	if got := strings.TrimSpace(string(sess.SessionId)); got == "" {
 		t.Fatal("NewSession() returned empty session id")
+	}
+}
+
+func TestAgentConfigMCPServersUseEmptyArraysNotNull(t *testing.T) {
+	expectedRaw := `[{"headers":[],"name":"http_server","type":"http","url":"http://localhost:9999/mcp"},{"headers":[],"name":"sse_server","type":"sse","url":"http://localhost:9998/sse"},{"args":[],"command":"echo","env":[],"name":"stdio_server"}]`
+
+	a, err := New(Config{
+		Context:    context.Background(),
+		Command:    helperCommandWithEnv(t, map[string]string{"GO_EXPECT_MCP_SERVERS_RAW": expectedRaw}),
+		WorkingDir: t.TempDir(),
+		MCPServers: map[string]agentconfig.MCPServerConfig{
+			"stdio_server": {
+				Type: agentconfig.MCPServerTypeStdio,
+				Cmd:  []string{"echo"},
+			},
+			"http_server": {
+				Type: agentconfig.MCPServerTypeHTTP,
+				URL:  "http://localhost:9999/mcp",
+			},
+			"sse_server": {
+				Type: agentconfig.MCPServerTypeSSE,
+				URL:  "http://localhost:9998/sse",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = a.Close() }()
+
+	sessionService := session.InMemoryService()
+	r, err := runnerpkg.New(runnerpkg.Config{
+		AppName:        "test-app",
+		Agent:          a,
+		SessionService: sessionService,
+	})
+	if err != nil {
+		t.Fatalf("runner.New() error = %v", err)
+	}
+	sess, err := sessionService.Create(context.Background(), &session.CreateRequest{AppName: "test-app", UserID: "test-user"})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	for _, runErr := range r.Run(context.Background(), "test-user", sess.Session.ID(), genai.NewContentFromText("ping", genai.RoleUser), agent.RunConfig{}) {
+		if runErr != nil {
+			t.Fatalf("runner event error = %v", runErr)
+		}
 	}
 }
 

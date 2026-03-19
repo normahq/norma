@@ -2,6 +2,12 @@
 
 `acp-repl` runs an interactive REPL against any stdio ACP server command.
 
+## Installation
+
+```bash
+npm install -g @normahq/acp-repl@latest
+```
+
 ## Run
 
 ```bash

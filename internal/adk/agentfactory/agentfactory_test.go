@@ -2,14 +2,19 @@ package agentfactory
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"testing"
 
 	acp "github.com/coder/acp-go-sdk"
+	"github.com/metalagman/norma/internal/adk/acpagent"
 	"github.com/metalagman/norma/internal/adk/agentconfig"
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
+	"google.golang.org/adk/agent"
 )
 
 func TestFactory_CreateAgent(t *testing.T) {
@@ -164,5 +169,41 @@ func TestResolveACPCommand(t *testing.T) {
 				assert.Equal(t, tt.want, got)
 			}
 		})
+	}
+}
+
+func TestACPConstructor_PropagatesContextLogger(t *testing.T) {
+	origNewACPAgent := newACPAgent
+	t.Cleanup(func() {
+		newACPAgent = origNewACPAgent
+	})
+
+	var capturedLogger *zerolog.Logger
+	newACPAgent = func(cfg acpagent.Config) (agent.Agent, error) {
+		capturedLogger = cfg.Logger
+		return nil, nil
+	}
+
+	var logBuf bytes.Buffer
+	baseLogger := zerolog.New(&logBuf).Level(zerolog.TraceLevel)
+	ctx := baseLogger.WithContext(context.Background())
+
+	_, err := acpConstructor(ctx, agentconfig.Config{
+		Type: agentconfig.AgentTypeGenericACP,
+		Cmd:  []string{"fake-acp", "serve"},
+	}, CreationRequest{
+		Name:             "test-acp",
+		Description:      "test",
+		WorkingDirectory: t.TempDir(),
+		Stderr:           io.Discard,
+	}, nil)
+	if err != nil {
+		t.Fatalf("acpConstructor() error = %v", err)
+	}
+	if capturedLogger == nil {
+		t.Fatal("acpConstructor() did not pass logger to acpagent config")
+	}
+	if capturedLogger.GetLevel() != zerolog.TraceLevel {
+		t.Fatalf("captured logger level = %s, want %s", capturedLogger.GetLevel(), zerolog.TraceLevel)
 	}
 }

@@ -161,10 +161,25 @@ func TestNormalizeACPConfig(t *testing.T) {
 			exec: execPath,
 			want: Config{
 				Type:      AgentTypeGenericACP,
-				Cmd:       []string{execPath, "tool", "codex-acp-bridge", "--codex-model", "gpt-5-codex"},
+				Cmd:       []string{execPath, "tool", "codex-acp-bridge", "--debug", "--codex-model", "gpt-5-codex"},
 				Model:     "gpt-5-codex",
 				Mode:      "code",
 				ExtraArgs: []string{"--trace"},
+			},
+		},
+		{
+			name: "codex_alias_debug_already_in_extra_args",
+			cfg: Config{
+				Type:      AgentTypeCodexACP,
+				Model:     "gpt-5-codex",
+				ExtraArgs: []string{"--debug", "--trace"},
+			},
+			exec: execPath,
+			want: Config{
+				Type:      AgentTypeGenericACP,
+				Cmd:       []string{execPath, "tool", "codex-acp-bridge", "--codex-model", "gpt-5-codex"},
+				Model:     "gpt-5-codex",
+				ExtraArgs: []string{"--debug", "--trace"},
 			},
 		},
 		{

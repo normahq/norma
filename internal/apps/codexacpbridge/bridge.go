@@ -50,6 +50,7 @@ func RunProxy(ctx context.Context, workingDir string, opts Options, stdin io.Rea
 	logger := logging.Ctx(ctx)
 
 	command := buildCodexMCPCommand(opts)
+	cmdName, cmdArgs := splitCommandForLog(command)
 	requestedAgentName := strings.TrimSpace(opts.Name)
 	bridgeClientName := requestedAgentName
 	if bridgeClientName == "" {
@@ -58,8 +59,9 @@ func RunProxy(ctx context.Context, workingDir string, opts Options, stdin io.Rea
 	logger.Debug().
 		Str("working_dir", workingDir).
 		Str("agent_name", bridgeClientName).
-		Strs("command", command).
-		Msg("starting codex acp proxy")
+		Str("cmd", cmdName).
+		Strs("args", cmdArgs).
+		Msg("starting codex acp bridge")
 
 	sessionFactory := func(factoryCtx context.Context, sessionCWD string) (codexMCPToolSession, error) {
 		return connectCodexMCPProxySession(factoryCtx, workingDir, sessionCWD, command, bridgeClientName, lockedStderr, logger)
@@ -128,6 +130,7 @@ func connectCodexMCPProxySession(
 	if len(command) == 0 {
 		return nil, errors.New("empty codex command")
 	}
+	cmdName, cmdArgs := splitCommandForLog(command)
 	client := mcp.NewClient(&mcp.Implementation{Name: agentName, Version: "v0.0.1"}, nil)
 	cmd := exec.CommandContext(ctx, command[0], command[1:]...)
 	cmd.Dir = strings.TrimSpace(sessionCWD)
@@ -135,13 +138,25 @@ func connectCodexMCPProxySession(
 		cmd.Dir = workingDir
 	}
 	cmd.Stderr = stderr
-	logger.Debug().Str("cwd", cmd.Dir).Strs("command", command).Msg("connecting mcp command transport")
+	logger.Debug().
+		Str("cwd", cmd.Dir).
+		Str("cmd", cmdName).
+		Strs("args", cmdArgs).
+		Msg("connecting mcp command transport")
 	session, err := client.Connect(ctx, &mcp.CommandTransport{Command: cmd}, nil)
 	if err != nil {
 		return nil, fmt.Errorf("connect to mcp command: %w", err)
 	}
 	logger.Debug().Msg("connected to codex mcp session")
 	return session, nil
+}
+
+func splitCommandForLog(command []string) (string, []string) {
+	if len(command) == 0 {
+		return "", nil
+	}
+	args := append([]string(nil), command[1:]...)
+	return command[0], args
 }
 
 func ensureCodexProxyTools(ctx context.Context, session codexMCPToolSession, logger *zerolog.Logger) error {

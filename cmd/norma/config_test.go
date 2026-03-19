@@ -11,6 +11,9 @@ import (
 const (
 	genericACPType = "generic_acp"
 	acpType        = "acp"
+	copilotProfile = "copilot"
+	copilotBin     = "copilot"
+	copilotACPFlag = "--acp"
 )
 
 func TestResolveConfigPath_DefaultYAMLPreferred(t *testing.T) {
@@ -144,7 +147,7 @@ agents:
     model: opencode/big-pickle
   codex_acp_agent:
     type: codex_acp
-  copilot_acp_agent:
+  copilot_acp:
     type: copilot_acp
   custom_acp_agent:
     type: generic_acp
@@ -157,7 +160,7 @@ profiles:
       plan: gemini_acp_agent
       do: opencode_acp_agent
       check: codex_acp_agent
-      act: copilot_acp_agent
+      act: copilot_acp
     planner: gemini_acp_agent
 budgets:
   max_iterations: 2
@@ -195,7 +198,7 @@ budgets:
 	checkRole("plan", "gemini_acp_agent", genericACPType)
 	checkRole("do", "opencode_acp_agent", genericACPType)
 	checkRole("check", "codex_acp_agent", genericACPType)
-	checkRole("act", "copilot_acp_agent", genericACPType)
+	checkRole("act", "copilot_acp", genericACPType)
 	checkRole("planner", "gemini_acp_agent", genericACPType)
 
 	planAgent := cfg.Agents[cfg.RoleIDs["plan"]]
@@ -218,8 +221,59 @@ budgets:
 	}
 	actAgent := cfg.Agents[cfg.RoleIDs["act"]]
 	actCmd := actAgent.Cmd
-	if len(actCmd) < 2 || actCmd[0] != "copilot" || actCmd[1] != "--acp" {
+	if len(actCmd) < 2 || actCmd[0] != copilotBin || actCmd[1] != copilotACPFlag {
 		t.Fatalf("act agent cmd = %v, want copilot --acp command", actCmd)
+	}
+}
+
+func TestLoadConfig_CopilotProfileUsesCopilotACP(t *testing.T) {
+	repoRoot := t.TempDir()
+	if err := writeTestFile(filepath.Join(repoRoot, defaultConfigPath), `profile: copilot
+agents:
+  copilot_acp:
+    type: copilot_acp
+profiles:
+  copilot:
+    pdca:
+      plan: copilot_acp
+      do: copilot_acp
+      check: copilot_acp
+      act: copilot_acp
+    planner: copilot_acp
+budgets:
+  max_iterations: 2
+`); err != nil {
+		t.Fatalf("write yaml config: %v", err)
+	}
+
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	viper.Set("config", defaultConfigPath)
+
+	cfg, err := loadConfig(repoRoot)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.Profile != copilotProfile {
+		t.Fatalf("profile = %q, want %q", cfg.Profile, copilotProfile)
+	}
+
+	roles := []string{"plan", "do", "check", "act", "planner"}
+	for _, role := range roles {
+		id, ok := cfg.RoleIDs[role]
+		if !ok {
+			t.Fatalf("%s agent ID not found in RoleIDs", role)
+		}
+		if id != "copilot_acp" {
+			t.Fatalf("%s agent ID = %q, want %q", role, id, "copilot_acp")
+		}
+		agent := cfg.Agents[id]
+		if agent.Type != genericACPType {
+			t.Fatalf("%s agent type = %q, want %q", role, agent.Type, genericACPType)
+		}
+		if len(agent.Cmd) < 2 || agent.Cmd[0] != copilotBin || agent.Cmd[1] != copilotACPFlag {
+			t.Fatalf("%s agent cmd = %v, want copilot --acp command", role, agent.Cmd)
+		}
 	}
 }
 

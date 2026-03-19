@@ -2,6 +2,12 @@
 
 `acp-dump` inspects any stdio ACP server command and prints initialize/session details.
 
+## Installation
+
+```bash
+npm install -g @normahq/acp-dump@latest
+```
+
 ## Run
 
 ```bash

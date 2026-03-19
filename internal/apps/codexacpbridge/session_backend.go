@@ -8,8 +8,16 @@ import (
 	acp "github.com/coder/acp-go-sdk"
 )
 
+const (
+	backendRestartReasonSessionNew      = "session_new"
+	backendRestartReasonSessionSetModel = "session_set_model"
+	backendRestartReasonSessionSetMode  = "session_set_mode"
+	backendRestartReasonSessionRecreate = "session_recreate"
+)
+
 func (a *codexACPProxyAgent) setSessionConfig(
 	sessionID acp.SessionId,
+	reason string,
 	apply func(*codexProxySessionState) bool,
 ) (codexMCPToolSession, bool, error) {
 	a.mu.Lock()
@@ -27,6 +35,15 @@ func (a *codexACPProxyAgent) setSessionConfig(
 	if changed {
 		state.thread = ""
 		state.backend = nil
+		state.reason = normalizeBackendRestartReason(reason)
+		a.logger.Debug().
+			Str("session_id", string(sessionID)).
+			Str("reason", state.reason).
+			Str("cwd", strings.TrimSpace(state.cwd)).
+			Str("model", strings.TrimSpace(state.model)).
+			Int("mcp_server_count", len(state.mcpServers)).
+			Bool("had_backend", backend != nil).
+			Msg("mcp backend restart requested")
 	}
 	return backend, changed, nil
 }
@@ -43,7 +60,17 @@ func (a *codexACPProxyAgent) ensureSessionBackend(ctx context.Context, sessionID
 		return nil
 	}
 	sessionCWD := state.cwd
+	sessionModel := state.model
+	sessionMCPCount := len(state.mcpServers)
+	reason := normalizeBackendRestartReason(state.reason)
 	a.mu.Unlock()
+	a.logger.Debug().
+		Str("session_id", string(sessionID)).
+		Str("reason", reason).
+		Str("cwd", strings.TrimSpace(sessionCWD)).
+		Str("model", strings.TrimSpace(sessionModel)).
+		Int("mcp_server_count", sessionMCPCount).
+		Msg("starting mcp backend session")
 
 	backend, err := a.sessionFactory(ctx, sessionCWD)
 	if err != nil {
@@ -66,10 +93,60 @@ func (a *codexACPProxyAgent) ensureSessionBackend(ctx context.Context, sessionID
 	if state.backend != nil {
 		_ = backend.Close()
 		_ = awaitBackendStop(backend)
+		a.logger.Debug().
+			Str("session_id", string(sessionID)).
+			Str("reason", reason).
+			Msg("discarded recreated mcp backend because session already has backend")
 		return nil
 	}
 	state.backend = backend
+	state.reason = backendRestartReasonSessionRecreate
+	a.logger.Debug().
+		Str("session_id", string(sessionID)).
+		Str("reason", reason).
+		Str("cwd", strings.TrimSpace(state.cwd)).
+		Str("model", strings.TrimSpace(state.model)).
+		Int("mcp_server_count", len(state.mcpServers)).
+		Msg("mcp backend session ready")
 	return nil
+}
+
+func (a *codexACPProxyAgent) closeBackendForRestart(sessionID acp.SessionId, backend codexMCPToolSession, reason string) {
+	if backend == nil {
+		return
+	}
+	normalizedReason := normalizeBackendRestartReason(reason)
+	a.logger.Debug().
+		Str("session_id", string(sessionID)).
+		Str("reason", normalizedReason).
+		Msg("closing mcp backend for restart")
+	if err := backend.Close(); err != nil {
+		event := a.logger.Warn()
+		if isExpectedBackendShutdownErr(err) {
+			event = a.logger.Debug()
+		}
+		event.
+			Err(err).
+			Str("session_id", string(sessionID)).
+			Str("reason", normalizedReason).
+			Msg("failed to close session backend")
+	}
+	if err := awaitBackendStop(backend); err != nil {
+		event := a.logger.Warn()
+		if isExpectedBackendShutdownErr(err) {
+			event = a.logger.Debug()
+		}
+		event.
+			Err(err).
+			Str("session_id", string(sessionID)).
+			Str("reason", normalizedReason).
+			Msg("failed waiting for session backend stop")
+		return
+	}
+	a.logger.Debug().
+		Str("session_id", string(sessionID)).
+		Str("reason", normalizedReason).
+		Msg("closed mcp backend for restart")
 }
 
 func (a *codexACPProxyAgent) closeAllSessionBackends() {
@@ -121,4 +198,12 @@ func isExpectedBackendShutdownErr(err error) bool {
 
 func awaitBackendStop(backend codexMCPToolSession) error {
 	return backend.Wait()
+}
+
+func normalizeBackendRestartReason(reason string) string {
+	trimmed := strings.TrimSpace(reason)
+	if trimmed == "" {
+		return backendRestartReasonSessionRecreate
+	}
+	return trimmed
 }

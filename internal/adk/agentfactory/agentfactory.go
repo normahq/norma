@@ -11,6 +11,7 @@ import (
 	"github.com/metalagman/norma/internal/adk/acpagent"
 	"github.com/metalagman/norma/internal/adk/agentconfig"
 	"github.com/metalagman/norma/internal/adk/poolagent"
+	"github.com/rs/zerolog"
 
 	"google.golang.org/adk/agent"
 )
@@ -23,6 +24,7 @@ type CreationRequest struct {
 	WorkingDirectory  string
 	Stdout            io.Writer
 	Stderr            io.Writer
+	Logger            *zerolog.Logger
 	PermissionHandler func(context.Context, acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error)
 	MCPServers        map[string]agentconfig.MCPServerConfig
 }
@@ -86,13 +88,25 @@ var constructors = map[string]constructor{
 	agentconfig.AgentTypePool:       poolConstructor,
 }
 
+var newACPAgent = func(cfg acpagent.Config) (agent.Agent, error) {
+	return acpagent.New(cfg)
+}
+
 var acpConstructor = func(ctx context.Context, cfg agentconfig.Config, req CreationRequest, _ map[string]agentconfig.Config) (agent.Agent, error) {
 	cmd, err := ResolveACPCommand(cfg)
 	if err != nil {
 		return nil, err
 	}
+	loggerCtx := ctx
+	if loggerCtx == nil {
+		loggerCtx = context.Background()
+	}
+	logger := req.Logger
+	if logger == nil {
+		logger = zerolog.Ctx(loggerCtx)
+	}
 
-	return acpagent.New(acpagent.Config{
+	return newACPAgent(acpagent.Config{
 		Context:           ctx,
 		Name:              req.Name,
 		Description:       req.Description,
@@ -103,6 +117,7 @@ var acpConstructor = func(ctx context.Context, cfg agentconfig.Config, req Creat
 		WorkingDir:        req.WorkingDirectory,
 		Stderr:            req.Stderr,
 		PermissionHandler: req.PermissionHandler,
+		Logger:            logger,
 		MCPServers:        req.MCPServers,
 	})
 }
@@ -145,6 +160,7 @@ func (f *factoryAgentCreator) CreateAgent(ctx context.Context, name string, req 
 		SystemInstruction: req.SystemInstruction,
 		WorkingDirectory:  req.WorkingDirectory,
 		Stderr:            f.req.Stderr,
+		Logger:            f.req.Logger,
 		MCPServers:        f.req.MCPServers,
 	}
 	return NewFactoryWithMCPServers(f.registry, f.req.MCPServers).CreateAgent(ctx, name, fullReq)

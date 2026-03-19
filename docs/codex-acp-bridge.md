@@ -57,13 +57,14 @@ norma tool codex-acp-bridge --codex-model gpt-5.4 --codex-sandbox workspace-writ
 - Verifies required MCP tools are present: `codex` and `codex-reply`.
 - Opens ACP agent-side stdio connection for clients.
 - For each ACP session:
-  - first prompt calls MCP tool `codex` (new thread) and includes configured `--codex-*` fields and any provided `mcpServers`.
+  - first prompt calls MCP tool `codex` (new thread) and includes configured `--codex-*` fields plus `config.mcp_servers` derived from provided `mcpServers`.
   - next prompts call MCP tool `codex-reply` (same thread), with only `threadId` + `prompt`
 - Supports ACP cancellation via `session/cancel`.
 - Supports passing per-session MCP servers via ACP `session/new` `mcpServers` parameter.
   - Supported transports: `stdio`, `http`. `sse` is not supported.
   - Each `mcpServers[]` entry must define exactly one transport.
   - Example: `{"mcpServers": [{"stdio": {"name": "my-tool", "command": "echo", "args": ["hello"]}}]}`
+  - The bridge maps these to Codex config values under `config.mcp_servers.<id>.*` (`command/args/env` for stdio, `url/http_headers` for http).
 - For ACP `initialize.agentInfo`:
   - `name` defaults to MCP `serverInfo.name` (unless `--name` is set).
   - `version` is forwarded from MCP `serverInfo.version`.

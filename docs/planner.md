@@ -32,12 +32,12 @@ The planning agent has access to several tools to help it create accurate and ac
 ### `human`
 Used by the agent to ask the user a question. The question appears in the TUI, and the agent waits for your response.
 
-### `tasks_*` (MCP Tasks Tools)
+### `norma.tasks.*` (MCP Tasks Tools)
 Enables the agent to interact with the Beads-backed task tracker via Norma's MCP server.
 
-*   **Operations:** `tasks_list`, `tasks_get`, `tasks_children`, `tasks_leaf`, `tasks_add`, `tasks_add_feature`, `tasks_add_follow_up`, `tasks_update`, `tasks_mark_status`, `tasks_close_with_reason`, `tasks_add_dependency`, `tasks_add_label`, `tasks_set_notes`.
+*   **Operations:** `norma.tasks.list`, `norma.tasks.get`, `norma.tasks.children`, `norma.tasks.leaf`, `norma.tasks.add`, `norma.tasks.add_feature`, `norma.tasks.add_follow_up`, `norma.tasks.update`, `norma.tasks.mark_status`, `norma.tasks.close_with_reason`, `norma.tasks.add_dependency`, `norma.tasks.add_label`, `norma.tasks.set_notes`.
 *   **Rules:**
-    *   Use `tasks_*` tools for task graph/state operations.
+    *   Use `norma.tasks.*` tools for task graph/state operations.
     *   Do not use direct `bd` CLI commands in planner responses.
 
 ### `run_shell_command`

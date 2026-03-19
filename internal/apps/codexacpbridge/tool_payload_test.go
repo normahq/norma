@@ -147,33 +147,40 @@ func TestBuildCodexToolInvocationIncludesMCPServersOnFirstTurn(t *testing.T) {
 	if toolName != codexToolName {
 		t.Fatalf("toolName = %q, want %q", toolName, codexToolName)
 	}
-	raw, ok := args["mcpServers"]
+	mcpCfg := mustCodexMCPServersConfig(t, args)
+	if len(mcpCfg) != 2 {
+		t.Fatalf("mcp_servers count = %d, want 2", len(mcpCfg))
+	}
+	stdioCfg, ok := mcpCfg["my-filesystem"].(map[string]any)
 	if !ok {
-		t.Fatalf("args do not contain mcpServers: %v", args)
+		t.Fatalf("my-filesystem config missing or wrong type: %#v", mcpCfg["my-filesystem"])
 	}
-	serverList, ok := raw.([]map[string]any)
+	if got := mapArgString(stdioCfg, "command"); got != "npx" {
+		t.Fatalf("my-filesystem.command = %q, want %q", got, "npx")
+	}
+	envCfg, ok := stdioCfg["env"].(map[string]string)
 	if !ok {
-		t.Fatalf("mcpServers type = %T, want []map[string]any", raw)
+		t.Fatalf("my-filesystem.env type = %T, want map[string]string", stdioCfg["env"])
 	}
-	if len(serverList) != 2 {
-		t.Fatalf("mcpServers count = %d, want 2", len(serverList))
+	if got := envCfg["NODE_ENV"]; got != "production" {
+		t.Fatalf("my-filesystem.env.NODE_ENV = %q, want %q", got, "production")
 	}
-	serverMap := map[string]map[string]any{}
-	for _, server := range serverList {
-		name, _ := server["name"].(string)
-		serverMap[name] = server
+	httpCfg, ok := mcpCfg["my-http"].(map[string]any)
+	if !ok {
+		t.Fatalf("my-http config missing or wrong type: %#v", mcpCfg["my-http"])
 	}
-	if _, ok := serverMap["my-filesystem"]; !ok {
-		t.Fatal("mcpServers does not contain my-filesystem")
+	if got := mapArgString(httpCfg, "url"); got != "https://example.com/mcp" {
+		t.Fatalf("my-http.url = %q, want %q", got, "https://example.com/mcp")
 	}
-	if serverMap["my-filesystem"]["transport"] != mcpTransportStdio {
-		t.Fatalf("my-filesystem transport = %v, want %s", serverMap["my-filesystem"]["transport"], mcpTransportStdio)
+	headersCfg, ok := httpCfg["http_headers"].(map[string]string)
+	if !ok {
+		t.Fatalf("my-http.http_headers type = %T, want map[string]string", httpCfg["http_headers"])
 	}
-	if _, ok := serverMap["my-http"]; !ok {
-		t.Fatal("mcpServers does not contain my-http")
+	if got := headersCfg["Authorization"]; got != "Bearer token" {
+		t.Fatalf("my-http.http_headers.Authorization = %q, want %q", got, "Bearer token")
 	}
-	if serverMap["my-http"]["transport"] != mcpTransportHTTP {
-		t.Fatalf("my-http transport = %v, want %s", serverMap["my-http"]["transport"], mcpTransportHTTP)
+	if _, ok := args["mcpServers"]; ok {
+		t.Fatalf("args unexpectedly contain legacy mcpServers: %v", args)
 	}
 }
 
@@ -194,9 +201,70 @@ func TestBuildCodexToolInvocationOmitsMCPServersOnReplyTurn(t *testing.T) {
 	if toolName != codexReplyToolName {
 		t.Fatalf("toolName = %q, want %q", toolName, codexReplyToolName)
 	}
-	if _, ok := args["mcpServers"]; ok {
-		t.Fatalf("reply args unexpectedly contain mcpServers: %v", args)
+	if _, ok := args["config"]; ok {
+		t.Fatalf("reply args unexpectedly contain config: %v", args)
 	}
+}
+
+func TestBuildCodexToolInvocationSessionMCPServersOverrideConfigMCPServers(t *testing.T) {
+	toolName, args := buildCodexToolInvocation(
+		"",
+		"/tmp/work",
+		"hello",
+		codexToolConfig{
+			Config: map[string]any{
+				"foo": "bar",
+				"mcp_servers": map[string]any{
+					"existing": map[string]any{
+						"command": "old",
+					},
+				},
+			},
+		},
+		"",
+		map[string]acp.McpServer{
+			"new-server": {
+				Stdio: &acp.McpServerStdio{Name: "new-server", Command: "echo"},
+			},
+		},
+	)
+	if toolName != codexToolName {
+		t.Fatalf("toolName = %q, want %q", toolName, codexToolName)
+	}
+	cfg, ok := args["config"].(map[string]any)
+	if !ok {
+		t.Fatalf("config is not a map: %#v", args["config"])
+	}
+	if got := mapArgString(cfg, "foo"); got != "bar" {
+		t.Fatalf("config.foo = %q, want %q", got, "bar")
+	}
+	mcpCfg := mustCodexMCPServersConfig(t, args)
+	if len(mcpCfg) != 1 {
+		t.Fatalf("mcp_servers count = %d, want 1", len(mcpCfg))
+	}
+	if _, ok := mcpCfg["existing"]; ok {
+		t.Fatalf("mcp_servers unexpectedly kept existing entry: %#v", mcpCfg)
+	}
+	newCfg, ok := mcpCfg["new-server"].(map[string]any)
+	if !ok {
+		t.Fatalf("new-server config missing or wrong type: %#v", mcpCfg["new-server"])
+	}
+	if got := mapArgString(newCfg, "command"); got != "echo" {
+		t.Fatalf("new-server.command = %q, want %q", got, "echo")
+	}
+}
+
+func mustCodexMCPServersConfig(t *testing.T, args map[string]any) map[string]any {
+	t.Helper()
+	cfg, ok := args["config"].(map[string]any)
+	if !ok {
+		t.Fatalf("args.config type = %T, want map[string]any", args["config"])
+	}
+	mcpCfg, ok := cfg["mcp_servers"].(map[string]any)
+	if !ok {
+		t.Fatalf("config.mcp_servers type = %T, want map[string]any", cfg["mcp_servers"])
+	}
+	return mcpCfg
 }
 
 func TestExtractCodexToolResultPrefersStructuredContentText(t *testing.T) {

@@ -39,6 +39,9 @@ var (
 	markdownRenderer     *glamour.TermRenderer
 	markdownRendererErr  error
 	markdownPattern      = regexp.MustCompile("(?m)(^#{1,6}\\s|^>\\s|^[-*+]\\s|^\\d+\\.\\s|```|`[^`]+`|\\*\\*[^*]+\\*\\*|_[^_]+_|\\[[^\\]]+\\]\\([^)]+\\))")
+
+	replNewAgentRunner = newAgentRunner
+	replRunACPToolTurn = runACPToolTurn
 )
 
 // PermissionHandler decides how ACP permission requests should be handled.
@@ -49,12 +52,14 @@ type AgentFactory func(context.Context, PermissionHandler, io.Writer) (adkagent.
 
 // AgentREPLConfig configures a generic ADK-backed terminal REPL.
 type AgentREPLConfig struct {
-	AppName      string
-	UserID       string
-	Stdin        io.Reader
-	Stdout       io.Writer
-	Stderr       io.Writer
-	AgentFactory AgentFactory
+	AppName             string
+	UserID              string
+	Stdin               io.Reader
+	Stdout              io.Writer
+	Stderr              io.Writer
+	AgentFactory        AgentFactory
+	StartupPrompt       string
+	StartupPromptSilent bool
 }
 
 func RunREPL(
@@ -141,7 +146,7 @@ func RunAgentREPL(ctx context.Context, cfg AgentREPLConfig) error {
 		}()
 	}
 
-	replRunner, sess, err := newAgentRunner(ctx, agentRuntime, appName, userID)
+	replRunner, sess, err := replNewAgentRunner(ctx, agentRuntime, appName, userID)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to create ADK runner/session")
 		return err
@@ -149,6 +154,16 @@ func RunAgentREPL(ctx context.Context, cfg AgentREPLConfig) error {
 
 	logger.Debug().Str("session_id", sess.ID()).Msg("created ADK session")
 	logger.Debug().Str("app_name", appName).Str("user_id", userID).Msg("starting interactive REPL")
+	startupPrompt := strings.TrimSpace(cfg.StartupPrompt)
+	if startupPrompt != "" {
+		startupUI := ui
+		if cfg.StartupPromptSilent {
+			startupUI = newACPToolTerminal(strings.NewReader(""), io.Discard, io.Discard)
+		}
+		if err := replRunACPToolTurn(ctx, replRunner, sess, userID, startupUI, startupPrompt); err != nil {
+			return err
+		}
+	}
 
 	for {
 		line, err := ui.ReadLine("> ")
@@ -170,7 +185,7 @@ func RunAgentREPL(ctx context.Context, cfg AgentREPLConfig) error {
 			logger.Debug().Msg("received exit command, exiting REPL")
 			return nil
 		}
-		if err := runACPToolTurn(ctx, replRunner, sess, userID, ui, trimmedPrompt); err != nil {
+		if err := replRunACPToolTurn(ctx, replRunner, sess, userID, ui, trimmedPrompt); err != nil {
 			return err
 		}
 	}

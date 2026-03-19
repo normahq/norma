@@ -2,6 +2,12 @@
 
 `codex-acp-bridge` runs `codex mcp-server` and exposes it as an ACP agent over stdio.
 
+## Installation
+
+```bash
+npm install -g @normahq/codex-acp-bridge@latest
+```
+
 ## Run
 
 ```bash
@@ -41,7 +47,7 @@ codex-acp-bridge --debug
 
 ## MCP Servers
 
-The bridge supports passing MCP servers to the Codex tool via the ACP `session/new` request. On the first turn of a session (no thread ID), any MCP servers provided in the `mcpServers` parameter are passed to the Codex tool as `mcpServers` argument.
+The bridge supports passing MCP servers to the Codex tool via the ACP `session/new` request. On the first turn of a session (no thread ID), any MCP servers provided in the `mcpServers` parameter are translated into Codex config values under `config.mcp_servers`.
 
 Example ACP session/new request with MCP servers:
 

@@ -37,6 +37,7 @@ type codexProxySessionState struct {
 	model      string
 	mode       string
 	mcpServers map[string]acp.McpServer
+	reason     string
 	backend    codexMCPToolSession
 	cancel     context.CancelFunc
 }
@@ -148,6 +149,7 @@ func (a *codexACPProxyAgent) NewSession(ctx context.Context, params acp.NewSessi
 		cwd:        strings.TrimSpace(params.Cwd),
 		model:      a.defaultCodexConfig.Model,
 		mcpServers: mcpServers,
+		reason:     backendRestartReasonSessionNew,
 	}
 	a.mu.Unlock()
 	a.logger.Debug().
@@ -340,7 +342,7 @@ func (a *codexACPProxyAgent) Prompt(ctx context.Context, params acp.PromptReques
 
 func (a *codexACPProxyAgent) SetSessionMode(_ context.Context, params acp.SetSessionModeRequest) (acp.SetSessionModeResponse, error) {
 	nextMode := strings.TrimSpace(string(params.ModeId))
-	backend, changed, err := a.setSessionConfig(params.SessionId, func(state *codexProxySessionState) bool {
+	backend, changed, err := a.setSessionConfig(params.SessionId, backendRestartReasonSessionSetMode, func(state *codexProxySessionState) bool {
 		if state.mode == nextMode {
 			return false
 		}
@@ -350,9 +352,8 @@ func (a *codexACPProxyAgent) SetSessionMode(_ context.Context, params acp.SetSes
 	if err != nil {
 		return acp.SetSessionModeResponse{}, err
 	}
-	if changed && backend != nil {
-		_ = backend.Close()
-		_ = awaitBackendStop(backend)
+	if changed {
+		a.closeBackendForRestart(params.SessionId, backend, backendRestartReasonSessionSetMode)
 	}
 	a.logger.Debug().
 		Str("session_id", string(params.SessionId)).
@@ -364,7 +365,7 @@ func (a *codexACPProxyAgent) SetSessionMode(_ context.Context, params acp.SetSes
 
 func (a *codexACPProxyAgent) SetSessionModel(_ context.Context, params acp.SetSessionModelRequest) (acp.SetSessionModelResponse, error) {
 	nextModel := strings.TrimSpace(string(params.ModelId))
-	backend, changed, err := a.setSessionConfig(params.SessionId, func(state *codexProxySessionState) bool {
+	backend, changed, err := a.setSessionConfig(params.SessionId, backendRestartReasonSessionSetModel, func(state *codexProxySessionState) bool {
 		if state.model == nextModel {
 			return false
 		}
@@ -374,9 +375,8 @@ func (a *codexACPProxyAgent) SetSessionModel(_ context.Context, params acp.SetSe
 	if err != nil {
 		return acp.SetSessionModelResponse{}, err
 	}
-	if changed && backend != nil {
-		_ = backend.Close()
-		_ = awaitBackendStop(backend)
+	if changed {
+		a.closeBackendForRestart(params.SessionId, backend, backendRestartReasonSessionSetModel)
 	}
 	a.logger.Debug().
 		Str("session_id", string(params.SessionId)).

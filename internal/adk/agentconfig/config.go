@@ -297,6 +297,9 @@ func NormalizeACPConfig(cfg Config, executablePath string) (Config, error) {
 		}
 		normalized.Type = AgentTypeGenericACP
 		normalized.Cmd = []string{exePath, "tool", "codex-acp-bridge"}
+		if !containsFlag(normalized.ExtraArgs, "--debug") {
+			normalized.Cmd = append(normalized.Cmd, "--debug")
+		}
 		if cfg.Model != "" {
 			normalized.Cmd = append(normalized.Cmd, "--codex-model", cfg.Model)
 		}
@@ -306,6 +309,19 @@ func NormalizeACPConfig(cfg Config, executablePath string) (Config, error) {
 	}
 
 	return normalized, nil
+}
+
+func containsFlag(args []string, flag string) bool {
+	flag = strings.TrimSpace(flag)
+	if flag == "" {
+		return false
+	}
+	for _, arg := range args {
+		if strings.TrimSpace(arg) == flag {
+			return true
+		}
+	}
+	return false
 }
 
 // NormalizeACPConfigs canonicalizes ACP aliases for a map of named agent configs.

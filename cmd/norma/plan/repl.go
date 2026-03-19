@@ -7,14 +7,16 @@ import (
 	"os"
 
 	"github.com/metalagman/norma/internal/apps/acprepl"
+	"github.com/metalagman/norma/internal/config"
 	"github.com/metalagman/norma/internal/git"
 	"github.com/spf13/cobra"
 	adkagent "google.golang.org/adk/agent"
 )
 
 const (
-	plannerREPLAppName = "norma-plan-repl"
-	plannerREPLUserID  = "norma-plan-repl-user"
+	plannerREPLAppName  = "norma-plan-repl"
+	plannerREPLUserID   = "norma-plan-repl-user"
+	plannerREPLIntroMsg = "What do you want to plan?"
 )
 
 func replCommand() *cobra.Command {
@@ -44,7 +46,20 @@ func runREPL(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("planner agent not configured in selected profile %q", cfg.Profile)
 	}
 
-	return acprepl.RunAgentREPL(cmd.Context(), acprepl.AgentREPLConfig{
+	if err := printPlannerREPLIntro(cmd.OutOrStdout()); err != nil {
+		return err
+	}
+
+	return acprepl.RunAgentREPL(cmd.Context(), plannerREPLConfig(cmd, repoRoot, cfg, plannerID))
+}
+
+func printPlannerREPLIntro(stdout io.Writer) error {
+	_, err := fmt.Fprintln(stdout, plannerREPLIntroMsg)
+	return err
+}
+
+func plannerREPLConfig(cmd *cobra.Command, repoRoot string, cfg config.Config, plannerID string) acprepl.AgentREPLConfig {
+	return acprepl.AgentREPLConfig{
 		AppName: plannerREPLAppName,
 		UserID:  plannerREPLUserID,
 		Stdin:   cmd.InOrStdin(),
@@ -60,5 +75,5 @@ func runREPL(cmd *cobra.Command, _ []string) error {
 				PermissionHandler: permissionHandler,
 			})
 		},
-	})
+	}
 }

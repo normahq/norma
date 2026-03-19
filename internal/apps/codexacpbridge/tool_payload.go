@@ -32,35 +32,55 @@ func buildCodexToolInvocation(threadID, cwd, prompt string, defaultConfig codexT
 
 	if strings.TrimSpace(threadID) == "" {
 		defaultConfig.withModel(sessionModel).applyTo(args)
-		if len(sessionMCPServers) > 0 {
-			mcpServersList := make([]map[string]any, 0, len(sessionMCPServers))
-			for _, server := range sessionMCPServers {
-				serverMap := map[string]any{}
-				if server.Stdio != nil {
-					serverMap["name"] = server.Stdio.Name
-					serverMap["command"] = server.Stdio.Command
-					serverMap["args"] = server.Stdio.Args
-					serverMap["env"] = flattenEnvVars(server.Stdio.Env)
-					serverMap["transport"] = "stdio"
-				} else if server.Http != nil {
-					serverMap["name"] = server.Http.Name
-					serverMap["url"] = server.Http.Url
-					serverMap["headers"] = flattenHTTPHeaders(server.Http.Headers)
-					serverMap["transport"] = "http"
-				}
-				if len(serverMap) > 0 {
-					mcpServersList = append(mcpServersList, serverMap)
+		if mcpServersCfg := codexMCPServersConfig(sessionMCPServers); len(mcpServersCfg) > 0 {
+			configMap := map[string]any{}
+			if existing, ok := args["config"].(map[string]any); ok && existing != nil {
+				for key, value := range existing {
+					configMap[key] = value
 				}
 			}
-			if len(mcpServersList) > 0 {
-				args["mcpServers"] = mcpServersList
-			}
+			configMap["mcp_servers"] = mcpServersCfg
+			args["config"] = configMap
 		}
 		return "codex", args
 	}
 
 	args["threadId"] = strings.TrimSpace(threadID)
 	return "codex-reply", args
+}
+
+func codexMCPServersConfig(sessionMCPServers map[string]acp.McpServer) map[string]any {
+	if len(sessionMCPServers) == 0 {
+		return nil
+	}
+	result := make(map[string]any, len(sessionMCPServers))
+	for name, server := range sessionMCPServers {
+		serverCfg := map[string]any{}
+		switch {
+		case server.Stdio != nil:
+			serverCfg["command"] = server.Stdio.Command
+			if len(server.Stdio.Args) > 0 {
+				serverCfg["args"] = server.Stdio.Args
+			}
+			if env := flattenEnvVars(server.Stdio.Env); len(env) > 0 {
+				serverCfg["env"] = env
+			}
+		case server.Http != nil:
+			serverCfg["url"] = server.Http.Url
+			if headers := flattenHTTPHeaders(server.Http.Headers); len(headers) > 0 {
+				serverCfg["http_headers"] = headers
+			}
+		default:
+			continue
+		}
+		if len(serverCfg) > 0 {
+			result[name] = serverCfg
+		}
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
 }
 
 func joinPromptText(blocks []acp.ContentBlock) string {

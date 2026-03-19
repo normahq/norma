@@ -90,6 +90,7 @@ func (r *adkRunner) Run(ctx context.Context, req contracts.AgentRequest, stdout,
 		WorkingDirectory:  workingDirectory,
 		Stdout:            stdout,
 		Stderr:            stderr,
+		Logger:            &l,
 		PermissionHandler: defaultACPPermissionHandler,
 	}
 

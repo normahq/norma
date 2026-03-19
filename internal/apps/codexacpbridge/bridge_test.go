@@ -286,7 +286,7 @@ func TestCodexACPProxySessionFactoryCreatesDistinctBackendsPerSession(t *testing
 
 func TestCodexACPProxySetModelResetsThreadAndBackend(t *testing.T) {
 	backends := make([]*fakeCodexMCPToolSession, 0, 2)
-	l := zerolog.Nop()
+	l, logBuf := newDebugTestLogger()
 	agent := newCodexACPProxyAgentWithFactory(
 		func(context.Context, string) (codexMCPToolSession, error) {
 			backend := &fakeCodexMCPToolSession{
@@ -305,7 +305,7 @@ func TestCodexACPProxySetModelResetsThreadAndBackend(t *testing.T) {
 		},
 		"test-agent",
 		codexToolConfig{},
-		&l,
+		l,
 	)
 	agent.setConnection(&fakeACPSessionUpdater{})
 
@@ -357,6 +357,11 @@ func TestCodexACPProxySetModelResetsThreadAndBackend(t *testing.T) {
 	if _, exists := secondArgs["mode"]; exists {
 		t.Fatalf("mode argument should not be propagated to codex tool call: args=%v", secondArgs)
 	}
+	assertLogContains(t, logBuf, `"message":"starting mcp backend session"`, `"reason":"session_new"`)
+	assertLogContains(t, logBuf, `"message":"mcp backend restart requested"`, `"reason":"session_set_model"`)
+	assertLogContains(t, logBuf, `"message":"closing mcp backend for restart"`, `"reason":"session_set_model"`)
+	assertLogContains(t, logBuf, `"message":"closed mcp backend for restart"`, `"reason":"session_set_model"`)
+	assertLogContains(t, logBuf, `"message":"mcp backend session ready"`, `"reason":"session_set_model"`)
 }
 
 func TestCodexACPProxySetModelPreservesMCPServers(t *testing.T) {
@@ -390,7 +395,7 @@ func TestCodexACPProxySetModelPreservesMCPServers(t *testing.T) {
 		t.Fatalf("SetSessionModel() error = %v", err)
 	}
 
-	// 3. Prompt (should use new backend, but include mcpServers because thread is reset)
+	// 3. Prompt (should use new backend, but include mcp_servers config because thread is reset)
 	_, err = agent.Prompt(context.Background(), acp.PromptRequest{
 		SessionId: resp.SessionId,
 		Prompt:    []acp.ContentBlock{acp.TextBlock("hi")},
@@ -405,21 +410,25 @@ func TestCodexACPProxySetModelPreservesMCPServers(t *testing.T) {
 	}
 
 	args := calls[0].Arguments.(map[string]any)
-	serverList, ok := args["mcpServers"].([]map[string]any)
+	mcpConfig, ok := mapArgMCPServers(args)
 	if !ok {
-		t.Fatalf("mcpServers not found in args after SetSessionModel")
+		t.Fatalf("config.mcp_servers not found in args after SetSessionModel")
 	}
-	if len(serverList) != 1 {
-		t.Fatalf("serverList len = %d, want 1", len(serverList))
+	if len(mcpConfig) != 1 {
+		t.Fatalf("mcp_servers len = %d, want 1", len(mcpConfig))
 	}
-	if serverList[0]["name"] != "preserved-server" {
-		t.Errorf("name = %v, want preserved-server", serverList[0]["name"])
+	preserved, ok := mcpConfig["preserved-server"].(map[string]any)
+	if !ok {
+		t.Fatalf("preserved-server config missing or wrong type: %#v", mcpConfig["preserved-server"])
+	}
+	if got := mapArgString(preserved, "command"); got != "echo" {
+		t.Errorf("command = %q, want %q", got, "echo")
 	}
 }
 
 func TestCodexACPProxySetModeResetsThreadAndBackend(t *testing.T) {
 	backends := make([]*fakeCodexMCPToolSession, 0, 2)
-	l := zerolog.Nop()
+	l, logBuf := newDebugTestLogger()
 	agent := newCodexACPProxyAgentWithFactory(
 		func(context.Context, string) (codexMCPToolSession, error) {
 			backend := &fakeCodexMCPToolSession{
@@ -438,7 +447,7 @@ func TestCodexACPProxySetModeResetsThreadAndBackend(t *testing.T) {
 		},
 		"test-agent",
 		codexToolConfig{},
-		&l,
+		l,
 	)
 	agent.setConnection(&fakeACPSessionUpdater{})
 
@@ -476,6 +485,10 @@ func TestCodexACPProxySetModeResetsThreadAndBackend(t *testing.T) {
 	if len(secondCalls) == 0 || secondCalls[0].Name != codexToolName {
 		t.Fatalf("second backend calls = %+v, want thread-reset %q call", secondCalls, codexToolName)
 	}
+	assertLogContains(t, logBuf, `"message":"mcp backend restart requested"`, `"reason":"session_set_mode"`)
+	assertLogContains(t, logBuf, `"message":"closing mcp backend for restart"`, `"reason":"session_set_mode"`)
+	assertLogContains(t, logBuf, `"message":"closed mcp backend for restart"`, `"reason":"session_set_mode"`)
+	assertLogContains(t, logBuf, `"message":"mcp backend session ready"`, `"reason":"session_set_mode"`)
 }
 
 func TestCodexACPProxyInitializeUsesConfiguredAgentName(t *testing.T) {
@@ -547,8 +560,10 @@ func TestRunProxyStartsCodexMCPServer(t *testing.T) {
 	originalPath := os.Getenv("PATH")
 	t.Setenv("PATH", codexDir+string(os.PathListSeparator)+originalPath)
 
+	var logs bytes.Buffer
+	logger := zerolog.New(&logs).Level(zerolog.DebugLevel)
 	var stderr bytes.Buffer
-	ctx := context.Background()
+	ctx := logger.WithContext(context.Background())
 	runErr := RunProxy(
 		ctx,
 		t.TempDir(),
@@ -578,6 +593,15 @@ func TestRunProxyStartsCodexMCPServer(t *testing.T) {
 	}
 	if strings.Contains(stderr.String(), "failed waiting for session backend stop") {
 		t.Fatalf("stderr contains unexpected backend-stop warning: %q", stderr.String())
+	}
+	if !strings.Contains(logs.String(), `"message":"starting codex acp bridge"`) {
+		t.Fatalf("logs do not contain bridge startup message: %q", logs.String())
+	}
+	if !strings.Contains(logs.String(), `"cmd":"codex"`) {
+		t.Fatalf("logs do not contain command name: %q", logs.String())
+	}
+	if !strings.Contains(logs.String(), `"args":["mcp-server"]`) {
+		t.Fatalf("logs do not contain command args: %q", logs.String())
 	}
 }
 
@@ -646,6 +670,22 @@ func containsArg(args []string, want string) bool {
 	return false
 }
 
+func newDebugTestLogger() (*zerolog.Logger, *bytes.Buffer) {
+	buf := &bytes.Buffer{}
+	logger := zerolog.New(buf).Level(zerolog.DebugLevel)
+	return &logger, buf
+}
+
+func assertLogContains(t *testing.T, buf *bytes.Buffer, wants ...string) {
+	t.Helper()
+	logs := buf.String()
+	for _, want := range wants {
+		if !strings.Contains(logs, want) {
+			t.Fatalf("log output does not contain %q\nlogs=%s", want, logs)
+		}
+	}
+}
+
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }
@@ -657,6 +697,22 @@ func mapArgString(v any, key string) string {
 	}
 	s, _ := m[key].(string)
 	return s
+}
+
+func mapArgMCPServers(v any) (map[string]any, bool) {
+	m, ok := v.(map[string]any)
+	if !ok {
+		return nil, false
+	}
+	cfg, ok := m["config"].(map[string]any)
+	if !ok {
+		return nil, false
+	}
+	servers, ok := cfg["mcp_servers"].(map[string]any)
+	if !ok {
+		return nil, false
+	}
+	return servers, true
 }
 
 type fakeCodexToolCall struct {
@@ -821,8 +877,8 @@ func testNewSessionWithMCPTransport(t *testing.T, server acp.McpServer, wantName
 	fakeSession := &fakeCodexMCPToolSession{
 		listTools: []*mcp.Tool{{Name: codexToolName}, {Name: codexReplyToolName}},
 	}
-	l := zerolog.Nop()
-	agent := newCodexACPProxyAgent(fakeSession, "test", codexToolConfig{}, &l)
+	l, logBuf := newDebugTestLogger()
+	agent := newCodexACPProxyAgent(fakeSession, "test", codexToolConfig{}, l)
 	agent.setConnection(&fakeACPSessionUpdater{})
 
 	resp, err := agent.NewSession(context.Background(), acp.NewSessionRequest{
@@ -846,19 +902,31 @@ func testNewSessionWithMCPTransport(t *testing.T, server acp.McpServer, wantName
 	}
 
 	args := calls[0].Arguments.(map[string]any)
-	serverList, ok := args["mcpServers"].([]map[string]any)
+	mcpConfig, ok := mapArgMCPServers(args)
 	if !ok {
-		t.Fatalf("mcpServers not found in args")
+		t.Fatalf("config.mcp_servers not found in args")
 	}
-	if len(serverList) != 1 {
-		t.Fatalf("serverList len = %d, want 1", len(serverList))
+	if len(mcpConfig) != 1 {
+		t.Fatalf("mcp_servers len = %d, want 1", len(mcpConfig))
 	}
-	if serverList[0]["name"] != wantName {
-		t.Errorf("name = %v, want %s", serverList[0]["name"], wantName)
+	serverCfg, ok := mcpConfig[wantName].(map[string]any)
+	if !ok {
+		t.Fatalf("server %q missing or wrong type: %#v", wantName, mcpConfig[wantName])
 	}
-	if serverList[0]["transport"] != wantTransport {
-		t.Errorf("transport = %v, want %s", serverList[0]["transport"], wantTransport)
+	switch wantTransport {
+	case mcpTransportStdio:
+		if _, ok := serverCfg["command"]; !ok {
+			t.Errorf("stdio server missing command: %#v", serverCfg)
+		}
+	case mcpTransportHTTP:
+		if got := mapArgString(serverCfg, "url"); got == "" {
+			t.Errorf("http server missing url: %#v", serverCfg)
+		}
+	default:
+		t.Fatalf("unsupported transport %q in test", wantTransport)
 	}
+	assertLogContains(t, logBuf, `"message":"starting mcp backend session"`, `"reason":"session_new"`)
+	assertLogContains(t, logBuf, `"message":"mcp backend session ready"`, `"reason":"session_new"`, `"mcp_server_count":1`)
 }
 
 func TestNewSession_WithMCP_RejectInvalid(t *testing.T) {

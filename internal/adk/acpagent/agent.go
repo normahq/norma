@@ -160,7 +160,9 @@ func (a *Agent) Close() error {
 
 func (a *Agent) run(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, error] {
 	return func(yield func(*session.Event, error) bool) {
-		remoteSessionID, err := a.ensureRemoteSession(ctx, ctx.Session().ID())
+		logger := a.invocationLogger(ctx)
+
+		remoteSessionID, err := a.ensureRemoteSession(ctx, logger, ctx.Session().ID())
 		if err != nil {
 			yield(nil, err)
 			return
@@ -176,7 +178,7 @@ func (a *Agent) run(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, er
 			return
 		}
 
-		a.logger.Debug().
+		logger.Debug().
 			Str("adk_session_id", ctx.Session().ID()).
 			Str("acp_session_id", remoteSessionID).
 			Int("prompt_len", len(prompt)).
@@ -199,13 +201,13 @@ func (a *Agent) run(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, er
 					updates = nil
 					continue
 				}
-				ev, ok := mapACPUpdateToEvent(a.logger, ctx.InvocationID(), ext)
+				ev, ok := mapACPUpdateToEvent(logger, ctx.InvocationID(), ext)
 				if !ok {
 					continue
 				}
 				// We log but don't re-mark as partial here as mapACPUpdateToEvent
 				// already set the appropriate Partial flag.
-				a.logADKEvent(ev, "yielding adk event")
+				a.logADKEvent(logger, ev, "yielding adk event")
 				if !yield(ev, nil) {
 					return
 				}
@@ -224,7 +226,7 @@ func (a *Agent) run(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, er
 			return
 		}
 
-		a.logger.Debug().
+		logger.Debug().
 			Str("adk_session_id", ctx.Session().ID()).
 			Str("acp_session_id", remoteSessionID).
 			Msg("completed adk invocation")
@@ -235,18 +237,29 @@ func (a *Agent) run(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, er
 			ev.UsageMetadata = mapACPUsageToUsageMetadata(promptResult.Usage)
 		}
 		ev.TurnComplete = true
-		a.logADKEvent(ev, "yielding final turn complete event")
+		a.logADKEvent(logger, ev, "yielding final turn complete event")
 		if !yield(ev, nil) {
 			return
 		}
 	}
 }
 
-func (a *Agent) logADKEvent(ev *session.Event, msg string) {
+func (a *Agent) invocationLogger(ctx context.Context) zerolog.Logger {
+	if ctx == nil {
+		return a.logger
+	}
+	ctxLogger := zerolog.Ctx(ctx)
+	if ctxLogger == nil || ctxLogger == zerolog.DefaultContextLogger || ctxLogger.GetLevel() == zerolog.Disabled {
+		return a.logger
+	}
+	return ctxLogger.With().Str("subcomponent", "acpagent.agent").Logger()
+}
+
+func (a *Agent) logADKEvent(logger zerolog.Logger, ev *session.Event, msg string) {
 	if ev == nil {
 		return
 	}
-	logEvent := a.logger.Trace().
+	logEvent := logger.Trace().
 		Str("invocation_id", ev.InvocationID).
 		Bool("partial", ev.Partial).
 		Bool("turn_complete", ev.TurnComplete)
@@ -301,11 +314,11 @@ func mapACPUsageToUsageMetadata(usage map[string]any) *genai.GenerateContentResp
 	return m
 }
 
-func (a *Agent) ensureRemoteSession(ctx context.Context, adkSessionID string) (string, error) {
+func (a *Agent) ensureRemoteSession(ctx context.Context, logger zerolog.Logger, adkSessionID string) (string, error) {
 	a.sessionMu.Lock()
 	defer a.sessionMu.Unlock()
 	if sessionID := a.remoteByADK[adkSessionID]; sessionID != "" {
-		a.logger.Debug().Str("adk_session_id", adkSessionID).Str("acp_session_id", sessionID).Msg("reusing acp session for adk session")
+		logger.Debug().Str("adk_session_id", adkSessionID).Str("acp_session_id", sessionID).Msg("reusing acp session for adk session")
 		return sessionID, nil
 	}
 	resp, err := a.client.CreateSession(ctx, a.workingDir, a.sessionModel, a.sessionMode, a.mcpServers)
@@ -314,7 +327,7 @@ func (a *Agent) ensureRemoteSession(ctx context.Context, adkSessionID string) (s
 	}
 	sessionID := string(resp.SessionId)
 	a.remoteByADK[adkSessionID] = sessionID
-	event := a.logger.Debug().
+	event := logger.Debug().
 		Str("adk_session_id", adkSessionID).
 		Str("acp_session_id", sessionID)
 	if a.sessionModel != "" {
@@ -370,7 +383,8 @@ func convertMCPServers(configs map[string]agentconfig.MCPServerConfig) ([]acp.Mc
 				svr.Stdio.Args = append(svr.Stdio.Args, cfg.Cmd[1:]...)
 				svr.Stdio.Args = append(svr.Stdio.Args, cfg.Args...)
 			} else {
-				svr.Stdio.Args = cfg.Args
+				// ACP servers like OpenCode reject null for required array fields.
+				svr.Stdio.Args = append(make([]string, 0, len(cfg.Args)), cfg.Args...)
 			}
 		case agentconfig.MCPServerTypeHTTP:
 			svr.Http = &acp.McpServerHttp{
@@ -380,8 +394,9 @@ func convertMCPServers(configs map[string]agentconfig.MCPServerConfig) ([]acp.Mc
 			}
 		case agentconfig.MCPServerTypeSSE:
 			svr.Sse = &acp.McpServerSse{
-				Name: name,
-				Url:  cfg.URL,
+				Name:    name,
+				Url:     cfg.URL,
+				Headers: headersToHttpHeaders(cfg.Headers),
 			}
 		default:
 			return nil, fmt.Errorf("unsupported mcp server type %q", cfg.Type)
@@ -392,9 +407,6 @@ func convertMCPServers(configs map[string]agentconfig.MCPServerConfig) ([]acp.Mc
 }
 
 func envToEnvVars(env map[string]string) []acp.EnvVariable {
-	if len(env) == 0 {
-		return nil
-	}
 	vars := make([]acp.EnvVariable, 0, len(env))
 	keys := make([]string, 0, len(env))
 	for k := range env {
@@ -408,9 +420,6 @@ func envToEnvVars(env map[string]string) []acp.EnvVariable {
 }
 
 func headersToHttpHeaders(headers map[string]string) []acp.HttpHeader {
-	if len(headers) == 0 {
-		return nil
-	}
 	h := make([]acp.HttpHeader, 0, len(headers))
 	keys := make([]string, 0, len(headers))
 	for k := range headers {

@@ -16,6 +16,7 @@ import (
 	"github.com/metalagman/norma/internal/adk/agentfactory"
 	"github.com/metalagman/norma/internal/agents/planner"
 	"github.com/metalagman/norma/internal/config"
+	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 	adkagent "google.golang.org/adk/agent"
 	"google.golang.org/adk/runner"
@@ -344,6 +345,7 @@ func createPlannerAgentWithOptions(
 		Description:       "Norma planner base runtime",
 		WorkingDirectory:  workingDir,
 		Stderr:            stderr,
+		Logger:            zerolog.Ctx(ctx),
 		PermissionHandler: options.PermissionHandler,
 		MCPServers:        plannerMCP,
 	})

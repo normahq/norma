@@ -2,6 +2,12 @@
 
 `mcp-dump` inspects any stdio MCP server command and prints initialize/capability data.
 
+## Installation
+
+```bash
+npm install -g @normahq/mcp-dump@latest
+```
+
 ## Run
 
 ```bash

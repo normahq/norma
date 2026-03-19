@@ -135,6 +135,7 @@ func runStructuredPlayground(
 		SystemInstruction: "It is a good day. Mention this inside one JSON string field of your final response, and do not add any text outside the required JSON object.",
 		Stdout:            io.Discard,
 		Stderr:            lockedStderr,
+		Logger:            &logger,
 		PermissionHandler: func(_ context.Context, req acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error) {
 			for _, option := range req.Options {
 				if option.Kind == acp.PermissionOptionKindAllowOnce || option.Kind == acp.PermissionOptionKindAllowAlways {

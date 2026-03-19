@@ -12,6 +12,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var (
+	runProxy    = codexacpbridge.RunProxy
+	initLogging = logging.Init
+)
+
 func Command() *cobra.Command {
 	opts := codexacpbridge.Options{}
 	var codexConfigJSON string
@@ -40,12 +45,12 @@ func Command() *cobra.Command {
 			if debugLogs {
 				logLevel = logging.LevelDebug
 			}
-			if err := logging.Init(logging.WithLevel(logLevel)); err != nil {
+			if err := initLogging(logging.WithLevel(logLevel)); err != nil {
 				return fmt.Errorf("initialize logging: %w", err)
 			}
-			ctx := log.Logger.With().Str("component", "codex.acp.proxy").Logger().WithContext(cmd.Context())
+			ctx := log.Logger.With().Str("component", "codex.acp.bridge").Logger().WithContext(cmd.Context())
 
-			return codexacpbridge.RunProxy(ctx, workingDir, runOpts, cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr())
+			return runProxy(ctx, workingDir, runOpts, cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr())
 		},
 	}
 	cmd.Flags().StringVar(&opts.Name, "name", "", "ACP agent name exposed via initialize (defaults to MCP server name)")

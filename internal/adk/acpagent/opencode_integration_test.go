@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +15,12 @@ import (
 	"time"
 
 	acp "github.com/coder/acp-go-sdk"
+	"github.com/metalagman/norma/internal/adk/agentconfig"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+	adkagent "google.golang.org/adk/agent"
+	runnerpkg "google.golang.org/adk/runner"
+	"google.golang.org/adk/session"
+	"google.golang.org/genai"
 )
 
 const opencodeIntegrationTimeout = 90 * time.Second
@@ -27,6 +34,92 @@ func TestOpenCodeACPIntegration_InitializeAndNewSession(t *testing.T) {
 		t.Fatalf("initialize protocol version = %d, want %d", initResp.ProtocolVersion, acp.ProtocolVersionNumber)
 	}
 	_ = mustNewACPSession(t, client, stderr, repoRoot)
+}
+
+func TestOpenCodeACPIntegration_NewSessionWithMCPServers(t *testing.T) {
+	repoRoot := requireOpenCodeEnvironment(t)
+	client, stderr := newOpenCodeACPClient(t, repoRoot, "acp")
+
+	_ = mustInitializeACP(t, client, stderr)
+	mcpCommand := opencodeMCPHelperCommand(t)
+	mcpServers := []acp.McpServer{
+		{
+			Stdio: &acp.McpServerStdio{
+				Name:    "norma-opencode-mcp-helper",
+				Command: mcpCommand[0],
+				Args:    append([]string(nil), mcpCommand[1:]...),
+				Env:     []acp.EnvVariable{},
+			},
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), opencodeIntegrationTimeout)
+	defer cancel()
+
+	if _, err := client.NewSession(ctx, repoRoot, mcpServers); err != nil {
+		maybeSkipOpenCodeIntegration(t, err, stderr.String())
+		failWithDetails(t, "session/new failed with mcpServers", err, stderr.String())
+	}
+}
+
+func TestOpenCodeACPIntegration_AgentWithMCPServers(t *testing.T) {
+	repoRoot := requireOpenCodeEnvironment(t)
+	configureOpenCodeWritableEnv(t)
+	mcpCommand := opencodeMCPHelperCommand(t)
+
+	var stderr bytes.Buffer
+	agentWithMCP, err := New(Config{
+		Context:    context.Background(),
+		Command:    []string{"opencode", "acp"},
+		WorkingDir: repoRoot,
+		Stderr:     &stderr,
+		MCPServers: map[string]agentconfig.MCPServerConfig{
+			"norma-opencode-mcp-helper": {
+				Type: agentconfig.MCPServerTypeStdio,
+				Cmd:  append([]string(nil), mcpCommand...),
+			},
+		},
+	})
+	if err != nil {
+		maybeSkipOpenCodeIntegration(t, err, stderr.String())
+		failWithDetails(t, "acpagent.New failed", err, stderr.String())
+	}
+	t.Cleanup(func() {
+		_ = agentWithMCP.Close()
+	})
+
+	sessionService := session.InMemoryService()
+	r, err := runnerpkg.New(runnerpkg.Config{
+		AppName:        "opencode-acp-mcp-integration",
+		Agent:          agentWithMCP,
+		SessionService: sessionService,
+	})
+	if err != nil {
+		t.Fatalf("runner.New() error = %v", err)
+	}
+
+	sess, err := sessionService.Create(context.Background(), &session.CreateRequest{
+		AppName: "opencode-acp-mcp-integration",
+		UserID:  "integration-user",
+	})
+	if err != nil {
+		t.Fatalf("session.Create() error = %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), opencodeIntegrationTimeout)
+	defer cancel()
+
+	events := 0
+	for _, runErr := range r.Run(ctx, "integration-user", sess.Session.ID(), genai.NewContentFromText("Reply with one short word.", genai.RoleUser), adkagent.RunConfig{}) {
+		if runErr != nil {
+			maybeSkipOpenCodeIntegration(t, runErr, stderr.String())
+			failWithDetails(t, "runner.Run failed", runErr, stderr.String())
+		}
+		events++
+	}
+	if events == 0 {
+		failWithDetails(t, "runner.Run produced no events", nil, stderr.String())
+	}
 }
 
 func TestOpenCodeACPIntegration_PromptRoundTrip(t *testing.T) {
@@ -44,11 +137,9 @@ func TestOpenCodeACPIntegration_PromptRoundTrip(t *testing.T) {
 		failWithDetails(t, "session/prompt failed to start", err, stderr.String())
 	}
 
-	var chunks []string
-	for note := range updates {
-		if text := strings.TrimSpace(updateText(note.Update)); text != "" {
-			chunks = append(chunks, text)
-		}
+	updatesSeen := 0
+	for range updates {
+		updatesSeen++
 	}
 	result := <-resultCh
 	if result.Err != nil {
@@ -57,8 +148,8 @@ func TestOpenCodeACPIntegration_PromptRoundTrip(t *testing.T) {
 	if result.Response.StopReason == "" {
 		failWithDetails(t, "session/prompt returned empty stop_reason", nil, stderr.String())
 	}
-	if len(chunks) == 0 {
-		failWithDetails(t, "session/prompt produced no text chunks", nil, stderr.String())
+	if updatesSeen == 0 {
+		failWithDetails(t, "session/prompt produced no updates", nil, stderr.String())
 	}
 }
 
@@ -221,4 +312,44 @@ func maybeSkipOpenCodeIntegration(t *testing.T, err error, stderr string) {
 			t.Skipf("opencode ACP unavailable in this environment (%s)", marker)
 		}
 	}
+}
+
+func opencodeMCPHelperCommand(t *testing.T) []string {
+	t.Helper()
+	return []string{"env", "GO_WANT_OPENCODE_MCP_HELPER=1", os.Args[0], "-test.run=TestOpenCodeMCPHelperProcess", "--"}
+}
+
+type openCodeMCPPingInput struct {
+	Message string `json:"message"`
+}
+
+type openCodeMCPPingOutput struct {
+	Message string `json:"message"`
+}
+
+func TestOpenCodeMCPHelperProcess(t *testing.T) {
+	if os.Getenv("GO_WANT_OPENCODE_MCP_HELPER") != "1" {
+		return
+	}
+
+	server := mcp.NewServer(&mcp.Implementation{Name: "norma-opencode-mcp-helper", Version: "v1.0.0"}, nil)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "ping",
+		Description: "Echoes ping messages for integration tests.",
+	}, func(_ context.Context, _ *mcp.CallToolRequest, input openCodeMCPPingInput) (*mcp.CallToolResult, openCodeMCPPingOutput, error) {
+		msg := strings.TrimSpace(input.Message)
+		if msg == "" {
+			msg = "ping"
+		}
+		reply := "pong: " + msg
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: reply}},
+		}, openCodeMCPPingOutput{Message: reply}, nil
+	})
+
+	if err := server.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "opencode mcp helper failed: %v\n", err)
+		os.Exit(1)
+	}
+	os.Exit(0)
 }

@@ -120,7 +120,7 @@ agents:
     model: opencode/big-pickle
   codex_acp_agent:
     type: codex_acp
-  copilot_acp_agent:
+  copilot_acp:
     type: copilot_acp
   custom_generic_acp_agent:
     type: generic_acp
@@ -166,6 +166,13 @@ profiles:
       check: codex_acp_agent
       act: codex_acp_agent
     planner: gemini_acp_agent
+  copilot:
+    pdca:
+      plan: copilot_acp
+      do: copilot_acp
+      check: copilot_acp
+      act: copilot_acp
+    planner: copilot_acp
   pool_fallback:
     pdca:
       plan: fallback_pool

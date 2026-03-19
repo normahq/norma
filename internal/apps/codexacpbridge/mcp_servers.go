@@ -66,13 +66,13 @@ func validateMCPServers(servers []acp.McpServer) (map[string]acp.McpServer, erro
 	return result, nil
 }
 
-func flattenEnvVars(env []acp.EnvVariable) []string {
+func flattenEnvVars(env []acp.EnvVariable) map[string]string {
 	if len(env) == 0 {
 		return nil
 	}
-	result := make([]string, 0, len(env))
+	result := make(map[string]string, len(env))
 	for _, e := range env {
-		result = append(result, e.Name+"="+e.Value)
+		result[e.Name] = e.Value
 	}
 	return result
 }
