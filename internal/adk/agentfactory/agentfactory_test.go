@@ -144,6 +144,15 @@ func TestResolveACPCommand(t *testing.T) {
 			want: []string{"custom-acp", "--model", "gpt-5.4", "--trace", "--model=gpt-5.4"},
 		},
 		{
+			name: "ACP Exec appends extra args after normalized codex bridge command",
+			cfg: agentconfig.Config{
+				Type:      agentconfig.AgentTypeGenericACP,
+				Cmd:       []string{"/tmp/norma", "tool", "codex-acp-bridge", "--codex-model", "gpt-5-codex"},
+				ExtraArgs: []string{"--debug", "--trace"},
+			},
+			want: []string{"/tmp/norma", "tool", "codex-acp-bridge", "--codex-model", "gpt-5-codex", "--debug", "--trace"},
+		},
+		{
 			name: "ACP Exec missing cmd",
 			cfg: agentconfig.Config{
 				Type: agentconfig.AgentTypeGenericACP,
