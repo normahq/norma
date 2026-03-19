@@ -27,14 +27,14 @@ Single fixed workflow:
 When working ON the `norma` project itself, agents MUST:
 - **Follow Google Go Best Practices**: Adhere strictly to the principles and idioms defined in the Google Go Style Guide and Best Practices.
 - **Use project-local tools**: Always prefer project-local tools via `go tool` (e.g., `go tool golangci-lint run`).
-- **Always verify changes**: MUST run tests using `go test ./...` and linters (`go tool golangci-lint run`) before submitting code changes. Never assume code is correct without passing local quality gates.
+- **Always verify changes**: MUST run tests using `go test -race ./...` and linters (`go tool golangci-lint run`) before submitting code changes. Never assume code is correct without passing local quality gates.
 
 ## 0.2) Contributing requirements
 
 All contributors MUST:
 - **Start with a tracked issue**: File or reference a Beads issue before opening a PR.
 - **Follow Conventional Commits**: Use Conventional Commits for all new commits.
-- **Pass quality gates**: `go test ./...` and `go tool golangci-lint run` must pass before submission.
+- **Pass quality gates**: `go test -race ./...` and `go tool golangci-lint run` must pass before submission.
 - **Sync via merge (no rebase)**: Use merge-based pulls when updating from origin (`git pull --no-rebase` or `git pull --merge`). Do not rebase shared branches.
 
 ## 0.3) Logging policy
@@ -563,7 +563,7 @@ Plan `output.json` must include:
           "origin": "baseline",
           "text": "Unit tests pass",
           "checks": [
-            { "id": "CHK-AC-1-1", "cmd": "go test ./...", "expect_exit_codes": [0] }
+            { "id": "CHK-AC-1-1", "cmd": "go test -race ./...", "expect_exit_codes": [0] }
           ]
         }
       ]
@@ -575,7 +575,7 @@ Plan `output.json` must include:
           "id": "DO-1",
           "text": "Run unit tests",
           "commands": [
-            { "id": "CMD-1", "cmd": "go test ./...", "expect_exit_codes": [0] }
+            { "id": "CMD-1", "cmd": "go test -race ./...", "expect_exit_codes": [0] }
           ],
           "targets_ac_ids": ["AC-1"]
         }
@@ -617,7 +617,7 @@ Do `output.json` must include:
       "executed_step_ids": ["DO-1"],
       "skipped_step_ids": [],
       "commands": [
-        { "id": "CMD-1", "cmd": "go test ./...", "exit_code": 0 }
+        { "id": "CMD-1", "cmd": "go test -race ./...", "exit_code": 0 }
       ]
     },
     "blockers": [
@@ -801,7 +801,7 @@ Common types:
 **MANDATORY WORKFLOW:**
 
 1. **File issues for remaining work** - Create issues for anything that needs follow-up
-2. **Run quality gates** (if code changed) - Tests, linters, builds
+2. **Run quality gates** (if code changed) - `go test -race ./...`, `go tool golangci-lint run`, builds
 3. **Update issue status** - Close finished work, update in-progress items
 4. **PUSH TO REMOTE** - This is MANDATORY:
    ```bash
@@ -912,7 +912,7 @@ For more details, see README.md and docs/QUICKSTART.md.
 **MANDATORY WORKFLOW:**
 
 1. **File issues for remaining work** - Create issues for anything that needs follow-up
-2. **Run quality gates** (if code changed) - Tests, linters, builds
+2. **Run quality gates** (if code changed) - `go test -race ./...`, `go tool golangci-lint run`, builds
 3. **Update issue status** - Close finished work, update in-progress items
 4. **PUSH TO REMOTE** - This is MANDATORY:
    ```bash
