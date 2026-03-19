@@ -31,6 +31,8 @@ const (
 type BeadsTracker struct {
 	// Optional: path to bd executable. If empty, uses "bd" from PATH.
 	BinPath string
+	// Optional: working directory used for bd execution. If empty, uses ".".
+	WorkingDir string
 }
 
 // NewBeadsTracker creates a new beads tracker.
@@ -439,6 +441,9 @@ func (t *BeadsTracker) exec(ctx context.Context, args ...string) ([]byte, error)
 	cmd := exec.CommandContext(ctx, t.BinPath, args...)
 	// beads relies on PWD for context
 	cmd.Dir = "."
+	if strings.TrimSpace(t.WorkingDir) != "" {
+		cmd.Dir = strings.TrimSpace(t.WorkingDir)
+	}
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout

@@ -12,8 +12,9 @@ func TestPlanCommand_HasRequiredSubcommands(t *testing.T) {
 	cmd := Command()
 
 	subcmds := map[string]bool{
-		"tui": false,
-		"web": false,
+		"tui":  false,
+		"repl": false,
+		"web":  false,
 	}
 
 	for _, c := range cmd.Commands() {
@@ -64,6 +65,21 @@ func TestWebCommand_IsRunnable(t *testing.T) {
 
 	if webCmd.RunE == nil && webCmd.Run == nil {
 		t.Error("plan web should be runnable")
+	}
+}
+
+func TestReplCommand_IsRunnable(t *testing.T) {
+	t.Parallel()
+
+	cmd := Command()
+	replCmd := findSubcommand(cmd, "repl")
+
+	if replCmd == nil {
+		t.Fatal("repl subcommand not found")
+	}
+
+	if replCmd.RunE == nil && replCmd.Run == nil {
+		t.Error("plan repl should be runnable")
 	}
 }
 

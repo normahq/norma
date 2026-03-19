@@ -10,6 +10,7 @@ import (
 	"time"
 
 	acp "github.com/coder/acp-go-sdk"
+	"github.com/metalagman/norma/internal/adk/agentconfig"
 	"github.com/metalagman/norma/internal/adk/agentfactory"
 	"github.com/metalagman/norma/internal/adk/structuredio"
 	"github.com/metalagman/norma/internal/agents/pdca/contracts"
@@ -28,16 +29,18 @@ type Runner interface {
 }
 
 // NewRunner constructs a runner for the given agent config and role.
-func NewRunner(cfg config.AgentConfig, role contracts.Role) (Runner, error) {
+func NewRunner(cfg config.AgentConfig, role contracts.Role, mcpServers map[string]agentconfig.MCPServerConfig) (Runner, error) {
 	return &adkRunner{
-		cfg:  cfg,
-		role: role,
+		cfg:        cfg,
+		role:       role,
+		mcpServers: mcpServers,
 	}, nil
 }
 
 type adkRunner struct {
-	cfg  config.AgentConfig
-	role contracts.Role
+	cfg        config.AgentConfig
+	role       contracts.Role
+	mcpServers map[string]agentconfig.MCPServerConfig
 }
 
 func (r *adkRunner) Run(ctx context.Context, req contracts.AgentRequest, stdout, stderr, eventsLog io.Writer) ([]byte, []byte, int, error) {
@@ -73,9 +76,13 @@ func (r *adkRunner) Run(ctx context.Context, req contracts.AgentRequest, stdout,
 	}
 
 	// 4. Create ephemeral inner agent via factory.
-	factory := agentfactory.NewFactory(map[string]config.AgentConfig{
+	agentRegistry := map[string]config.AgentConfig{
 		r.role.Name(): r.cfg,
-	})
+	}
+	factory := agentfactory.NewFactory(agentRegistry)
+	if len(r.mcpServers) > 0 {
+		factory = agentfactory.NewFactoryWithMCPServers(agentRegistry, r.mcpServers)
+	}
 	creationReq := agentfactory.CreationRequest{
 		Name:              "Norma" + toPascal(req.Step.Name) + "Agent",
 		Description:       "Norma " + req.Step.Name + " agent",

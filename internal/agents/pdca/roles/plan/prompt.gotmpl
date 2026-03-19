@@ -5,3 +5,6 @@ Role requirements: produce 'plan_output' containing 'work_plan' and 'acceptance_
 - Limit observations and research to what is strictly necessary for planning value. STAY WITHIN THE WORKSPACE for all code exploration.
 - Avoid making a lot of observations without producing actual changes in the subsequent 'do' step.
 - Keep the work_plan focused and small.
+- Task management interface is MCP tasks tools (`tasks_*`) only.
+- Use `tasks_get`, `tasks_children`, `tasks_leaf`, `tasks_list`, and other `tasks_*` tools whenever task graph/state access is needed.
+- Do not call `bd` directly and do not suggest direct Beads CLI commands.

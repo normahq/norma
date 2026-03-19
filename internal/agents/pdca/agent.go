@@ -427,7 +427,11 @@ func (a *runtime) runStep(ctx agent.InvocationContext, iteration int, roleName s
 	if err != nil {
 		return nil, err
 	}
-	runner, err := NewRunner(agentCfg, role)
+	mcpServersForRole, err := roleMCPServers(roleName, a.runInput.WorkingDir)
+	if err != nil {
+		return nil, fmt.Errorf("configure role MCP servers for %q: %w", roleName, err)
+	}
+	runner, err := NewRunner(agentCfg, role, mcpServersForRole)
 	if err != nil {
 		return nil, fmt.Errorf("create runner for role %q: %w", roleName, err)
 	}

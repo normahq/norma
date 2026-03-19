@@ -135,10 +135,11 @@ norma loop norma-a3f2dd
 ```
 
 ### 5. Decompose a Global Epic
-Use `norma plan` to break a high-level epic into Beads epic/feature/task hierarchy. The planner is fully interactive and will ask you clarification questions using the `human` tool.
+Use `norma plan` to break a high-level epic into Beads epic/feature/task hierarchy.
 
 ```bash
-norma plan "Build multi-tenant billing and subscription management"
+norma plan       # interactive TUI
+norma plan repl  # line-based REPL
 ```
 
 ### 6. Experimental ACP Playground

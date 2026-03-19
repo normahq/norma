@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	tea "github.com/charmbracelet/bubbletea"
+	acp "github.com/coder/acp-go-sdk"
 	"github.com/metalagman/norma/internal/adk/agentfactory"
 	"github.com/metalagman/norma/internal/agents/planner"
 	"github.com/metalagman/norma/internal/config"
@@ -295,17 +296,37 @@ func createPlannerAgent(
 	registry map[string]config.AgentConfig,
 	plannerID string,
 ) (adkagent.Agent, func() error, error) {
+	return createPlannerAgentWithOptions(ctx, workingDir, registry, plannerID, plannerAgentCreateOptions{})
+}
+
+type plannerAgentCreateOptions struct {
+	Stderr            io.Writer
+	PermissionHandler func(context.Context, acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error)
+}
+
+func createPlannerAgentWithOptions(
+	ctx context.Context,
+	workingDir string,
+	registry map[string]config.AgentConfig,
+	plannerID string,
+	options plannerAgentCreateOptions,
+) (adkagent.Agent, func() error, error) {
 	plannerID = strings.TrimSpace(plannerID)
 	if plannerID == "" {
 		return nil, nil, fmt.Errorf("planner agent id is required")
 	}
+	stderr := options.Stderr
+	if stderr == nil {
+		stderr = io.Discard
+	}
 
 	factory := agentfactory.NewFactory(registry)
 	baseAgent, err := factory.CreateAgent(ctx, plannerID, agentfactory.CreationRequest{
-		Name:             plannerID,
-		Description:      "Norma planner base runtime",
-		WorkingDirectory: workingDir,
-		Stderr:           io.Discard,
+		Name:              plannerID,
+		Description:       "Norma planner base runtime",
+		WorkingDirectory:  workingDir,
+		Stderr:            stderr,
+		PermissionHandler: options.PermissionHandler,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("create planner base agent %q: %w", plannerID, err)

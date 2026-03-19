@@ -14,6 +14,7 @@ import (
 	"github.com/joho/godotenv"
 	initcmd "github.com/metalagman/norma/cmd/norma/init"
 	loopcmd "github.com/metalagman/norma/cmd/norma/loop"
+	mcpcmd "github.com/metalagman/norma/cmd/norma/mcp"
 	plancmd "github.com/metalagman/norma/cmd/norma/plan"
 	playgroundcmd "github.com/metalagman/norma/cmd/norma/playground"
 	prunecmd "github.com/metalagman/norma/cmd/norma/prune"
@@ -82,6 +83,7 @@ func Execute() error {
 	rootCmd.AddCommand(runcmd.Command())
 	rootCmd.AddCommand(runscmd.Command())
 	rootCmd.AddCommand(plancmd.Command())
+	rootCmd.AddCommand(mcpcmd.Command())
 	rootCmd.AddCommand(toolcmd.Command())
 	rootCmd.AddCommand(playgroundcmd.Command())
 	rootCmd.AddCommand(initcmd.Command())

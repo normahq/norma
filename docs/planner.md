@@ -4,13 +4,26 @@ The `norma plan` command provides an interactive way to decompose high-level pro
 
 ## Interactive Planning
 
-When you run `norma plan "goal"`, Norma starts an interactive TUI session powered by an LLM agent. The agent will:
+When you run `norma plan` (or `norma plan tui`), Norma starts an interactive TUI session powered by an LLM agent. The agent will:
 
 1.  **Analyze** your goal.
 2.  **Inspect** your current project state using available tools.
 3.  **Ask** you clarification questions if the goal is vague or if it needs more context.
 4.  **Propose** a decomposition into features and tasks.
 5.  **Persist** the final plan to Beads.
+
+## Line REPL Mode
+
+If you prefer a plain terminal prompt (same interaction style as `acp-repl`), use:
+
+```bash
+norma plan repl
+```
+
+In REPL mode:
+- Type prompts and press Enter to run a turn.
+- Type `exit` or `quit` to close the REPL.
+- ACP permission requests are shown interactively in terminal.
 
 ## Tools Available to the Planner
 
@@ -43,7 +56,7 @@ Enables the agent to inspect the codebase and project structure.
 To start a planning session:
 
 ```bash
-norma plan "Build a REST API for user management with JWT authentication"
+norma plan
 ```
 
 1.  Follow the prompts in the TUI.

@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	acp "github.com/coder/acp-go-sdk"
+	"github.com/metalagman/norma/internal/adk/agentconfig"
 	"github.com/metalagman/norma/internal/adk/structuredio"
 	"github.com/metalagman/norma/internal/agents/pdca/contracts"
 	"github.com/metalagman/norma/internal/agents/pdca/roles/plan"
@@ -54,9 +55,30 @@ func TestNewRunner(t *testing.T) {
 		Cmd:  []string{"custom-acp", "--stdio"},
 	}
 
-	runner, err := NewRunner(cfg, &dummyRole{})
+	runner, err := NewRunner(cfg, &dummyRole{}, nil)
 	assert.NoError(t, err)
 	assert.NotNil(t, runner)
+}
+
+func TestNewRunnerCarriesMCPServers(t *testing.T) {
+	cfg := config.AgentConfig{
+		Type: config.AgentTypeGenericACP,
+		Cmd:  []string{"custom-acp", "--stdio"},
+	}
+	mcpServers := map[string]agentconfig.MCPServerConfig{
+		tasksMCPServerName: {
+			Type: agentconfig.MCPServerTypeStdio,
+			Cmd:  []string{"norma", "mcp", "tasks"},
+		},
+	}
+
+	runner, err := NewRunner(cfg, &dummyRole{}, mcpServers)
+	require.NoError(t, err)
+
+	typed, ok := runner.(*adkRunner)
+	require.True(t, ok)
+	require.Len(t, typed.mcpServers, 1)
+	assert.Equal(t, mcpServers[tasksMCPServerName], typed.mcpServers[tasksMCPServerName])
 }
 
 func TestAinvokeRunner_Run(t *testing.T) {
@@ -69,7 +91,7 @@ func TestAinvokeRunner_Run(t *testing.T) {
 		Cmd:  helperACPCommand(t, `{"status":"ok","summary":{"text":"success"},"progress":{"title":"done","details":[]}}`),
 	}
 
-	runner, err := NewRunner(cfg, &dummyRole{})
+	runner, err := NewRunner(cfg, &dummyRole{}, nil)
 	require.NoError(t, err)
 
 	req := contracts.AgentRequest{
@@ -125,7 +147,7 @@ func TestAinvokeRunner_RunHandlesChunkedStructuredOutput(t *testing.T) {
 		Cmd:  helperACPCommandChunked(t, response, 9),
 	}
 
-	runner, err := NewRunner(cfg, &dummyRole{})
+	runner, err := NewRunner(cfg, &dummyRole{}, nil)
 	require.NoError(t, err)
 
 	req := contracts.AgentRequest{
@@ -170,7 +192,7 @@ func TestAinvokeRunner_RunWritesErrorToStderr(t *testing.T) {
 		Cmd:  []string{"/non/existent/binary"},
 	}
 
-	runner, err := NewRunner(cfg, &dummyRole{})
+	runner, err := NewRunner(cfg, &dummyRole{}, nil)
 	require.NoError(t, err)
 
 	req := contracts.AgentRequest{
@@ -198,7 +220,7 @@ func TestAinvokeRunner_RunReturnsErrorWhenResponseMappingFails(t *testing.T) {
 		Cmd:  helperACPCommand(t, "{}"),
 	}
 
-	runner, err := NewRunner(cfg, &failingMapRole{})
+	runner, err := NewRunner(cfg, &failingMapRole{}, nil)
 	require.NoError(t, err)
 
 	req := contracts.AgentRequest{
@@ -226,7 +248,7 @@ func TestAinvokeRunner_RunWritesErrorEventLogOnPromptFailure(t *testing.T) {
 		Cmd:  helperACPCommandWithPromptError(t, "prompt failed"),
 	}
 
-	runner, err := NewRunner(cfg, &dummyRole{})
+	runner, err := NewRunner(cfg, &dummyRole{}, nil)
 	require.NoError(t, err)
 
 	req := contracts.AgentRequest{
