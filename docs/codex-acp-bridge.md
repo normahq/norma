@@ -31,7 +31,7 @@ norma tool codex-acp-bridge --codex-model gpt-5.4 --codex-sandbox workspace-writ
 
 - `--name`:
   ACP agent name reported in `initialize.agentInfo.name`.
-  Default: `norma-codex-acp-bridge`.
+  Default: MCP `serverInfo.name` from `codex mcp-server` initialize response.
 - `--codex-model`:
   `model` field for MCP `codex` tool calls.
 - `--codex-sandbox`:
@@ -64,6 +64,9 @@ norma tool codex-acp-bridge --codex-model gpt-5.4 --codex-sandbox workspace-writ
   - Supported transports: `stdio`, `http`. `sse` is not supported.
   - Each `mcpServers[]` entry must define exactly one transport.
   - Example: `{"mcpServers": [{"stdio": {"name": "my-tool", "command": "echo", "args": ["hello"]}}]}`
+- For ACP `initialize.agentInfo`:
+  - `name` defaults to MCP `serverInfo.name` (unless `--name` is set).
+  - `version` is forwarded from MCP `serverInfo.version`.
 - `session/set_model` usage preserves existing `mcpServers` configuration.
 - `session/set_mode` is accepted and resets backend session/thread state, but mode is not passed to Codex MCP tool arguments.
 

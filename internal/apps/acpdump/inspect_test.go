@@ -39,7 +39,7 @@ func TestRunSuppressesPeerDisconnectInfoByDefault(t *testing.T) {
 
 func TestRunShowsPeerDisconnectDiagnosticsInDebug(t *testing.T) {
 	t.Setenv("GO_WANT_ACPDUMP_HELPER", "1")
-	if err := logging.Init(logging.WithDebug(true)); err != nil {
+	if err := logging.Init(logging.WithLevel(logging.LevelDebug)); err != nil {
 		t.Fatalf("logging.Init() error = %v", err)
 	}
 

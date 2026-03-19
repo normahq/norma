@@ -3,15 +3,19 @@ package acprepl
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
 
+	"github.com/charmbracelet/glamour"
 	acp "github.com/coder/acp-go-sdk"
 	"github.com/metalagman/norma/internal/adk/acpagent"
+	"github.com/metalagman/norma/internal/apps/appio"
 	"github.com/rs/zerolog"
 	adkagent "google.golang.org/adk/agent"
 	runnerpkg "google.golang.org/adk/runner"
@@ -20,8 +24,19 @@ import (
 )
 
 const (
-	toolReplCommandExit = "exit"
-	toolReplCommandQuit = "quit"
+	toolReplCommandExit  = "exit"
+	toolReplCommandQuit  = "quit"
+	acpToolCallEventName = "acp_tool_call"
+
+	ansiGray  = "\x1b[90m"
+	ansiReset = "\x1b[0m"
+)
+
+var (
+	markdownRendererOnce sync.Once
+	markdownRenderer     *glamour.TermRenderer
+	markdownRendererErr  error
+	markdownPattern      = regexp.MustCompile("(?m)(^#{1,6}\\s|^>\\s|^[-*+]\\s|^\\d+\\.\\s|```|`[^`]+`|\\*\\*[^*]+\\*\\*|_[^_]+_|\\[[^\\]]+\\]\\([^)]+\\))")
 )
 
 func RunREPL(
@@ -34,7 +49,16 @@ func RunREPL(
 	stdout io.Writer,
 	stderr io.Writer,
 ) error {
-	lockedStderr := &replSyncWriter{writer: stderr}
+	if stdin == nil {
+		return errors.New("stdin is required")
+	}
+	if stdout == nil {
+		return errors.New("stdout is required")
+	}
+	if stderr == nil {
+		return errors.New("stderr is required")
+	}
+	lockedStderr := appio.NewSyncWriter(stderr)
 	l := zerolog.Ctx(ctx)
 	ui := newACPToolTerminal(stdin, stdout, lockedStderr)
 
@@ -134,8 +158,7 @@ func runACPToolTurn(
 		Msg("starting tool REPL turn")
 
 	events := r.Run(ctx, "norma-tool-user", sess.ID(), genai.NewContentFromText(trimmedPrompt, genai.RoleUser), adkagent.RunConfig{})
-	var partialResponse strings.Builder
-	finalResponse := ""
+	accumulator := newACPToolTurnAccumulator(ui)
 	eventCount := 0
 	partialCount := 0
 	for ev, err := range events {
@@ -145,67 +168,142 @@ func runACPToolTurn(
 		}
 		eventCount++
 
-		if ev == nil || ev.Content == nil {
-			continue
-		}
-
-		for _, part := range ev.Content.Parts {
-			if part == nil {
-				continue
-			}
-
-			if part.Thought && part.Text != "" {
-				ui.Printf("Thought: %s\n", part.Text)
-				continue
-			}
-
-			if part.FunctionCall != nil && part.FunctionCall.Name == "acp_tool_call" {
-				toolID := part.FunctionCall.ID
-				if toolID == "" {
-					toolID = "?"
-				}
-				ui.Printf("ToolCall: %s acp_tool_call start\n", toolID)
-				continue
-			}
-
-			if part.FunctionResponse != nil && part.FunctionResponse.Name == "acp_tool_call_update" {
-				toolID := part.FunctionResponse.ID
-				if toolID == "" {
-					toolID = "?"
-				}
-				status := "complete"
-				if errMsg, ok := part.FunctionResponse.Response["error"]; ok {
-					status = fmt.Sprintf("error: %v", errMsg)
-				}
-				ui.Printf("ToolCall: %s acp_tool_call %s\n", toolID, status)
-				continue
-			}
-
-			text := extractACPToolEventPartText(part)
-			if text == "" {
-				continue
-			}
-			if ev.Partial {
-				partialCount++
-				partialResponse.WriteString(text)
-				continue
-			}
-			finalResponse = text
-		}
+		partialCount += renderACPToolEvent(accumulator, ev)
 	}
-	if finalResponse == "" {
-		finalResponse = partialResponse.String()
-	}
-	if finalResponse != "" {
-		ui.Println(finalResponse)
-	}
+	accumulator.flushAll()
 	logger.Debug().
 		Str("session_id", sess.ID()).
 		Int("event_count", eventCount).
 		Int("partial_count", partialCount).
-		Int("response_len", len(finalResponse)).
+		Int("response_len", accumulator.textOutputLen).
 		Msg("completed tool REPL turn")
 	return nil
+}
+
+type acpToolTurnAccumulator struct {
+	ui *acpToolTerminal
+
+	thoughtBuf strings.Builder
+	textBuf    strings.Builder
+
+	textOutputLen int
+	auxOutputSeen bool
+}
+
+func newACPToolTurnAccumulator(ui *acpToolTerminal) *acpToolTurnAccumulator {
+	return &acpToolTurnAccumulator{
+		ui: ui,
+	}
+}
+
+func (a *acpToolTurnAccumulator) appendThought(text string) {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return
+	}
+	a.flushText()
+	a.thoughtBuf.WriteString(text)
+}
+
+func (a *acpToolTurnAccumulator) appendText(text string) {
+	if text == "" {
+		return
+	}
+	a.flushThought()
+	a.textBuf.WriteString(text)
+}
+
+func (a *acpToolTurnAccumulator) flushThought() {
+	if a.thoughtBuf.Len() == 0 {
+		return
+	}
+	normalized := normalizeThoughtText(a.thoughtBuf.String())
+	if normalized != "" {
+		a.ui.Printf("Thought: %s%s%s\n", ansiGray, normalized, ansiReset)
+		a.auxOutputSeen = true
+	}
+	a.thoughtBuf.Reset()
+}
+
+func (a *acpToolTurnAccumulator) flushText() {
+	if a.textBuf.Len() == 0 {
+		return
+	}
+	rendered := renderMarkdownOrPlain(a.textBuf.String())
+	if rendered == "" {
+		a.textBuf.Reset()
+		return
+	}
+	if a.auxOutputSeen && a.textOutputLen == 0 {
+		a.ui.Println()
+	}
+	a.ui.Println(rendered)
+	a.textOutputLen += len(rendered)
+	a.textBuf.Reset()
+}
+
+func (a *acpToolTurnAccumulator) flushAll() {
+	a.flushThought()
+	a.flushText()
+}
+
+func (a *acpToolTurnAccumulator) printToolCallStart(title string, params any) {
+	toolTitle := strings.TrimSpace(title)
+	if toolTitle == "" {
+		toolTitle = acpToolCallEventName
+	}
+	paramsText := formatToolCallParams(params)
+	if paramsText == "" {
+		a.ui.Printf("ToolCall: %s\n", toolTitle)
+		a.auxOutputSeen = true
+		return
+	}
+	a.ui.Printf("ToolCall: %s params=%s\n", toolTitle, paramsText)
+	a.auxOutputSeen = true
+}
+
+func renderACPToolEvent(accumulator *acpToolTurnAccumulator, ev *session.Event) int {
+	if accumulator == nil || ev == nil {
+		return 0
+	}
+	partialCount := 0
+	if ev.Content != nil {
+		for _, part := range ev.Content.Parts {
+			if part == nil {
+				continue
+			}
+			if part.FunctionCall != nil && part.FunctionCall.Name == acpToolCallEventName {
+				accumulator.flushAll()
+				args := mapFromAny(part.FunctionCall.Args)
+				title := mapFieldString(args, "title")
+				if title == "" {
+					title = part.FunctionCall.Name
+				}
+				accumulator.printToolCallStart(title, args["rawInput"])
+				continue
+			}
+			if part.FunctionResponse != nil && part.FunctionResponse.Name == "acp_tool_call_update" {
+				// Tool call updates are intentionally hidden to avoid noisy repeated statuses.
+				continue
+			}
+			text := extractACPToolEventPartText(part)
+			if text == "" {
+				continue
+			}
+			if part.Thought {
+				accumulator.appendThought(text)
+				continue
+			}
+			accumulator.appendText(text)
+			if ev.Partial {
+				partialCount++
+			}
+		}
+	}
+	if ev.TurnComplete {
+		accumulator.flushAll()
+	}
+	return partialCount
 }
 
 func extractACPToolEventPartText(part *genai.Part) string {
@@ -213,6 +311,127 @@ func extractACPToolEventPartText(part *genai.Part) string {
 		return ""
 	}
 	return part.Text
+}
+
+func renderMarkdownOrPlain(text string) string {
+	if !looksLikeMarkdown(text) {
+		return normalizePlainText(text)
+	}
+	rendered, err := renderMarkdown(text)
+	if err != nil {
+		return normalizePlainText(text)
+	}
+	trimmed := trimOuterBlankLines(rendered)
+	if trimmed == "" {
+		return normalizePlainText(text)
+	}
+	return trimmed
+}
+
+func renderMarkdown(text string) (string, error) {
+	markdownRendererOnce.Do(func() {
+		markdownRenderer, markdownRendererErr = glamour.NewTermRenderer(
+			glamour.WithStandardStyle("dark"),
+			glamour.WithWordWrap(0),
+		)
+	})
+	if markdownRendererErr != nil {
+		return "", markdownRendererErr
+	}
+	return markdownRenderer.Render(text)
+}
+
+func looksLikeMarkdown(text string) bool {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return false
+	}
+	return markdownPattern.MatchString(trimmed)
+}
+
+func normalizePlainText(text string) string {
+	trimmed := trimOuterBlankLines(text)
+	if trimmed == "" {
+		return ""
+	}
+	lines := strings.Split(trimmed, "\n")
+	for idx, line := range lines {
+		lines[idx] = strings.TrimLeft(line, " \t")
+	}
+	return strings.Join(lines, "\n")
+}
+
+func normalizeThoughtText(text string) string {
+	trimmed := trimOuterBlankLines(text)
+	if trimmed == "" {
+		return ""
+	}
+	parts := strings.Fields(trimmed)
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, " ")
+}
+
+func trimOuterBlankLines(text string) string {
+	if text == "" {
+		return ""
+	}
+	lines := strings.Split(text, "\n")
+	start := 0
+	for start < len(lines) && strings.TrimSpace(lines[start]) == "" {
+		start++
+	}
+	end := len(lines)
+	for end > start && strings.TrimSpace(lines[end-1]) == "" {
+		end--
+	}
+	if start >= end {
+		return ""
+	}
+	return strings.Join(lines[start:end], "\n")
+}
+
+func mapFromAny(value any) map[string]any {
+	if value == nil {
+		return nil
+	}
+	m, ok := value.(map[string]any)
+	if !ok {
+		return nil
+	}
+	return m
+}
+
+func mapFieldString(values map[string]any, key string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	value, ok := values[key]
+	if !ok || value == nil {
+		return ""
+	}
+	switch typed := value.(type) {
+	case string:
+		return strings.TrimSpace(typed)
+	default:
+		return strings.TrimSpace(fmt.Sprint(typed))
+	}
+}
+
+func formatToolCallParams(params any) string {
+	if params == nil {
+		return ""
+	}
+	raw, err := json.Marshal(params)
+	if err != nil {
+		return strings.TrimSpace(fmt.Sprint(params))
+	}
+	text := strings.TrimSpace(string(raw))
+	if text == "null" || text == "{}" || text == "[]" {
+		return ""
+	}
+	return text
 }
 
 type acpToolTerminal struct {
@@ -301,15 +520,4 @@ func (t *acpToolTerminal) RequestPermission(ctx context.Context, req acp.Request
 	}
 	selected := req.Options[choice-1]
 	return acp.RequestPermissionResponse{Outcome: acp.NewRequestPermissionOutcomeSelected(selected.OptionId)}, nil
-}
-
-type replSyncWriter struct {
-	mu     sync.Mutex
-	writer io.Writer
-}
-
-func (w *replSyncWriter) Write(p []byte) (int, error) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	return w.writer.Write(p)
 }

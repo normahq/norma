@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/metalagman/norma/internal/logging"
 	adkagent "google.golang.org/adk/agent"
 	"google.golang.org/adk/artifact"
 	"google.golang.org/adk/cmd/launcher"
@@ -20,6 +21,12 @@ func webCommand() *cobra.Command {
 		SilenceUsage:       true,
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := ensurePlanWebDebugLogging(); err != nil {
+				return fmt.Errorf("enable planner web debug logging: %w", err)
+			}
+			restoreStdLog := installPlanWebStdLogBridge()
+			defer restoreStdLog()
+
 			repoRoot, err := os.Getwd()
 			if err != nil {
 				return fmt.Errorf("get working directory: %w", err)
@@ -59,4 +66,13 @@ func webCommand() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+func ensurePlanWebDebugLogging() error {
+	// `norma plan web` passes args directly to the ADK launcher and does not
+	// parse command flags, so we force at least debug logging for this mode.
+	if logging.DebugEnabled() {
+		return nil
+	}
+	return logging.Init(logging.WithLevel(logging.LevelDebug))
 }

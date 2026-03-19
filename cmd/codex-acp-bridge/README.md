@@ -19,7 +19,7 @@ codex-acp-bridge --debug
 
 ## Flags
 
-- `--name`: ACP agent name (default: `norma-codex-acp-bridge`).
+- `--name`: ACP agent name override (default: MCP server name from `codex mcp-server` initialize metadata).
 - `--codex-model`: model for MCP `codex` tool calls.
 - `--codex-sandbox`: sandbox for MCP `codex` tool calls (`read-only|workspace-write|danger-full-access`).
 - `--codex-approval-policy`: approval policy for MCP `codex` tool calls (`untrusted|on-failure|on-request|never`).
@@ -37,6 +37,7 @@ codex-acp-bridge --debug
 - Supports ACP `session/set_model` and propagates the selected model to new Codex tool calls.
 - Accepts ACP `session/set_mode` and resets backend session/thread state, but does not propagate mode to Codex MCP tool arguments.
 - Supports per-session MCP servers via ACP `session/new` `mcpServers` parameter (stdio and http transports). SSE transport is not supported, and each server entry must declare exactly one transport.
+- For ACP `initialize.agentInfo`, forwards MCP `serverInfo.name` and `serverInfo.version` by default; `--name` overrides only the name.
 
 ## MCP Servers
 

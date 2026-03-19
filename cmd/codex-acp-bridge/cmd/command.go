@@ -13,7 +13,7 @@ import (
 )
 
 func Command() *cobra.Command {
-	opts := codexacpbridge.Options{Name: codexacpbridge.DefaultAgentName}
+	opts := codexacpbridge.Options{}
 	var codexConfigJSON string
 	var debugLogs bool
 
@@ -36,7 +36,11 @@ func Command() *cobra.Command {
 				runOpts.CodexConfig = config
 			}
 
-			if err := logging.Init(logging.WithDebug(debugLogs)); err != nil {
+			logLevel := logging.LevelInfo
+			if debugLogs {
+				logLevel = logging.LevelDebug
+			}
+			if err := logging.Init(logging.WithLevel(logLevel)); err != nil {
 				return fmt.Errorf("initialize logging: %w", err)
 			}
 			ctx := log.Logger.With().Str("component", "codex.acp.proxy").Logger().WithContext(cmd.Context())
@@ -44,7 +48,7 @@ func Command() *cobra.Command {
 			return codexacpbridge.RunProxy(ctx, workingDir, runOpts, cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr())
 		},
 	}
-	cmd.Flags().StringVar(&opts.Name, "name", opts.Name, "ACP agent name exposed via initialize")
+	cmd.Flags().StringVar(&opts.Name, "name", "", "ACP agent name exposed via initialize (defaults to MCP server name)")
 	cmd.Flags().StringVar(&opts.CodexModel, "codex-model", "", "Codex MCP `codex` tool model argument")
 	cmd.Flags().StringVar(&opts.CodexSandbox, "codex-sandbox", "", "Codex MCP `codex` tool sandbox mode (read-only|workspace-write|danger-full-access)")
 	cmd.Flags().StringVar(&opts.CodexApprovalPolicy, "codex-approval-policy", "", "Codex MCP `codex` tool approval policy (untrusted|on-failure|on-request|never)")

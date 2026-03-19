@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,9 +16,34 @@ import (
 
 	acp "github.com/coder/acp-go-sdk"
 	"github.com/metalagman/norma/internal/adk/acpagent"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 const testTimeout = 45 * time.Second
+
+func TestCodexACPProxyIntegration_NewSessionWithMCP(t *testing.T) {
+	workingDir := requireCodexEnvironment(t)
+	normaBin := buildNormaBinary(t, workingDir)
+
+	client, stderr := newToolACPClient(t, workingDir, normaBin)
+	_ = mustInitialize(t, client, stderr)
+
+	mcpServers := []acp.McpServer{{
+		Stdio: &acp.McpServerStdio{
+			Name:    "test-stdio",
+			Command: "echo",
+			Args:    []string{"hello"},
+		},
+	}}
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	_, err := client.NewSession(ctx, workingDir, mcpServers)
+	if err != nil {
+		failWithDetails(t, "session/new failed with mcpServers", err, stderr.String())
+	}
+}
 
 func TestCodexACPProxyIntegration_InitializeAndNewSession(t *testing.T) {
 	workingDir := requireCodexEnvironment(t)
@@ -35,6 +61,7 @@ func TestCodexACPProxyIntegration_InitializeAndNewSession(t *testing.T) {
 func TestCodexACPProxyIntegration_CustomName(t *testing.T) {
 	workingDir := requireCodexEnvironment(t)
 	normaBin := buildNormaBinary(t, workingDir)
+	_, wantVersion := probeCodexMCPIdentity(t, workingDir)
 
 	client, stderr := newToolACPClient(t, workingDir, normaBin, "--name", "team-codex")
 	initResp := mustInitialize(t, client, stderr)
@@ -44,19 +71,26 @@ func TestCodexACPProxyIntegration_CustomName(t *testing.T) {
 	if initResp.AgentInfo.Name != "team-codex" {
 		t.Fatalf("initialize agentInfo.name = %q, want %q", initResp.AgentInfo.Name, "team-codex")
 	}
+	if initResp.AgentInfo.Version != wantVersion {
+		t.Fatalf("initialize agentInfo.version = %q, want %q", initResp.AgentInfo.Version, wantVersion)
+	}
 }
 
-func TestCodexACPProxyIntegration_DefaultName(t *testing.T) {
+func TestCodexACPProxyIntegration_DefaultIdentityFromMCP(t *testing.T) {
 	workingDir := requireCodexEnvironment(t)
 	normaBin := buildNormaBinary(t, workingDir)
+	wantName, wantVersion := probeCodexMCPIdentity(t, workingDir)
 
 	client, stderr := newToolACPClient(t, workingDir, normaBin)
 	initResp := mustInitialize(t, client, stderr)
 	if initResp.AgentInfo == nil {
 		t.Fatal("initialize agentInfo is nil")
 	}
-	if initResp.AgentInfo.Name != DefaultAgentName {
-		t.Fatalf("initialize agentInfo.name = %q, want %q", initResp.AgentInfo.Name, DefaultAgentName)
+	if initResp.AgentInfo.Name != wantName {
+		t.Fatalf("initialize agentInfo.name = %q, want %q", initResp.AgentInfo.Name, wantName)
+	}
+	if initResp.AgentInfo.Version != wantVersion {
+		t.Fatalf("initialize agentInfo.version = %q, want %q", initResp.AgentInfo.Version, wantVersion)
 	}
 }
 
@@ -200,4 +234,39 @@ func failWithDetails(t *testing.T, heading string, err error, stderr string) {
 		message += " | stderr: " + stderrText
 	}
 	t.Fatal(message)
+}
+
+func probeCodexMCPIdentity(t *testing.T, workingDir string) (name string, version string) {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "norma-bridge-test", Version: "v0.0.0"}, nil)
+	cmd := exec.CommandContext(ctx, "codex", "mcp-server")
+	cmd.Dir = workingDir
+	cmd.Stderr = io.Discard
+
+	session, err := client.Connect(ctx, &mcp.CommandTransport{Command: cmd}, nil)
+	if err != nil {
+		t.Fatalf("connect codex mcp-server for identity probe failed: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = session.Close()
+		_ = session.Wait()
+	})
+
+	result := session.InitializeResult()
+	if result == nil || result.ServerInfo == nil {
+		t.Fatal("codex identity probe returned empty initialize serverInfo")
+	}
+	name = strings.TrimSpace(result.ServerInfo.Name)
+	version = strings.TrimSpace(result.ServerInfo.Version)
+	if name == "" {
+		t.Fatal("codex identity probe returned empty serverInfo.name")
+	}
+	if version == "" {
+		t.Fatal("codex identity probe returned empty serverInfo.version")
+	}
+	return name, version
 }

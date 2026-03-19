@@ -17,12 +17,8 @@ func NewOptions(
 	return o
 }
 
-func WithDebug(opt bool) OptOptionsSetter {
-	return func(o *Options) { o.debug = opt }
-}
-
-func WithTrace(opt bool) OptOptionsSetter {
-	return func(o *Options) { o.trace = opt }
+func WithLevel(opt string) OptOptionsSetter {
+	return func(o *Options) { o.level = opt }
 }
 
 func WithJson(opt bool) OptOptionsSetter {

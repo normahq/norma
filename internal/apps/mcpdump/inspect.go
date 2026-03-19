@@ -8,8 +8,8 @@ import (
 	"io"
 	"os/exec"
 	"strings"
-	"sync"
 
+	"github.com/metalagman/norma/internal/apps/appio"
 	"github.com/metalagman/norma/internal/logging"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/rs/zerolog"
@@ -59,7 +59,7 @@ func Run(ctx context.Context, cfg RunConfig) error {
 		startMessage = "inspecting MCP server"
 	}
 
-	lockedStderr := &syncWriter{writer: cfg.Stderr}
+	lockedStderr := appio.NewSyncWriter(cfg.Stderr)
 	logger := logging.Ctx(ctx)
 
 	logger.Debug().
@@ -396,15 +396,4 @@ func writeSummaryList(stdout io.Writer, label string, supported bool, items []su
 		}
 	}
 	return nil
-}
-
-type syncWriter struct {
-	mu     sync.Mutex
-	writer io.Writer
-}
-
-func (w *syncWriter) Write(p []byte) (int, error) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	return w.writer.Write(p)
 }

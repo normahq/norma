@@ -10,7 +10,9 @@ import (
 )
 
 func TestInitDefault(t *testing.T) {
-	_ = Init()
+	if err := Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
 	if zerolog.GlobalLevel() != zerolog.InfoLevel {
 		t.Errorf("expected InfoLevel, got %v", zerolog.GlobalLevel())
 	}
@@ -28,8 +30,10 @@ func TestInitDefault(t *testing.T) {
 	}
 }
 
-func TestInitDebug(t *testing.T) {
-	_ = Init(WithDebug(true))
+func TestInitLevelDebug(t *testing.T) {
+	if err := Init(WithLevel(LevelDebug)); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
 	if zerolog.GlobalLevel() != zerolog.DebugLevel {
 		t.Errorf("expected DebugLevel, got %v", zerolog.GlobalLevel())
 	}
@@ -44,55 +48,112 @@ func TestInitDebug(t *testing.T) {
 	}
 }
 
-func TestInitTrace(t *testing.T) {
-	_ = Init(WithTrace(true))
+func TestInitLevelTrace(t *testing.T) {
+	if err := Init(WithLevel(LevelTrace)); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
 	if zerolog.GlobalLevel() != zerolog.TraceLevel {
 		t.Errorf("expected TraceLevel, got %v", zerolog.GlobalLevel())
 	}
 	if !slog.Default().Handler().Enabled(context.TODO(), slog.LevelDebug-4) {
 		t.Error("expected slog level trace enabled")
 	}
-	if TraceEnabled() != true {
+	if !DebugEnabled() {
+		t.Error("expected DebugEnabled() to be true at trace level")
+	}
+	if !TraceEnabled() {
 		t.Error("expected TraceEnabled() to be true")
 	}
 }
 
-func TestInitTraceOverridesDebug(t *testing.T) {
-	_ = Init(WithDebug(true), WithTrace(true))
-	if zerolog.GlobalLevel() != zerolog.TraceLevel {
-		t.Errorf("expected TraceLevel, got %v", zerolog.GlobalLevel())
+func TestInitLevelWarn(t *testing.T) {
+	if err := Init(WithLevel(LevelWarn)); err != nil {
+		t.Fatalf("Init() error = %v", err)
 	}
-	if !TraceEnabled() {
-		t.Error("expected TraceEnabled() to be true")
+	if zerolog.GlobalLevel() != zerolog.WarnLevel {
+		t.Errorf("expected WarnLevel, got %v", zerolog.GlobalLevel())
+	}
+	if slog.Default().Handler().Enabled(context.TODO(), slog.LevelInfo) {
+		t.Error("expected slog level warn, but info enabled")
+	}
+	if !slog.Default().Handler().Enabled(context.TODO(), slog.LevelWarn) {
+		t.Error("expected slog level warn enabled")
+	}
+}
+
+func TestInitLevelError(t *testing.T) {
+	if err := Init(WithLevel(LevelError)); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if zerolog.GlobalLevel() != zerolog.ErrorLevel {
+		t.Errorf("expected ErrorLevel, got %v", zerolog.GlobalLevel())
+	}
+	if slog.Default().Handler().Enabled(context.TODO(), slog.LevelWarn) {
+		t.Error("expected slog level error, but warn enabled")
+	}
+	if !slog.Default().Handler().Enabled(context.TODO(), slog.LevelError) {
+		t.Error("expected slog level error enabled")
+	}
+}
+
+func TestInitLevelWarningAlias(t *testing.T) {
+	if err := Init(WithLevel("warning")); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if zerolog.GlobalLevel() != zerolog.WarnLevel {
+		t.Errorf("expected WarnLevel, got %v", zerolog.GlobalLevel())
+	}
+}
+
+func TestInitInvalidLevel(t *testing.T) {
+	if err := Init(WithLevel("nope")); err == nil {
+		t.Fatal("Init() error = nil, want invalid level error")
 	}
 }
 
 func TestDebugEnabled(t *testing.T) {
-	_ = Init(WithDebug(true))
+	if err := Init(WithLevel(LevelDebug)); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
 	if !DebugEnabled() {
-		t.Error("expected DebugEnabled() to be true when debug=true")
+		t.Error("expected DebugEnabled() to be true when level=debug")
 	}
 
-	_ = Init(WithDebug(false))
+	if err := Init(WithLevel(LevelTrace)); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if !DebugEnabled() {
+		t.Error("expected DebugEnabled() to be true when level=trace")
+	}
+
+	if err := Init(WithLevel(LevelInfo)); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
 	if DebugEnabled() {
-		t.Error("expected DebugEnabled() to be false when debug=false")
+		t.Error("expected DebugEnabled() to be false when level=info")
 	}
 }
 
 func TestTraceEnabled(t *testing.T) {
-	_ = Init(WithTrace(true))
+	if err := Init(WithLevel(LevelTrace)); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
 	if !TraceEnabled() {
-		t.Error("expected TraceEnabled() to be true when trace=true")
+		t.Error("expected TraceEnabled() to be true when level=trace")
 	}
 
-	_ = Init(WithTrace(false))
+	if err := Init(WithLevel(LevelDebug)); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
 	if TraceEnabled() {
-		t.Error("expected TraceEnabled() to be false when trace=false")
+		t.Error("expected TraceEnabled() to be false when level=debug")
 	}
 }
 
 func TestJSONEnabled(t *testing.T) {
-	_ = Init(WithJson(true))
+	if err := Init(WithLevel(LevelInfo), WithJson(true)); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
 }
 
 func TestMain(m *testing.M) {

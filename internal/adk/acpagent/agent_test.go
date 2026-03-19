@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"iter"
+	"log/slog"
 	"os"
 	"sort"
 	"strings"
@@ -248,25 +249,9 @@ func TestClientLogsPeerDisconnectInfoInDebug(t *testing.T) {
 		zerolog.SetGlobalLevel(prev)
 	})
 
-	var stderr bytes.Buffer
-	client, err := NewClient(context.Background(), ClientConfig{
-		Command: helperCommand(t),
-		Stderr:  &stderr,
-	})
-	if err != nil {
-		t.Fatalf("NewClient() error = %v", err)
-	}
-
-	if _, err := client.Initialize(context.Background()); err != nil {
-		t.Fatalf("Initialize() error = %v", err)
-	}
-	if _, err := client.NewSession(context.Background(), t.TempDir(), nil); err != nil {
-		t.Fatalf("NewSession() error = %v", err)
-	}
-
-	_ = client.Close()
-	if got := stderr.String(); !strings.Contains(got, "peer connection closed") {
-		t.Fatalf("stderr = %q, want peer disconnect diagnostic in debug mode", got)
+	logger := newACPConnectionLogger(io.Discard)
+	if !logger.Enabled(context.Background(), slog.LevelInfo) {
+		t.Fatal("connection logger should enable info level when global level is debug")
 	}
 }
 

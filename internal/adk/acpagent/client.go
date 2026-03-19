@@ -195,7 +195,7 @@ func NewClient(ctx context.Context, cfg ClientConfig) (*Client, error) {
 func newACPConnectionLogger(stderr io.Writer) *slog.Logger {
 	level := slog.LevelWarn
 	if zerolog.GlobalLevel() <= zerolog.DebugLevel {
-		level = slog.LevelInfo
+		level = slog.LevelDebug
 	}
 	return slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: level}))
 }

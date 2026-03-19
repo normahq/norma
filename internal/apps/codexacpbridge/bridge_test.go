@@ -22,6 +22,7 @@ const (
 	codexReplyToolName = "codex-reply"
 	mcpTransportStdio  = "stdio"
 	mcpTransportHTTP   = "http"
+	testMCPVersion     = "0.115.0"
 )
 
 func TestBuildCodexMCPCommand(t *testing.T) {
@@ -29,131 +30,6 @@ func TestBuildCodexMCPCommand(t *testing.T) {
 	want := []string{"codex", "mcp-server"}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Fatalf("buildCodexMCPCommand() = %v, want %v", got, want)
-	}
-}
-
-func TestValidateMCPServersEmpty(t *testing.T) {
-	result, err := validateMCPServers(nil)
-	if err != nil {
-		t.Fatalf("validateMCPServers(nil) error = %v, want nil", err)
-	}
-	if result != nil {
-		t.Fatalf("validateMCPServers(nil) = %v, want nil", result)
-	}
-
-	result, err = validateMCPServers([]acp.McpServer{})
-	if err != nil {
-		t.Fatalf("validateMCPServers([]) error = %v, want nil", err)
-	}
-	if result != nil {
-		t.Fatalf("validateMCPServers([]) = %v, want nil", result)
-	}
-}
-
-func TestValidateMCPServersStdio(t *testing.T) {
-	servers := []acp.McpServer{
-		{
-			Stdio: &acp.McpServerStdio{
-				Name:    "my-server",
-				Command: "node",
-				Args:    []string{"server.js"},
-			},
-		},
-	}
-	result, err := validateMCPServers(servers)
-	if err != nil {
-		t.Fatalf("validateMCPServers(stdio) error = %v, want nil", err)
-	}
-	if len(result) != 1 {
-		t.Fatalf("len(result) = %d, want 1", len(result))
-	}
-	if _, ok := result["my-server"]; !ok {
-		t.Fatalf("result does not contain 'my-server'")
-	}
-}
-
-func TestValidateMCPServersHttp(t *testing.T) {
-	servers := []acp.McpServer{
-		{
-			Http: &acp.McpServerHttp{
-				Name: "http-server",
-				Url:  "http://localhost:8080",
-			},
-		},
-	}
-	result, err := validateMCPServers(servers)
-	if err != nil {
-		t.Fatalf("validateMCPServers(http) error = %v, want nil", err)
-	}
-	if len(result) != 1 {
-		t.Fatalf("len(result) = %d, want 1", len(result))
-	}
-	if _, ok := result["http-server"]; !ok {
-		t.Fatalf("result does not contain 'http-server'")
-	}
-}
-
-func TestValidateMCPServersRejectsSse(t *testing.T) {
-	servers := []acp.McpServer{
-		{
-			Sse: &acp.McpServerSse{
-				Name: "sse-server",
-				Url:  "http://localhost:8080/sse",
-			},
-		},
-	}
-	_, err := validateMCPServers(servers)
-	if err == nil {
-		t.Fatal("validateMCPServers(sse) error = nil, want error")
-	}
-	if !strings.Contains(err.Error(), "sse") {
-		t.Fatalf("error = %q, want containing 'sse'", err.Error())
-	}
-}
-
-func TestValidateMCPServersRejectsNoTransport(t *testing.T) {
-	servers := []acp.McpServer{
-		{},
-	}
-	_, err := validateMCPServers(servers)
-	if err == nil {
-		t.Fatal("validateMCPServers(no transport) error = nil, want error")
-	}
-	if !strings.Contains(err.Error(), "transport") {
-		t.Fatalf("error = %q, want containing 'transport'", err.Error())
-	}
-}
-
-func TestValidateMCPServersRejectsDuplicateNames(t *testing.T) {
-	servers := []acp.McpServer{
-		{
-			Stdio: &acp.McpServerStdio{Name: "server1", Command: "echo"},
-		},
-		{
-			Stdio: &acp.McpServerStdio{Name: "server1", Command: "echo"},
-		},
-	}
-	_, err := validateMCPServers(servers)
-	if err == nil {
-		t.Fatal("validateMCPServers(duplicate) error = nil, want error")
-	}
-	if !strings.Contains(err.Error(), "duplicated") {
-		t.Fatalf("error = %q, want containing 'duplicated'", err.Error())
-	}
-}
-
-func TestValidateMCPServersRejectsEmptyName(t *testing.T) {
-	servers := []acp.McpServer{
-		{
-			Stdio: &acp.McpServerStdio{Name: "", Command: "echo"},
-		},
-	}
-	_, err := validateMCPServers(servers)
-	if err == nil {
-		t.Fatal("validateMCPServers(empty name) error = nil, want error")
-	}
-	if !strings.Contains(err.Error(), "name is required") {
-		t.Fatalf("error = %q, want containing 'name is required'", err.Error())
 	}
 }
 
@@ -185,231 +61,50 @@ func TestRunProxyRejectsInvalidCodexSandbox(t *testing.T) {
 	}
 }
 
-func TestBuildCodexToolInvocationIncludesCodexConfigOnInitialCall(t *testing.T) {
-	toolName, args := buildCodexToolInvocation(
-		"",
-		"/tmp/work",
-		"hello",
-		codexToolConfig{
-			ApprovalPolicy:        "on-request",
-			BaseInstructions:      "base",
-			CompactPrompt:         "compact",
-			Config:                map[string]any{"foo": "bar"},
-			DeveloperInstructions: "dev",
-			Model:                 "gpt-5.2-codex",
-			Profile:               "team",
-			Sandbox:               "workspace-write",
+func TestRunProxyRejectsNilStreams(t *testing.T) {
+	ctx := context.Background()
+	workingDir := t.TempDir()
+
+	testCases := []struct {
+		name   string
+		stdin  io.Reader
+		stdout io.Writer
+		stderr io.Writer
+		want   string
+	}{
+		{
+			name:   "nil stdin",
+			stdin:  nil,
+			stdout: io.Discard,
+			stderr: io.Discard,
+			want:   "stdin is required",
 		},
-		"",
-		nil,
-	)
-	if toolName != codexToolName {
-		t.Fatalf("toolName = %q, want %q", toolName, codexToolName)
-	}
-	if got := mapArgString(args, "prompt"); got != "hello" {
-		t.Fatalf("prompt = %q, want %q", got, "hello")
-	}
-	if got := mapArgString(args, "cwd"); got != "/tmp/work" {
-		t.Fatalf("cwd = %q, want %q", got, "/tmp/work")
-	}
-	if got := mapArgString(args, "approval-policy"); got != "on-request" {
-		t.Fatalf("approval-policy = %q, want %q", got, "on-request")
-	}
-	if got := mapArgString(args, "base-instructions"); got != "base" {
-		t.Fatalf("base-instructions = %q, want %q", got, "base")
-	}
-	if got := mapArgString(args, "compact-prompt"); got != "compact" {
-		t.Fatalf("compact-prompt = %q, want %q", got, "compact")
-	}
-	if got := mapArgString(args, "developer-instructions"); got != "dev" {
-		t.Fatalf("developer-instructions = %q, want %q", got, "dev")
-	}
-	if got := mapArgString(args, "model"); got != "gpt-5.2-codex" {
-		t.Fatalf("model = %q, want %q", got, "gpt-5.2-codex")
-	}
-	if got := mapArgString(args, "profile"); got != "team" {
-		t.Fatalf("profile = %q, want %q", got, "team")
-	}
-	if got := mapArgString(args, "sandbox"); got != "workspace-write" {
-		t.Fatalf("sandbox = %q, want %q", got, "workspace-write")
-	}
-	cfgArg, ok := args["config"].(map[string]any)
-	if !ok {
-		t.Fatalf("config type = %T, want map[string]any", args["config"])
-	}
-	if got, ok := cfgArg["foo"].(string); !ok || got != "bar" {
-		t.Fatalf("config.foo = %v, want %q", cfgArg["foo"], "bar")
-	}
-}
-
-func TestBuildCodexToolInvocationReplyOmitsCodexConfig(t *testing.T) {
-	toolName, args := buildCodexToolInvocation(
-		"thread-1",
-		"/tmp/work",
-		"hello",
-		codexToolConfig{
-			Model:   "gpt-5.2-codex",
-			Sandbox: "workspace-write",
+		{
+			name:   "nil stdout",
+			stdin:  strings.NewReader(""),
+			stdout: nil,
+			stderr: io.Discard,
+			want:   "stdout is required",
 		},
-		"",
-		nil,
-	)
-	if toolName != codexReplyToolName {
-		t.Fatalf("toolName = %q, want %q", toolName, codexReplyToolName)
-	}
-	if got := mapArgString(args, "threadId"); got != "thread-1" {
-		t.Fatalf("threadId = %q, want %q", got, "thread-1")
-	}
-	if got := mapArgString(args, "prompt"); got != "hello" {
-		t.Fatalf("prompt = %q, want %q", got, "hello")
-	}
-	if _, ok := args["model"]; ok {
-		t.Fatalf("reply args unexpectedly contain model: %v", args)
-	}
-	if _, ok := args["sandbox"]; ok {
-		t.Fatalf("reply args unexpectedly contain sandbox: %v", args)
-	}
-	if _, ok := args["cwd"]; ok {
-		t.Fatalf("reply args unexpectedly contain cwd: %v", args)
-	}
-}
-
-func TestBuildCodexToolInvocationSessionModelOverridesConfiguredModel(t *testing.T) {
-	toolName, args := buildCodexToolInvocation(
-		"",
-		"",
-		"hello",
-		codexToolConfig{Model: "gpt-default"},
-		"gpt-session",
-		nil,
-	)
-	if toolName != codexToolName {
-		t.Fatalf("toolName = %q, want %q", toolName, codexToolName)
-	}
-	if got := mapArgString(args, "model"); got != "gpt-session" {
-		t.Fatalf("model = %q, want %q", got, "gpt-session")
-	}
-}
-
-func TestBuildCodexToolInvocationIncludesMCPServersOnFirstTurn(t *testing.T) {
-	mcpServers := map[string]acp.McpServer{
-		"my-filesystem": {
-			Stdio: &acp.McpServerStdio{
-				Name:    "my-filesystem",
-				Command: "npx",
-				Args:    []string{"-y", "@modelcontextprotocol/server-filesystem", "/tmp"},
-			},
-		},
-		"my-http": {
-			Http: &acp.McpServerHttp{
-				Name: "my-http",
-				Url:  "http://localhost:8080",
-				Headers: []acp.HttpHeader{
-					{Name: "Authorization", Value: "Bearer token"},
-				},
-			},
-		},
-	}
-	toolName, args := buildCodexToolInvocation(
-		"",
-		"/tmp/work",
-		"list files",
-		codexToolConfig{Model: "gpt-5.2-codex"},
-		"",
-		mcpServers,
-	)
-	if toolName != codexToolName {
-		t.Fatalf("toolName = %q, want %q", toolName, codexToolName)
-	}
-	mcpServersArg, ok := args["mcpServers"].([]map[string]any)
-	if !ok {
-		t.Fatalf("mcpServers type = %T, want []map[string]any", args["mcpServers"])
-	}
-	if len(mcpServersArg) != 2 {
-		t.Fatalf("len(mcpServers) = %d, want 2", len(mcpServersArg))
-	}
-	serverMap := make(map[string]map[string]any)
-	for _, s := range mcpServersArg {
-		name, _ := s["name"].(string)
-		serverMap[name] = s
-	}
-	if _, ok := serverMap["my-filesystem"]; !ok {
-		t.Fatal("mcpServers does not contain my-filesystem")
-	}
-	if serverMap["my-filesystem"]["transport"] != mcpTransportStdio {
-		t.Fatalf("my-filesystem transport = %v, want %s", serverMap["my-filesystem"]["transport"], mcpTransportStdio)
-	}
-	if _, ok := serverMap["my-http"]; !ok {
-		t.Fatal("mcpServers does not contain my-http")
-	}
-	if serverMap["my-http"]["transport"] != mcpTransportHTTP {
-		t.Fatalf("my-http transport = %v, want %s", serverMap["my-http"]["transport"], mcpTransportHTTP)
-	}
-}
-
-func TestBuildCodexToolInvocationOmitsMCPServersOnReplyTurn(t *testing.T) {
-	mcpServers := map[string]acp.McpServer{
-		"my-server": {
-			Stdio: &acp.McpServerStdio{Name: "my-server", Command: "echo"},
-		},
-	}
-	toolName, args := buildCodexToolInvocation(
-		"thread-123",
-		"/tmp/work",
-		"continue",
-		codexToolConfig{Model: "gpt-5.2-codex"},
-		"",
-		mcpServers,
-	)
-	if toolName != codexReplyToolName {
-		t.Fatalf("toolName = %q, want %q", toolName, codexReplyToolName)
-	}
-	if _, ok := args["mcpServers"]; ok {
-		t.Fatalf("reply args unexpectedly contain mcpServers: %v", args)
-	}
-}
-
-func TestSessionUpdateType(t *testing.T) {
-	t.Run("tool call update", func(t *testing.T) {
-		update := acp.UpdateToolCall(acp.ToolCallId("call-1"), acp.WithUpdateStatus(acp.ToolCallStatusCompleted))
-		if got := sessionUpdateType(update); got != "tool_call_update" {
-			t.Fatalf("sessionUpdateType() = %q, want %q", got, "tool_call_update")
-		}
-	})
-
-	t.Run("agent message chunk", func(t *testing.T) {
-		update := acp.UpdateAgentMessageText("hello")
-		if got := sessionUpdateType(update); got != "agent_message_chunk" {
-			t.Fatalf("sessionUpdateType() = %q, want %q", got, "agent_message_chunk")
-		}
-	})
-}
-
-func TestSessionUpdatePayloadIncludesDiscriminator(t *testing.T) {
-	update := acp.UpdateToolCall(acp.ToolCallId("call-1"), acp.WithUpdateStatus(acp.ToolCallStatusCompleted))
-	payload := sessionUpdatePayload(update)
-	if !strings.Contains(payload, `"sessionUpdate":"tool_call_update"`) {
-		t.Fatalf("sessionUpdatePayload() = %q, want sessionUpdate discriminator", payload)
-	}
-}
-
-func TestExtractCodexToolResultPrefersStructuredContentText(t *testing.T) {
-	result := &mcp.CallToolResult{
-		Content: []mcp.Content{
-			&mcp.TextContent{Text: "content channel response"},
-		},
-		StructuredContent: map[string]any{
-			"threadId": "thread-123",
-			"content":  "structured response",
+		{
+			name:   "nil stderr",
+			stdin:  strings.NewReader(""),
+			stdout: io.Discard,
+			stderr: nil,
+			want:   "stderr is required",
 		},
 	}
 
-	threadID, text := extractCodexToolResult(result)
-	if threadID != "thread-123" {
-		t.Fatalf("threadID = %q, want %q", threadID, "thread-123")
-	}
-	if text != "structured response" {
-		t.Fatalf("text = %q, want %q", text, "structured response")
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := RunProxy(ctx, workingDir, Options{}, tc.stdin, tc.stdout, tc.stderr)
+			if err == nil {
+				t.Fatal("RunProxy() error = nil, want non-nil")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("RunProxy() error = %q, want containing %q", err.Error(), tc.want)
+			}
+		})
 	}
 }
 
@@ -796,6 +491,9 @@ func TestCodexACPProxyInitializeUsesConfiguredAgentName(t *testing.T) {
 	if resp.AgentInfo.Name != "team-codex" {
 		t.Fatalf("AgentInfo.Name = %q, want %q", resp.AgentInfo.Name, "team-codex")
 	}
+	if resp.AgentInfo.Version != DefaultAgentVersion {
+		t.Fatalf("AgentInfo.Version = %q, want %q", resp.AgentInfo.Version, DefaultAgentVersion)
+	}
 }
 
 func TestCodexACPProxyInitializeUsesDefaultAgentNameWhenEmpty(t *testing.T) {
@@ -810,6 +508,26 @@ func TestCodexACPProxyInitializeUsesDefaultAgentNameWhenEmpty(t *testing.T) {
 	}
 	if resp.AgentInfo.Name != DefaultAgentName {
 		t.Fatalf("AgentInfo.Name = %q, want %q", resp.AgentInfo.Name, DefaultAgentName)
+	}
+	if resp.AgentInfo.Version != DefaultAgentVersion {
+		t.Fatalf("AgentInfo.Version = %q, want %q", resp.AgentInfo.Version, DefaultAgentVersion)
+	}
+}
+
+func TestCodexACPProxyInitializeUsesConfiguredAgentVersion(t *testing.T) {
+	l := zerolog.Nop()
+	agent := newCodexACPProxyAgent(&fakeCodexMCPToolSession{}, "team-codex", codexToolConfig{}, &l)
+	agent.setAgentVersion(testMCPVersion)
+
+	resp, err := agent.Initialize(context.Background(), acp.InitializeRequest{})
+	if err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	if resp.AgentInfo == nil {
+		t.Fatalf("AgentInfo is nil")
+	}
+	if resp.AgentInfo.Version != testMCPVersion {
+		t.Fatalf("AgentInfo.Version = %q, want %q", resp.AgentInfo.Version, testMCPVersion)
 	}
 }
 
@@ -851,6 +569,15 @@ func TestRunProxyStartsCodexMCPServer(t *testing.T) {
 	}
 	if containsArg(args, "--trace") {
 		t.Fatalf("args %v unexpectedly contain passthrough argument %q", args, "--trace")
+	}
+	if strings.Contains(stderr.String(), "peer connection closed") {
+		t.Fatalf("stderr contains unexpected ACP connection diagnostics: %q", stderr.String())
+	}
+	if strings.Contains(stderr.String(), "failed to close session backend") {
+		t.Fatalf("stderr contains unexpected backend-close warning: %q", stderr.String())
+	}
+	if strings.Contains(stderr.String(), "failed waiting for session backend stop") {
+		t.Fatalf("stderr contains unexpected backend-stop warning: %q", stderr.String())
 	}
 }
 
@@ -940,13 +667,14 @@ type fakeCodexToolCall struct {
 type fakeCodexMCPToolSession struct {
 	mu sync.Mutex
 
-	listTools   []*mcp.Tool
-	callResults []*mcp.CallToolResult
-	callHook    func(context.Context, *mcp.CallToolParams) (*mcp.CallToolResult, error)
-	closeErr    error
-	waitErr     error
-	calls       []fakeCodexToolCall
-	closeCalls  int
+	listTools        []*mcp.Tool
+	initializeResult *mcp.InitializeResult
+	callResults      []*mcp.CallToolResult
+	callHook         func(context.Context, *mcp.CallToolParams) (*mcp.CallToolResult, error)
+	closeErr         error
+	waitErr          error
+	calls            []fakeCodexToolCall
+	closeCalls       int
 }
 
 func (s *fakeCodexMCPToolSession) CallTool(ctx context.Context, params *mcp.CallToolParams) (*mcp.CallToolResult, error) {
@@ -975,6 +703,16 @@ func (s *fakeCodexMCPToolSession) ListTools(_ context.Context, _ *mcp.ListToolsP
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return &mcp.ListToolsResult{Tools: append([]*mcp.Tool(nil), s.listTools...)}, nil
+}
+
+func (s *fakeCodexMCPToolSession) InitializeResult() *mcp.InitializeResult {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.initializeResult == nil {
+		return nil
+	}
+	result := *s.initializeResult
+	return &result
 }
 
 func (s *fakeCodexMCPToolSession) Close() error {

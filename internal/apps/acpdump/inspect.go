@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"io"
 	"strings"
-	"sync"
 
 	acp "github.com/coder/acp-go-sdk"
 	"github.com/metalagman/norma/internal/adk/acpagent"
+	"github.com/metalagman/norma/internal/apps/appio"
 	"github.com/metalagman/norma/internal/logging"
 )
 
@@ -47,7 +47,7 @@ func Run(ctx context.Context, cfg RunConfig) (runErr error) {
 		startMessage = "inspecting ACP agent"
 	}
 
-	lockedStderr := &syncWriter{writer: cfg.Stderr}
+	lockedStderr := appio.NewSyncWriter(cfg.Stderr)
 	logger := logging.Ctx(ctx)
 
 	logger.Debug().
@@ -224,15 +224,4 @@ func writeSessionModelSummary(stdout io.Writer, models *acp.SessionModelState) e
 		}
 	}
 	return nil
-}
-
-type syncWriter struct {
-	mu     sync.Mutex
-	writer io.Writer
-}
-
-func (w *syncWriter) Write(p []byte) (int, error) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	return w.writer.Write(p)
 }

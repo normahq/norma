@@ -224,6 +224,13 @@ Profiles configured in `.omnidist/omnidist.yaml`:
 - `acp-repl`
 - `codex-acp-bridge`
 
+npm distributions use the `@normahq` scope:
+- `@normahq/norma`
+- `@normahq/acp-dump`
+- `@normahq/mcp-dump`
+- `@normahq/acp-repl`
+- `@normahq/codex-acp-bridge`
+
 Quickstart per profile:
 
 ```bash

@@ -31,7 +31,11 @@ func Command() *cobra.Command {
 				return err
 			}
 
-			if err := logging.Init(logging.WithDebug(debugLogs)); err != nil {
+			logLevel := logging.LevelInfo
+			if debugLogs {
+				logLevel = logging.LevelDebug
+			}
+			if err := logging.Init(logging.WithLevel(logLevel)); err != nil {
 				return fmt.Errorf("initialize logging: %w", err)
 			}
 			ctx := log.Logger.With().Str("component", "tool.mcp_dump").Logger().WithContext(cmd.Context())

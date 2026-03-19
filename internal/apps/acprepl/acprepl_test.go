@@ -1,11 +1,18 @@
 package acprepl
 
 import (
+	"bytes"
+	"context"
+	"io"
+	"regexp"
+	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"google.golang.org/adk/session"
 	"google.golang.org/genai"
 )
+
+var ansiSequenceRE = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
 func TestExtractACPToolEventPartText(t *testing.T) {
 	tests := []struct {
@@ -33,7 +40,9 @@ func TestExtractACPToolEventPartText(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := extractACPToolEventPartText(tt.part)
-			assert.Equal(t, tt.expected, got)
+			if got != tt.expected {
+				t.Fatalf("extractACPToolEventPartText() = %q, want %q", got, tt.expected)
+			}
 		})
 	}
 }
@@ -45,24 +54,36 @@ func TestACPThoughtOutput(t *testing.T) {
 	}
 
 	text := extractACPToolEventPartText(part)
-	assert.Equal(t, "Let me think about this problem step by step...", text)
-	assert.True(t, part.Thought)
+	if text != "Let me think about this problem step by step..." {
+		t.Fatalf("text = %q, want %q", text, "Let me think about this problem step by step...")
+	}
+	if !part.Thought {
+		t.Fatal("part.Thought = false, want true")
+	}
 }
 
 func TestACPFunctionCallDetection(t *testing.T) {
 	part := &genai.Part{
 		FunctionCall: &genai.FunctionCall{
 			ID:   "call-123",
-			Name: "acp_tool_call",
+			Name: acpToolCallEventName,
 			Args: map[string]any{"prompt": "hello"},
 		},
 	}
 
 	text := extractACPToolEventPartText(part)
-	assert.Empty(t, text)
-	assert.NotNil(t, part.FunctionCall)
-	assert.Equal(t, "call-123", part.FunctionCall.ID)
-	assert.Equal(t, "acp_tool_call", part.FunctionCall.Name)
+	if text != "" {
+		t.Fatalf("text = %q, want empty", text)
+	}
+	if part.FunctionCall == nil {
+		t.Fatal("FunctionCall is nil, want non-nil")
+	}
+	if part.FunctionCall.ID != "call-123" {
+		t.Fatalf("FunctionCall.ID = %q, want %q", part.FunctionCall.ID, "call-123")
+	}
+	if part.FunctionCall.Name != acpToolCallEventName {
+		t.Fatalf("FunctionCall.Name = %q, want %q", part.FunctionCall.Name, acpToolCallEventName)
+	}
 }
 
 func TestACPFunctionResponseDetection(t *testing.T) {
@@ -75,8 +96,261 @@ func TestACPFunctionResponseDetection(t *testing.T) {
 	}
 
 	text := extractACPToolEventPartText(part)
-	assert.Empty(t, text)
-	assert.NotNil(t, part.FunctionResponse)
-	assert.Equal(t, "call-123", part.FunctionResponse.ID)
-	assert.Equal(t, "acp_tool_call_update", part.FunctionResponse.Name)
+	if text != "" {
+		t.Fatalf("text = %q, want empty", text)
+	}
+	if part.FunctionResponse == nil {
+		t.Fatal("FunctionResponse is nil, want non-nil")
+	}
+	if part.FunctionResponse.ID != "call-123" {
+		t.Fatalf("FunctionResponse.ID = %q, want %q", part.FunctionResponse.ID, "call-123")
+	}
+	if part.FunctionResponse.Name != "acp_tool_call_update" {
+		t.Fatalf("FunctionResponse.Name = %q, want %q", part.FunctionResponse.Name, "acp_tool_call_update")
+	}
+}
+
+func TestRenderACPToolEvent_AccumulatesThoughtChunksUntilText(t *testing.T) {
+	var stdout bytes.Buffer
+	ui := newACPToolTerminal(strings.NewReader(""), &stdout, &stdout)
+	accumulator := newACPToolTurnAccumulator(ui)
+
+	renderACPToolEvent(accumulator, testEvent(true, false, []*genai.Part{
+		{Thought: true, Text: "The user"},
+	}))
+	renderACPToolEvent(accumulator, testEvent(true, false, []*genai.Part{
+		{Thought: true, Text: ` said "hello"`},
+	}))
+	renderACPToolEvent(accumulator, testEvent(false, false, []*genai.Part{
+		{Text: "Hello"},
+		{Text: "! How can I help you today?"},
+	}))
+	renderACPToolEvent(accumulator, testEvent(false, true, nil))
+
+	got := stdout.String()
+	if !strings.Contains(got, "Thought: "+ansiGray+"The user said \"hello\""+ansiReset+"\n") {
+		t.Fatalf("stdout = %q, want colored thought output", got)
+	}
+	wantPlain := "Thought: The user said \"hello\"\n\nHello! How can I help you today?\n"
+	if gotPlain := stripANSI(got); gotPlain != wantPlain {
+		t.Fatalf("plain stdout = %q, want %q", gotPlain, wantPlain)
+	}
+}
+
+func TestRenderACPToolEvent_AccumulatesTextWithoutNewlineUntilFlush(t *testing.T) {
+	var stdout bytes.Buffer
+	ui := newACPToolTerminal(strings.NewReader(""), &stdout, &stdout)
+	accumulator := newACPToolTurnAccumulator(ui)
+
+	renderACPToolEvent(accumulator, testEvent(true, false, []*genai.Part{
+		{Text: "Hel"},
+		{Text: "lo"},
+	}))
+	renderACPToolEvent(accumulator, testEvent(false, false, []*genai.Part{
+		{
+			FunctionCall: &genai.FunctionCall{
+				ID:   "call-1",
+				Name: acpToolCallEventName,
+				Args: map[string]any{
+					"title": "run shell",
+					"rawInput": map[string]any{
+						"command": "date",
+					},
+				},
+			},
+		},
+	}))
+	renderACPToolEvent(accumulator, testEvent(false, true, nil))
+
+	wantPlain := "Hello\nToolCall: run shell params={\"command\":\"date\"}\n"
+	if gotPlain := stripANSI(stdout.String()); gotPlain != wantPlain {
+		t.Fatalf("plain stdout = %q, want %q", gotPlain, wantPlain)
+	}
+}
+
+func TestRenderACPToolEvent_FlushesThoughtAtTurnComplete(t *testing.T) {
+	var stdout bytes.Buffer
+	ui := newACPToolTerminal(strings.NewReader(""), &stdout, &stdout)
+	accumulator := newACPToolTurnAccumulator(ui)
+
+	renderACPToolEvent(accumulator, testEvent(true, false, []*genai.Part{
+		{Thought: true, Text: "thinking..."},
+	}))
+	renderACPToolEvent(accumulator, testEvent(false, true, nil))
+
+	want := "Thought: " + ansiGray + "thinking..." + ansiReset + "\n"
+	if got := stdout.String(); got != want {
+		t.Fatalf("stdout = %q, want %q", got, want)
+	}
+}
+
+func TestRenderACPToolEvent_NormalizesThoughtWhitespace(t *testing.T) {
+	var stdout bytes.Buffer
+	ui := newACPToolTerminal(strings.NewReader(""), &stdout, &stdout)
+	accumulator := newACPToolTurnAccumulator(ui)
+
+	renderACPToolEvent(accumulator, testEvent(true, false, []*genai.Part{
+		{Thought: true, Text: "Line one.\n\n   Line two.\n"},
+	}))
+	renderACPToolEvent(accumulator, testEvent(false, true, nil))
+
+	want := "Thought: " + ansiGray + "Line one. Line two." + ansiReset + "\n"
+	if got := stdout.String(); got != want {
+		t.Fatalf("stdout = %q, want %q", got, want)
+	}
+}
+
+func TestRenderACPToolEvent_RendersMarkdownOnFlush(t *testing.T) {
+	var stdout bytes.Buffer
+	ui := newACPToolTerminal(strings.NewReader(""), &stdout, &stdout)
+	accumulator := newACPToolTurnAccumulator(ui)
+
+	renderACPToolEvent(accumulator, testEvent(true, false, []*genai.Part{
+		{Text: "**Hello** _world_"},
+	}))
+	renderACPToolEvent(accumulator, testEvent(false, true, nil))
+
+	gotPlain := stripANSI(stdout.String())
+	if strings.Contains(gotPlain, "**Hello**") {
+		t.Fatalf("plain stdout = %q, markdown markers should be rendered", gotPlain)
+	}
+	if !strings.Contains(strings.ToLower(gotPlain), "hello") {
+		t.Fatalf("plain stdout = %q, should contain rendered text", gotPlain)
+	}
+}
+
+func TestRenderACPToolEvent_NormalizesLeadingBlankLineInPlainText(t *testing.T) {
+	var stdout bytes.Buffer
+	ui := newACPToolTerminal(strings.NewReader(""), &stdout, &stdout)
+	accumulator := newACPToolTurnAccumulator(ui)
+
+	renderACPToolEvent(accumulator, testEvent(true, false, []*genai.Part{
+		{Text: "\n  Based on the environment info."},
+	}))
+	renderACPToolEvent(accumulator, testEvent(false, true, nil))
+
+	wantPlain := "Based on the environment info.\n"
+	if gotPlain := stripANSI(stdout.String()); gotPlain != wantPlain {
+		t.Fatalf("plain stdout = %q, want %q", gotPlain, wantPlain)
+	}
+}
+
+func TestRenderACPToolEvent_IgnoresToolCallUpdateOutput(t *testing.T) {
+	var stdout bytes.Buffer
+	ui := newACPToolTerminal(strings.NewReader(""), &stdout, &stdout)
+	accumulator := newACPToolTurnAccumulator(ui)
+
+	updatePart := &genai.Part{
+		FunctionResponse: &genai.FunctionResponse{
+			ID:   "call-dup",
+			Name: "acp_tool_call_update",
+			Response: map[string]any{
+				"title":  "run shell",
+				"status": "completed",
+			},
+		},
+	}
+	renderACPToolEvent(accumulator, testEvent(false, false, []*genai.Part{updatePart}))
+	renderACPToolEvent(accumulator, testEvent(false, false, []*genai.Part{updatePart}))
+	renderACPToolEvent(accumulator, testEvent(false, true, nil))
+
+	wantPlain := ""
+	if gotPlain := stripANSI(stdout.String()); gotPlain != wantPlain {
+		t.Fatalf("plain stdout = %q, want %q", gotPlain, wantPlain)
+	}
+}
+
+func TestRenderACPToolEvent_ThoughtToolThoughtThenSingleBlankBeforeUserText(t *testing.T) {
+	var stdout bytes.Buffer
+	ui := newACPToolTerminal(strings.NewReader(""), &stdout, &stdout)
+	accumulator := newACPToolTurnAccumulator(ui)
+
+	renderACPToolEvent(accumulator, testEvent(true, false, []*genai.Part{
+		{Thought: true, Text: "Need to call a tool."},
+	}))
+	renderACPToolEvent(accumulator, testEvent(false, false, []*genai.Part{
+		{
+			FunctionCall: &genai.FunctionCall{
+				ID:   "call-abc",
+				Name: acpToolCallEventName,
+				Args: map[string]any{
+					"title": "bash",
+				},
+			},
+		},
+	}))
+	renderACPToolEvent(accumulator, testEvent(true, false, []*genai.Part{
+		{Thought: true, Text: "Got result."},
+	}))
+	renderACPToolEvent(accumulator, testEvent(false, false, []*genai.Part{
+		{Text: "It is 08:59:51."},
+	}))
+	renderACPToolEvent(accumulator, testEvent(false, true, nil))
+
+	wantPlain := "Thought: Need to call a tool.\nToolCall: bash\nThought: Got result.\n\nIt is 08:59:51.\n"
+	if gotPlain := stripANSI(stdout.String()); gotPlain != wantPlain {
+		t.Fatalf("plain stdout = %q, want %q", gotPlain, wantPlain)
+	}
+}
+
+func testEvent(partial bool, turnComplete bool, parts []*genai.Part) *session.Event {
+	ev := session.NewEvent("inv-1")
+	if len(parts) > 0 {
+		ev.Content = genai.NewContentFromParts(parts, genai.RoleModel)
+	}
+	ev.Partial = partial
+	ev.TurnComplete = turnComplete
+	return ev
+}
+
+func stripANSI(s string) string {
+	return ansiSequenceRE.ReplaceAllString(s, "")
+}
+
+func TestRunREPLRejectsNilStreams(t *testing.T) {
+	ctx := context.Background()
+	workingDir := t.TempDir()
+	command := []string{"fake", "command"}
+
+	testCases := []struct {
+		name   string
+		stdin  io.Reader
+		stdout io.Writer
+		stderr io.Writer
+		want   string
+	}{
+		{
+			name:   "nil stdin",
+			stdin:  nil,
+			stdout: io.Discard,
+			stderr: io.Discard,
+			want:   "stdin is required",
+		},
+		{
+			name:   "nil stdout",
+			stdin:  strings.NewReader(""),
+			stdout: nil,
+			stderr: io.Discard,
+			want:   "stdout is required",
+		},
+		{
+			name:   "nil stderr",
+			stdin:  strings.NewReader(""),
+			stdout: io.Discard,
+			stderr: nil,
+			want:   "stderr is required",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := RunREPL(ctx, workingDir, command, "", "", tc.stdin, tc.stdout, tc.stderr)
+			if err == nil {
+				t.Fatal("RunREPL() error = nil, want non-nil")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("RunREPL() error = %q, want containing %q", err.Error(), tc.want)
+			}
+		})
+	}
 }

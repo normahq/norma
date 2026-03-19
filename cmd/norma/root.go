@@ -59,7 +59,14 @@ func Execute() error {
 		return fmt.Errorf("bind profile flag: %w", err)
 	}
 	rootCmd.PersistentPreRun = func(cmd *cobra.Command, _ []string) {
-		_ = logging.Init(logging.WithDebug(debug), logging.WithTrace(trace))
+		logLevel := logging.LevelInfo
+		if debug {
+			logLevel = logging.LevelDebug
+		}
+		if trace {
+			logLevel = logging.LevelTrace
+		}
+		_ = logging.Init(logging.WithLevel(logLevel))
 		repoRoot, err := os.Getwd()
 		if err != nil {
 			log.Warn().Err(err).Msg("failed to get current working directory")

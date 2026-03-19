@@ -48,7 +48,11 @@ func Command() *cobra.Command {
 	cmd.Flags().StringVar(&sessionMode, "mode", "", "session mode requested via ACP session/set_mode")
 	cmd.Flags().BoolVar(&debugLogs, "debug", false, "enable debug logging")
 	cmd.PersistentPreRunE = func(_ *cobra.Command, _ []string) error {
-		if err := logging.Init(logging.WithDebug(debugLogs)); err != nil {
+		logLevel := logging.LevelInfo
+		if debugLogs {
+			logLevel = logging.LevelDebug
+		}
+		if err := logging.Init(logging.WithLevel(logLevel)); err != nil {
 			return fmt.Errorf("initialize logging: %w", err)
 		}
 		return nil
