@@ -5,11 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
 	tea "github.com/charmbracelet/bubbletea"
 	acp "github.com/coder/acp-go-sdk"
+	"github.com/metalagman/norma/internal/adk/agentconfig"
 	"github.com/metalagman/norma/internal/adk/agentfactory"
 	"github.com/metalagman/norma/internal/agents/planner"
 	"github.com/metalagman/norma/internal/config"
@@ -24,10 +27,19 @@ const (
 	plannerAppName       = "norma-planner"
 	plannerUserID        = "norma-planner-user"
 	plannerFollowupInput = "Your response? Ctrl+C to exit."
+	plannerTasksMCPName  = "norma_tasks"
 )
 
-func runAgentPlanner(cmd *cobra.Command, repoRoot string, registry map[string]config.AgentConfig, plannerID string) error {
-	plannerAgent, closePlannerAgent, err := createPlannerAgent(cmd.Context(), repoRoot, registry, plannerID)
+var resolvePlannerExecutablePath = os.Executable
+
+func runAgentPlanner(
+	cmd *cobra.Command,
+	repoRoot string,
+	registry map[string]config.AgentConfig,
+	mcpRegistry map[string]config.MCPServerConfig,
+	plannerID string,
+) error {
+	plannerAgent, closePlannerAgent, err := createPlannerAgent(cmd.Context(), repoRoot, registry, mcpRegistry, plannerID)
 	if err != nil {
 		return err
 	}
@@ -294,9 +306,10 @@ func createPlannerAgent(
 	ctx context.Context,
 	workingDir string,
 	registry map[string]config.AgentConfig,
+	mcpRegistry map[string]config.MCPServerConfig,
 	plannerID string,
 ) (adkagent.Agent, func() error, error) {
-	return createPlannerAgentWithOptions(ctx, workingDir, registry, plannerID, plannerAgentCreateOptions{})
+	return createPlannerAgentWithOptions(ctx, workingDir, registry, mcpRegistry, plannerID, plannerAgentCreateOptions{})
 }
 
 type plannerAgentCreateOptions struct {
@@ -308,6 +321,7 @@ func createPlannerAgentWithOptions(
 	ctx context.Context,
 	workingDir string,
 	registry map[string]config.AgentConfig,
+	mcpRegistry map[string]config.MCPServerConfig,
 	plannerID string,
 	options plannerAgentCreateOptions,
 ) (adkagent.Agent, func() error, error) {
@@ -319,14 +333,19 @@ func createPlannerAgentWithOptions(
 	if stderr == nil {
 		stderr = io.Discard
 	}
+	plannerMCP, err := plannerMCPServers(workingDir, mcpRegistry)
+	if err != nil {
+		return nil, nil, err
+	}
 
-	factory := agentfactory.NewFactory(registry)
+	factory := agentfactory.NewFactoryWithMCPServers(registry, plannerMCP)
 	baseAgent, err := factory.CreateAgent(ctx, plannerID, agentfactory.CreationRequest{
 		Name:              plannerID,
 		Description:       "Norma planner base runtime",
 		WorkingDirectory:  workingDir,
 		Stderr:            stderr,
 		PermissionHandler: options.PermissionHandler,
+		MCPServers:        plannerMCP,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("create planner base agent %q: %w", plannerID, err)
@@ -347,6 +366,36 @@ func createPlannerAgentWithOptions(
 		return nil
 	}
 	return plannerAgent, closeFn, nil
+}
+
+func plannerMCPServers(repoRoot string, configured map[string]config.MCPServerConfig) (map[string]agentconfig.MCPServerConfig, error) {
+	trimmedRepoRoot := strings.TrimSpace(repoRoot)
+	if trimmedRepoRoot == "" {
+		return nil, fmt.Errorf("planner repo root is required for tasks MCP server")
+	}
+	absoluteRepoRoot, err := filepath.Abs(trimmedRepoRoot)
+	if err != nil {
+		return nil, fmt.Errorf("resolve planner repo root %q: %w", trimmedRepoRoot, err)
+	}
+
+	executablePath, err := resolvePlannerExecutablePath()
+	if err != nil {
+		return nil, fmt.Errorf("resolve norma executable path: %w", err)
+	}
+	executablePath = strings.TrimSpace(executablePath)
+	if executablePath == "" {
+		return nil, fmt.Errorf("resolved empty norma executable path")
+	}
+
+	merged := make(map[string]agentconfig.MCPServerConfig, len(configured)+1)
+	for name, cfg := range configured {
+		merged[name] = cfg
+	}
+	merged[plannerTasksMCPName] = agentconfig.MCPServerConfig{
+		Type: agentconfig.MCPServerTypeStdio,
+		Cmd:  []string{executablePath, "mcp", "tasks", "--repo-root", absoluteRepoRoot},
+	}
+	return merged, nil
 }
 
 func formatPlannerRunError(err error) string {

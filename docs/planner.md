@@ -32,14 +32,13 @@ The planning agent has access to several tools to help it create accurate and ac
 ### `human`
 Used by the agent to ask the user a question. The question appears in the TUI, and the agent waits for your response.
 
-### `beads`
-Enables the agent to interact with the Beads issue tracker directly.
+### `tasks_*` (MCP Tasks Tools)
+Enables the agent to interact with the Beads-backed task tracker via Norma's MCP server.
 
-*   **Operations:** `list`, `show`, `create`, `update`, `close`, `reopen`, `delete`, `ready`.
+*   **Operations:** `tasks_list`, `tasks_get`, `tasks_children`, `tasks_leaf`, `tasks_add`, `tasks_add_feature`, `tasks_add_follow_up`, `tasks_update`, `tasks_mark_status`, `tasks_close_with_reason`, `tasks_add_dependency`, `tasks_add_label`, `tasks_set_notes`.
 *   **Rules:**
-    *   Enforce `--reason` for `close`, `reopen`, and `delete` operations.
-    *   Always use `--sandbox` and `--json` for command-line operations.
-    *   Preferred over running `bd` via `run_shell_command`.
+    *   Use `tasks_*` tools for task graph/state operations.
+    *   Do not use direct `bd` CLI commands in planner responses.
 
 ### `run_shell_command`
 Enables the agent to inspect the codebase and project structure.

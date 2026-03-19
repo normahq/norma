@@ -39,7 +39,7 @@ func webCommand() *cobra.Command {
 			if !ok {
 				return fmt.Errorf("planner agent not configured in selected profile %q", cfg.Profile)
 			}
-			plannerDebugAgent, closePlannerAgent, err := createPlannerAgent(cmd.Context(), repoRoot, cfg.Agents, plannerID)
+			plannerDebugAgent, closePlannerAgent, err := createPlannerAgent(cmd.Context(), repoRoot, cfg.Agents, cfg.MCPServers, plannerID)
 			if err != nil {
 				return err
 			}
