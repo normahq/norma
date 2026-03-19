@@ -21,6 +21,8 @@ agents:
     model: gpt-5.4
     mcp_servers:
       - playground_ping_pong
+  copilot_acp:
+    type: copilot_acp
 
   opencode_codex_acp:
     type: opencode_acp
@@ -76,6 +78,13 @@ profiles:
       check: gemini_acp
       act: gemini_acp
     planner: gemini_acp
+  copilot:
+    pdca:
+      plan: copilot_acp
+      do: copilot_acp
+      check: copilot_acp
+      act: copilot_acp
+    planner: copilot_acp
 
 budgets:
   max_iterations: 5
