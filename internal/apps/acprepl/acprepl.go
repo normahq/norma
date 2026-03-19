@@ -144,16 +144,54 @@ func runACPToolTurn(
 			return err
 		}
 		eventCount++
-		text := extractACPToolEventText(ev)
-		if text == "" {
+
+		if ev == nil || ev.Content == nil {
 			continue
 		}
-		if ev.Partial {
-			partialCount++
-			partialResponse.WriteString(text)
-			continue
+
+		for _, part := range ev.Content.Parts {
+			if part == nil {
+				continue
+			}
+
+			if part.Thought && part.Text != "" {
+				ui.Printf("Thought: %s\n", part.Text)
+				continue
+			}
+
+			if part.FunctionCall != nil && part.FunctionCall.Name == "acp_tool_call" {
+				toolID := part.FunctionCall.ID
+				if toolID == "" {
+					toolID = "?"
+				}
+				ui.Printf("ToolCall: %s acp_tool_call start\n", toolID)
+				continue
+			}
+
+			if part.FunctionResponse != nil && part.FunctionResponse.Name == "acp_tool_call_update" {
+				toolID := part.FunctionResponse.ID
+				if toolID == "" {
+					toolID = "?"
+				}
+				status := "complete"
+				if errMsg, ok := part.FunctionResponse.Response["error"]; ok {
+					status = fmt.Sprintf("error: %v", errMsg)
+				}
+				ui.Printf("ToolCall: %s acp_tool_call %s\n", toolID, status)
+				continue
+			}
+
+			text := extractACPToolEventPartText(part)
+			if text == "" {
+				continue
+			}
+			if ev.Partial {
+				partialCount++
+				partialResponse.WriteString(text)
+				continue
+			}
+			finalResponse = text
 		}
-		finalResponse = text
 	}
 	if finalResponse == "" {
 		finalResponse = partialResponse.String()
@@ -170,18 +208,11 @@ func runACPToolTurn(
 	return nil
 }
 
-func extractACPToolEventText(ev *session.Event) string {
-	if ev == nil || ev.Content == nil {
+func extractACPToolEventPartText(part *genai.Part) string {
+	if part == nil {
 		return ""
 	}
-	var builder strings.Builder
-	for _, part := range ev.Content.Parts {
-		if part == nil || part.Text == "" {
-			continue
-		}
-		builder.WriteString(part.Text)
-	}
-	return builder.String()
+	return part.Text
 }
 
 type acpToolTerminal struct {
@@ -215,6 +246,12 @@ func (t *acpToolTerminal) ReadLine(prompt string) (string, error) {
 		return "", io.EOF
 	}
 	return line, nil
+}
+
+func (t *acpToolTerminal) Printf(format string, args ...any) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	_, _ = fmt.Fprintf(t.stdout, format, args...)
 }
 
 func (t *acpToolTerminal) Println(args ...any) {
@@ -265,7 +302,6 @@ func (t *acpToolTerminal) RequestPermission(ctx context.Context, req acp.Request
 	selected := req.Options[choice-1]
 	return acp.RequestPermissionResponse{Outcome: acp.NewRequestPermissionOutcomeSelected(selected.OptionId)}, nil
 }
-
 
 type replSyncWriter struct {
 	mu     sync.Mutex
