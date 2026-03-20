@@ -59,7 +59,7 @@ func (s *service) registerTools(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{Name: "norma.tasks.list_features", Description: "List features under an epic."}, s.listFeatures)
 	mcp.AddTool(server, &mcp.Tool{Name: "norma.tasks.children", Description: "List child tasks for a parent task."}, s.listChildren)
 	mcp.AddTool(server, &mcp.Tool{Name: "norma.tasks.get", Description: "Get a task by id."}, s.getTask)
-	mcp.AddTool(server, &mcp.Tool{Name: "norma.tasks.leaf", Description: "List ready leaf tasks."}, s.leafTasks)
+	mcp.AddTool(server, &mcp.Tool{Name: "norma.tasks.leaf", Description: "List ready executable leaf tasks."}, s.leafTasks)
 	mcp.AddTool(server, &mcp.Tool{Name: "norma.tasks.list_blocked_dependents", Description: "List tasks blocked by the given task id."}, s.listBlockedDependents)
 
 	mcp.AddTool(server, &mcp.Tool{Name: "norma.tasks.mark_done", Description: "Mark task as done."}, s.markDone)

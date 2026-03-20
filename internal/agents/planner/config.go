@@ -34,6 +34,9 @@ Planning Rules:
   - objective (what it accomplishes)
   - artifact (concrete files/paths/PR surface)
   - verify (concrete commands/checks to prove it works)
+- Use 'parent-child' links for hierarchy only (epic -> feature -> task).
+- Use 'norma.tasks.add_dependency' only for true prerequisite blockers between executable issues.
+- Never add a 'blocks' dependency from a task to its parent feature/epic.
 - Keep scope pragmatic. Prefer 2-6 features and 1-6 tasks per feature.
 - Keep titles concise and action-oriented.
 `

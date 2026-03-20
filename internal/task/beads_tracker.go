@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 )
 
@@ -418,7 +419,7 @@ func (t *BeadsTracker) AddDependency(ctx context.Context, taskID, dependsOnID st
 // LeafTasks returns ready tasks.
 func (t *BeadsTracker) LeafTasks(ctx context.Context) ([]Task, error) {
 	// bd ready lists ready tasks
-	out, err := t.exec(ctx, "ready", "--json", "--quiet")
+	out, err := t.exec(ctx, "ready", "--limit", "0", "--json", "--quiet")
 	if err != nil {
 		return nil, fmt.Errorf("bd ready: %w", err)
 	}
@@ -432,13 +433,48 @@ func (t *BeadsTracker) LeafTasks(ctx context.Context) ([]Task, error) {
 
 	var tasks []Task
 	for _, issue := range issues {
+		typ := strings.TrimSpace(issue.IssueType)
+		if typ == "" {
+			typ = strings.TrimSpace(issue.Type)
+		}
+		if typ != "task" {
+			continue
+		}
+		children, err := t.Children(ctx, issue.ID)
+		if err != nil {
+			return nil, fmt.Errorf("list children for %s: %w", issue.ID, err)
+		}
+		if len(children) > 0 {
+			continue
+		}
 		tasks = append(tasks, t.toTask(issue))
 	}
 	return tasks, nil
 }
 
 func (t *BeadsTracker) exec(ctx context.Context, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, t.BinPath, args...)
+	out, err := t.execRaw(ctx, args...)
+	if err == nil {
+		return out, nil
+	}
+
+	if !isBeadsStaleError(err) || isSyncImportCommand(args) {
+		return nil, err
+	}
+
+	if _, syncErr := t.execRaw(ctx, "sync", "--import-only", "--json", "--quiet"); syncErr != nil {
+		return nil, fmt.Errorf("auto-import after stale database error failed: %w", syncErr)
+	}
+
+	return t.execRaw(ctx, args...)
+}
+
+func (t *BeadsTracker) execRaw(ctx context.Context, args ...string) ([]byte, error) {
+	bdArgs := args
+	if !hasNoDaemonFlag(bdArgs) {
+		bdArgs = append([]string{"--no-daemon"}, bdArgs...)
+	}
+	cmd := exec.CommandContext(ctx, t.BinPath, bdArgs...)
 	// beads relies on PWD for context
 	cmd.Dir = "."
 	if strings.TrimSpace(t.WorkingDir) != "" {
@@ -452,9 +488,28 @@ func (t *BeadsTracker) exec(ctx context.Context, args ...string) ([]byte, error)
 	cmd.Env = os.Environ()
 
 	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("exec %s %v: %w (stderr: %s)", t.BinPath, args, err, stderr.String())
+		return nil, fmt.Errorf("exec %s %v: %w (stderr: %s)", t.BinPath, bdArgs, err, stderr.String())
 	}
 	return stdout.Bytes(), nil
+}
+
+func isBeadsStaleError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "database out of sync with jsonl")
+}
+
+func hasNoDaemonFlag(args []string) bool {
+	return slices.Contains(args, "--no-daemon")
+}
+
+func isSyncImportCommand(args []string) bool {
+	if len(args) < 2 {
+		return false
+	}
+	return args[0] == "sync" && args[1] == "--import-only"
 }
 
 func (t *BeadsTracker) toTask(issue BeadsIssue) Task {

@@ -22,6 +22,8 @@ func TestPlannerInstruction_ContainsNormaPlannerPolicy(t *testing.T) {
 		"You are Norma's planning agent.",
 		"Use MCP tasks tools ('norma.tasks.*')",
 		"MCP 'norma.tasks.*' tools are the only source of truth for tasks, task status, and task relationships.",
+		"Use 'parent-child' links for hierarchy only",
+		"Never add a 'blocks' dependency from a task to its parent feature/epic.",
 	} {
 		if !strings.Contains(got, mustContain) {
 			t.Fatalf("plannerInstruction() missing %q: %q", mustContain, got)
