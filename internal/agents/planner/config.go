@@ -36,7 +36,7 @@ Planning Rules:
   - verify (concrete commands/checks to prove it works)
 - Use 'parent-child' links for hierarchy only (epic -> feature -> task).
 - Use 'norma.tasks.add_dependency' only for true prerequisite blockers between executable issues.
-- Never add a 'blocks' dependency from a task to its parent feature/epic.
+- Never add a 'blocks' dependency between parent and child (e.g., task blocks feature, or feature blocks task). Parent-child relationships already imply ordering.
 - Keep scope pragmatic. Prefer 2-6 features and 1-6 tasks per feature.
 - Keep titles concise and action-oriented.
 `
