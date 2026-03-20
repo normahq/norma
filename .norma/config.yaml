@@ -1,34 +1,35 @@
 profile: default
 
 agents:
-  gemini_acp:
+  gemini:
     type: gemini_acp
     model: gemini-3-flash-preview
-    mcp_servers:
-      - playground_ping_pong
-  opencode_acp:
+  gemini_plan:
+    type: gemini_acp
+    model: gemini-3-flash-preview
+    mode: plan
+  opencode:
     type: opencode_acp
     model: opencode/big-pickle
-    mcp_servers:
-      - playground_ping_pong
+  opencode_plan:
+    type: opencode_acp
+    model: opencode/big-pickle
+    mode: plan
+  copilot:
+    type: copilot_acp
+  copilot_plan:
+    type: copilot_acp
+    mode: plan
   opencode_minimax:
     type: opencode_acp
     model: opencode/minimax-m2.5-free
-    mcp_servers:
-      - playground_ping_pong
-  codex_acp:
+  opencode_minimax_plan:
+    type: opencode_acp
+    model: opencode/minimax-m2.5-free
+    mode: plan
+  codex:
     type: codex_acp
     model: gpt-5.4
-    mcp_servers:
-      - playground_ping_pong
-  copilot_acp:
-    type: copilot_acp
-
-  opencode_codex_acp:
-    type: opencode_acp
-    model: openai/gpt-5.4
-    mcp_servers:
-      - playground_ping_pong
 
 mcp_servers:
   playground_ping_pong:
@@ -59,32 +60,32 @@ profiles:
     planner: codex_acp
   opencode:
     pdca:
-      plan: opencode_acp
-      do: opencode_acp
-      check: opencode_acp
-      act: opencode_acp
-    planner: opencode_acp
+      plan: opencode_plan
+      do: opencode
+      check: opencode_plan
+      act: opencode_plan
+    planner: opencode_plan
   minimax:
     pdca:
-      plan: opencode_minimax
+      plan: opencode_minimax_plan
       do: opencode_minimax
-      check: opencode_minimax
-      act: opencode_minimax
-    planner: opencode_minimax
+      check: opencode_minimax_plan
+      act: opencode_minimax_plan
+    planner: opencode_minimax_plan
   gemini:
     pdca:
-      plan: gemini_acp
-      do: gemini_acp
-      check: gemini_acp
-      act: gemini_acp
-    planner: gemini_acp
+      plan: gemini_plan
+      do: gemini
+      check: gemini_plan
+      act: gemini_plan
+    planner: gemini_plan
   copilot:
     pdca:
-      plan: copilot_acp
-      do: copilot_acp
-      check: copilot_acp
-      act: copilot_acp
-    planner: copilot_acp
+      plan: copilot_plan
+      do: copilot
+      check: copilot_plan
+      act: copilot_plan
+    planner: copilot_plan
 
 budgets:
   max_iterations: 5
