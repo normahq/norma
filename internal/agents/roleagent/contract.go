@@ -9,6 +9,11 @@ type AgentResponse struct {
 	StopReason string          `json:"stop_reason,omitempty"`
 	Summary    ResponseSummary `json:"summary"`
 	Progress   StepProgress    `json:"progress"`
+
+	PlanOutput  json.RawMessage `json:"plan_output,omitempty"`
+	DoOutput    json.RawMessage `json:"do_output,omitempty"`
+	CheckOutput json.RawMessage `json:"check_output,omitempty"`
+	ActOutput   json.RawMessage `json:"act_output,omitempty"`
 }
 
 type ResponseSummary struct {

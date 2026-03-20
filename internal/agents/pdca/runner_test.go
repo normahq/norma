@@ -494,3 +494,74 @@ func TestRunnerWrapsErrorsWithPercentW(t *testing.T) {
 	assert.True(t, errors.Is(err, structuredio.ErrStructuredIOSchemaValidation),
 		"errors.Is should work through nested %%w wrapping")
 }
+
+type roleWithPlanOutput struct {
+	dummyRole
+}
+
+func (r *roleWithPlanOutput) MapResponse(outBytes []byte) (contracts.AgentResponse, error) {
+	var resp contracts.AgentResponse
+	err := json.Unmarshal(outBytes, &resp)
+	if err != nil {
+		return resp, err
+	}
+	resp.Plan = &plan.PlanOutput{
+		WorkPlan: &plan.PlanWorkPlan{
+			TimeboxMinutes: 30,
+			DoSteps:        []plan.PlanDoStep{{Id: "DO-1", Text: "test step", TargetsAcIds: []string{"AC-1"}}},
+		},
+		AcceptanceCriteria: &plan.PlanOutputAcceptanceCriteria{
+			Effective: []plan.EffectiveAcceptanceCriteria{{Id: "AC-1", Text: "test", Origin: "baseline", Checks: []plan.CriterionCheck{}}},
+		},
+	}
+	return resp, nil
+}
+
+func TestAinvokeRunner_RunPreservesPlanOutput(t *testing.T) {
+	workingDir, err := os.MkdirTemp("", "norma-pdca-test-*")
+	require.NoError(t, err)
+	defer func() { _ = os.RemoveAll(workingDir) }()
+
+	cfg := config.AgentConfig{
+		Type: config.AgentTypeGenericACP,
+		Cmd:  helperACPCommand(t, `{"status":"ok","summary":{"text":"success"},"progress":{"title":"done","details":[]}}`),
+	}
+
+	runner, err := NewRunner(cfg, &roleWithPlanOutput{}, nil)
+	require.NoError(t, err)
+
+	req := contracts.AgentRequest{
+		Run:  contracts.RunInfo{ID: "run-1", Iteration: 1},
+		Task: contracts.TaskInfo{ID: "task-1", Title: "title", Description: "desc", AcceptanceCriteria: []task.AcceptanceCriterion{{ID: "AC1", Text: "text"}}},
+		Step: contracts.StepInfo{Index: 1, Name: "plan"},
+		Paths: contracts.RequestPaths{
+			WorkspaceDir: workingDir,
+			RunDir:       workingDir,
+		},
+		Budgets: contracts.Budgets{
+			MaxIterations: 1,
+		},
+		Context: contracts.RequestContext{
+			Facts: make(map[string]any),
+			Links: []string{},
+		},
+		StopReasonsAllowed: []string{"budget_exceeded"},
+		Plan:               &plan.PlanInput{Task: &plan.PlanTaskID{Id: "task-1"}},
+	}
+
+	ctx := context.Background()
+	stdout, stderr, exitCode, err := runner.Run(ctx, req, io.Discard, io.Discard, io.Discard)
+	assert.NoError(t, err)
+	assert.Equal(t, 0, exitCode)
+	assert.Empty(t, stderr)
+	assert.NotEmpty(t, stdout)
+
+	var resp contracts.AgentResponse
+	err = json.Unmarshal(stdout, &resp)
+	assert.NoError(t, err)
+	assert.Equal(t, "ok", resp.Status)
+	require.NotNil(t, resp.Plan, "plan_output should be preserved")
+	require.NotNil(t, resp.Plan.WorkPlan)
+	assert.Equal(t, int64(30), resp.Plan.WorkPlan.TimeboxMinutes)
+	assert.Len(t, resp.Plan.WorkPlan.DoSteps, 1)
+}
