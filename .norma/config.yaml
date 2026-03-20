@@ -46,11 +46,11 @@ mcp_servers:
 profiles:
   default:
     pdca:
-      plan: opencode_acp
-      do: opencode_acp
-      check: codex_acp
-      act: codex_acp
-    planner: codex_acp
+      plan: codex
+      do: opencode
+      check: opencode
+      act: opencode
+    planner: codex
   codex:
     pdca:
       plan: codex_acp
