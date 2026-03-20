@@ -3,6 +3,7 @@ package acprepl
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"regexp"
 	"strings"
@@ -459,6 +460,55 @@ func TestRenderACPToolEvent_ToolNameStillVisible(t *testing.T) {
 				t.Fatalf("plain stdout should not contain params: %q", gotPlain)
 			}
 		})
+	}
+}
+
+func TestRenderACPToolEvent_LargeToolCallPayload(t *testing.T) {
+	var stdout bytes.Buffer
+	ui := newACPToolTerminal(strings.NewReader(""), &stdout, &stdout)
+	accumulator := newACPToolTurnAccumulator(ui)
+
+	// Create a large nested parameter payload to test payload hiding
+	largePayload := make(map[string]any)
+	for i := 0; i < 100; i++ {
+		nestedMap := make(map[string]any)
+		for j := 0; j < 10; j++ {
+			nestedMap[fmt.Sprintf("key_%d_%d", i, j)] = fmt.Sprintf("value_%d_%d", i, j)
+		}
+		largePayload[fmt.Sprintf("param_%d", i)] = nestedMap
+	}
+
+	renderACPToolEvent(accumulator, testEvent(false, false, []*genai.Part{
+		{
+			FunctionCall: &genai.FunctionCall{
+				ID:   "call-large",
+				Name: acpToolCallEventName,
+				Args: map[string]any{
+					"title":    "large_payload_tool",
+					"rawInput": largePayload,
+				},
+			},
+		},
+	}))
+	renderACPToolEvent(accumulator, testEvent(false, true, nil))
+
+	output := stdout.String()
+	gotPlain := stripANSI(output)
+
+	// Verify tool name is visible
+	if !strings.Contains(gotPlain, "ToolCall: large_payload_tool") {
+		t.Fatalf("plain stdout should contain 'ToolCall: large_payload_tool', got %q", gotPlain)
+	}
+
+	// Verify large payload content is NOT rendered
+	if strings.Contains(gotPlain, "param_") {
+		t.Fatalf("plain stdout should not contain payload param names: %q", gotPlain)
+	}
+	if strings.Contains(gotPlain, "key_") {
+		t.Fatalf("plain stdout should not contain nested param keys: %q", gotPlain)
+	}
+	if strings.Contains(gotPlain, "value_") {
+		t.Fatalf("plain stdout should not contain payload values: %q", gotPlain)
 	}
 }
 
