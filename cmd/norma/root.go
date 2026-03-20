@@ -41,8 +41,8 @@ var (
 		return cmd.Run()
 	}
 	rootCmd = &cobra.Command{
-		Use:   "norma",
-		Short: "norma is a minimal agent workflow runner",
+		Use:   "codex",
+		Short: "codex is a minimal agent workflow runner",
 	}
 )
 
