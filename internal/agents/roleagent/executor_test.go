@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	acp "github.com/coder/acp-go-sdk"
 	"github.com/metalagman/norma/internal/adk/agentconfig"
@@ -686,4 +687,157 @@ func TestExecutor_RunPreservesDoOutput(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, resp.DoOutput, "do_output should be preserved")
 	assert.JSONEq(t, `{"execution":{"executed_step_ids":["DO-1"],"skipped_step_ids":[]}}`, string(resp.DoOutput))
+}
+
+func TestExecutor_RunEventLogJSONLShapeRegression(t *testing.T) {
+	workingDir := t.TempDir()
+
+	response := `{"status":"ok","summary":{"text":"success"},"progress":{"title":"done","details":[]}}`
+
+	cfg := ExecutorConfig{
+		AgentConfig: config.AgentConfig{
+			Type: config.AgentTypeGenericACP,
+			Cmd:  helperACPCommand(t, response),
+		},
+	}
+
+	executor := NewExecutor(cfg)
+	role := &testRole{
+		name:         "plan",
+		inputSchema:  "{}",
+		outputSchema: "{}",
+		promptStr:    "Test prompt",
+	}
+
+	req := RoleRequest{
+		Run:  RunInfo{ID: "run-event-shape", Iteration: 1},
+		Step: StepInfo{Index: 1, Name: "plan"},
+		Paths: RequestPaths{
+			WorkspaceDir: workingDir,
+			RunDir:       workingDir,
+		},
+	}
+
+	ctx := context.Background()
+	var events bytes.Buffer
+	stdout, stderrOut, exitCode, err := executor.Run(ctx, role, req, nil, io.Discard, io.Discard, &events)
+	assert.NoError(t, err)
+	assert.Equal(t, 0, exitCode)
+	assert.Empty(t, stderrOut)
+	assert.NotEmpty(t, stdout)
+
+	eventLines := parseJSONLines(t, events.Bytes())
+	require.NotEmpty(t, eventLines, "expected at least one event log entry")
+
+	for i, entry := range eventLines {
+		assert.Contains(t, entry, "seq", "entry %d missing seq field", i)
+		assert.Contains(t, entry, "type", "entry %d missing type field", i)
+		assert.Contains(t, entry, "logged_at", "entry %d missing logged_at field", i)
+
+		seq, ok := entry["seq"].(float64)
+		require.True(t, ok, "entry %d seq should be numeric", i)
+		assert.GreaterOrEqual(t, seq, float64(1), "entry %d seq should be >= 1", i)
+
+		entryType, ok := entry["type"].(string)
+		require.True(t, ok, "entry %d type should be string", i)
+		assert.NotEmpty(t, entryType, "entry %d type should not be empty", i)
+
+		loggedAt, ok := entry["logged_at"].(string)
+		require.True(t, ok, "entry %d logged_at should be string", i)
+		assert.NotEmpty(t, loggedAt, "entry %d logged_at should not be empty", i)
+		_, parseErr := time.Parse(time.RFC3339Nano, loggedAt)
+		assert.NoError(t, parseErr, "entry %d logged_at should be RFC3339Nano format", i)
+
+		if entryType == "event" {
+			assert.Contains(t, entry, "event", "event entry %d missing event field", i)
+			eventData, ok := entry["event"].(map[string]any)
+			require.True(t, ok, "entry %d event should be object", i)
+			assert.Contains(t, eventData, "partial", "event entry %d missing partial field", i)
+			assert.Contains(t, eventData, "turn_complete", "event entry %d missing turn_complete field", i)
+
+			if parts, ok := eventData["parts"].([]any); ok {
+				for j, part := range parts {
+					partMap, ok := part.(map[string]any)
+					require.True(t, ok, "entry %d part %d should be object", i, j)
+					hasContent := partMap["text"] != nil || partMap["thought"] != nil ||
+						partMap["function_call"] != nil || partMap["function_response"] != nil
+					assert.True(t, hasContent, "entry %d part %d should have at least one content field", i, j)
+				}
+			}
+		}
+	}
+
+	seqs := make([]int, len(eventLines))
+	for i, entry := range eventLines {
+		seqs[i] = int(entry["seq"].(float64))
+	}
+	for i := 1; i < len(seqs); i++ {
+		assert.Equal(t, seqs[i-1]+1, seqs[i], "seqs should be monotonically increasing")
+	}
+}
+
+func TestExecutor_RunSchemaValidationFailureRegression(t *testing.T) {
+	workingDir := t.TempDir()
+
+	invalidResponse := `{"status":"ok","summary":{"text":"success"},"progress":{"title":"done","details":[]}}` +
+		"\n```\nextra"
+
+	cfg := ExecutorConfig{
+		AgentConfig: config.AgentConfig{
+			Type: config.AgentTypeGenericACP,
+			Cmd:  helperACPCommandChunked(t, invalidResponse, 7),
+		},
+	}
+
+	executor := NewExecutor(cfg)
+	role := &testRole{
+		name:         "plan",
+		inputSchema:  "{}",
+		outputSchema: "{}",
+		promptStr:    "Test prompt",
+	}
+
+	req := RoleRequest{
+		Run:  RunInfo{ID: "run-validation-fail", Iteration: 1},
+		Step: StepInfo{Index: 1, Name: "plan"},
+		Paths: RequestPaths{
+			WorkspaceDir: workingDir,
+			RunDir:       workingDir,
+		},
+	}
+
+	ctx := context.Background()
+	var events bytes.Buffer
+	_, _, exitCode, runErr := executor.Run(ctx, role, req, nil, io.Discard, io.Discard, &events)
+
+	assert.Error(t, runErr, "expected error for invalid structured output")
+	assert.NotEqual(t, 0, exitCode, "expected non-zero exit code")
+
+	assert.Contains(t, runErr.Error(), "validate structured output",
+		"error should mention structured output validation")
+
+	eventLines := parseJSONLines(t, events.Bytes())
+	hasErrorEntry := false
+	for _, entry := range eventLines {
+		if entry["type"] == "error" {
+			hasErrorEntry = true
+			assert.Contains(t, entry, "logged_at", "error entry missing logged_at field")
+			errData, ok := entry["error"].(map[string]any)
+			require.True(t, ok, "error entry should have error object")
+			assert.Contains(t, errData, "message", "error entry missing message field")
+			assert.Contains(t, errData, "error_type", "error entry missing error_type field")
+			assert.NotEmpty(t, errData["message"], "error message should not be empty")
+			assert.NotEmpty(t, errData["error_type"], "error_type should not be empty")
+			break
+		}
+	}
+	assert.True(t, hasErrorEntry, "expected at least one error event log entry")
+
+	wrappedErr := runErr
+	hasWrappedErrors := false
+	for wrappedErr != nil {
+		hasWrappedErrors = true
+		wrappedErr = errors.Unwrap(wrappedErr)
+	}
+	assert.True(t, hasWrappedErrors, "error should be properly wrapped")
 }
