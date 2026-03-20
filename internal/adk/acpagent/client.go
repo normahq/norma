@@ -521,7 +521,7 @@ func (c *Client) RequestPermission(ctx context.Context, params acp.RequestPermis
 // SessionUpdate is part of the ACP client callback contract.
 func (c *Client) SessionUpdate(ctx context.Context, params acp.SessionNotification) error {
 	l := c.loggerForContext(ctx)
-	logEvent := l.Debug().
+	logEvent := l.Trace().
 		Str("session_id", string(params.SessionId)).
 		Str("update_kind", sessionUpdateKind(params.Update))
 	logACPUpdateContentFields(logEvent, params.Update)

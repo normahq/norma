@@ -524,7 +524,7 @@ func TestClientPromptValidatesInputs(t *testing.T) {
 
 func TestClientSessionUpdateCallbackLogsContentBlock(t *testing.T) {
 	var logBuf bytes.Buffer
-	logger := zerolog.New(&logBuf).Level(zerolog.DebugLevel)
+	logger := zerolog.New(&logBuf).Level(zerolog.TraceLevel)
 
 	client := &Client{logger: logger}
 	err := client.SessionUpdate(context.Background(), acp.SessionNotification{
