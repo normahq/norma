@@ -35,7 +35,7 @@ func (w *loopRuntime) runTaskByID(ctx context.Context, id string) error {
 	case statusTodo, runpkg.StatusFailed, runpkg.StatusStopped:
 	case statusDoing:
 		if item.RunID != nil {
-			status, err := w.runStore.GetRunStatus(ctx, *item.RunID)
+			status, err := w.runStore.RunStatus(ctx, *item.RunID)
 			if err != nil {
 				return err
 			}

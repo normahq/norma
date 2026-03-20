@@ -120,7 +120,7 @@ func runTaskByID(ctx context.Context, tracker task.Tracker, runStore *db.Store, 
 	case statusTodo, statusFailed, statusStopped:
 	case statusDoing:
 		if item.RunID != nil {
-			status, err := runStore.GetRunStatus(ctx, *item.RunID)
+			status, err := runStore.RunStatus(ctx, *item.RunID)
 			if err != nil {
 				return err
 			}
@@ -182,7 +182,7 @@ func recoverDoingTasks(ctx context.Context, tracker task.Tracker, runStore *db.S
 			}
 			continue
 		}
-		runStatus, err := runStore.GetRunStatus(ctx, *item.RunID)
+		runStatus, err := runStore.RunStatus(ctx, *item.RunID)
 		if err != nil {
 			return err
 		}

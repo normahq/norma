@@ -245,9 +245,9 @@ func ValidateMCPServerConfig(cfg MCPServerConfig) error {
 	return fmt.Errorf("mcp server config validation failed: %s", strings.Join(errs, "; "))
 }
 
-// GetMCPServerNames returns the list of MCP server names from an agent's MCPServers field.
+// MCPServerNames returns the list of MCP server names from an agent's MCPServers field.
 // It handles both single string and array of strings formats.
-func GetMCPServerNames(mcpServers any) ([]string, error) {
+func MCPServerNames(mcpServers any) ([]string, error) {
 	if mcpServers == nil {
 		return nil, nil
 	}

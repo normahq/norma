@@ -163,7 +163,7 @@ type mockRunStore struct {
 	err           error
 }
 
-func (m *mockRunStore) GetRunStatus(_ context.Context, runID string) (string, error) {
+func (m *mockRunStore) RunStatus(_ context.Context, runID string) (string, error) {
 	if m.err != nil {
 		return "", m.err
 	}

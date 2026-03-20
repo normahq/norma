@@ -132,7 +132,7 @@ func recoverDoingTasks(ctx context.Context, tracker task.Tracker, runStore *db.S
 			}
 			continue
 		}
-		runStatus, err := runStore.GetRunStatus(ctx, *item.RunID)
+		runStatus, err := runStore.RunStatus(ctx, *item.RunID)
 		if err != nil {
 			return err
 		}

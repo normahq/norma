@@ -37,7 +37,7 @@ type Config struct {
 }
 
 type runStatusStore interface {
-	GetRunStatus(ctx context.Context, runID string) (string, error)
+	RunStatus(ctx context.Context, runID string) (string, error)
 	CreateRun(ctx context.Context, runID, goal, runDir string, iteration int) error
 	UpdateRun(ctx context.Context, runID string, update db.Update, event *db.Event) error
 	DB() *sql.DB

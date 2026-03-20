@@ -27,8 +27,8 @@ func initializeRoles() {
 	})
 }
 
-// GetRole returns the role implementation by name.
-func GetRole(name string) roleagent.RoleContract {
+// Role returns the role implementation by name.
+func Role(name string) roleagent.RoleContract {
 	initializeRoles()
 	return roleMap[name]
 }

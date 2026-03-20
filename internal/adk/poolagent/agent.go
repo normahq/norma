@@ -47,7 +47,7 @@ func NewPoolExecutor(poolName string, members []MemberConfig, agentCreator Agent
 	}
 }
 
-func (p *PoolExecutor) GetAgent(ctx context.Context) (agent.Agent, error) {
+func (p *PoolExecutor) Agent(ctx context.Context) (agent.Agent, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -137,7 +137,7 @@ type PoolAgent struct {
 func NewPoolAgent(ctx context.Context, poolName string, members []MemberConfig, req AgentRequest, agentCreator AgentCreator) (*PoolAgent, error) {
 	executor := NewPoolExecutor(poolName, members, agentCreator, req)
 
-	_, err := executor.GetAgent(ctx)
+	_, err := executor.Agent(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -162,7 +162,7 @@ func NewPoolAgent(ctx context.Context, poolName string, members []MemberConfig, 
 
 func (p *PoolAgent) run(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
 	return func(yield func(*session.Event, error) bool) {
-		currentAgent, err := p.executor.GetAgent(ctx)
+		currentAgent, err := p.executor.Agent(ctx)
 		if err != nil {
 			yield(nil, err)
 			return
@@ -176,7 +176,7 @@ func (p *PoolAgent) run(ctx agent.InvocationContext) iter.Seq2[*session.Event, e
 					p.executor.cachedAgent = nil
 
 					var retryErr error
-					currentAgent, retryErr = p.executor.GetAgent(ctx)
+					currentAgent, retryErr = p.executor.Agent(ctx)
 					if retryErr != nil {
 						yield(nil, retryErr)
 						return

@@ -8,9 +8,9 @@ import (
 )
 
 func TestDoRoleMapRequestRefinesDefaultsToEmptySlice(t *testing.T) {
-	role := GetRole(RoleDo)
+	role := Role(RoleDo)
 	if role == nil {
-		t.Fatal("GetRole(RoleDo) returned nil")
+		t.Fatal("Role(RoleDo) returned nil")
 	}
 
 	reqJSON := []byte(`{"run":{"id":"run-1","iteration":1},"task":{"id":"task-1","title":"title","description":"desc","acceptance_criteria":[]},"step":{"index":2,"name":"do"},"paths":{"workspace_dir":"/tmp","run_dir":"/tmp"},"budgets":{"max_iterations":1,"max_wall_time_minutes":10,"max_failed_checks":1},"context":{"facts":{},"links":[]},"stop_reasons_allowed":["budget_exceeded"],"do_input":{"work_plan":{"timebox_minutes":10,"do_steps":[],"check_steps":[],"stop_triggers":[]},"acceptance_criteria_effective":[{"id":"AC-1","origin":"baseline","text":"ok","checks":[{"id":"CHK-1","cmd":"true","expect_exit_codes":[0]}]}]}}`)
@@ -70,9 +70,9 @@ func TestAllRolesImplementRoleContract(t *testing.T) {
 	expectedRoles := []string{RolePlan, RoleDo, RoleCheck, RoleAct}
 
 	for _, name := range expectedRoles {
-		role := GetRole(name)
+		role := Role(name)
 		if role == nil {
-			t.Errorf("GetRole(%q) returned nil", name)
+			t.Errorf("Role(%q) returned nil", name)
 			continue
 		}
 		if role.Name() != name {
@@ -87,9 +87,9 @@ func TestAllRolesReturnValidSchemas(t *testing.T) {
 	expectedRoles := []string{RolePlan, RoleDo, RoleCheck, RoleAct}
 
 	for _, name := range expectedRoles {
-		role := GetRole(name)
+		role := Role(name)
 		if role == nil {
-			t.Errorf("GetRole(%q) returned nil", name)
+			t.Errorf("Role(%q) returned nil", name)
 			continue
 		}
 
@@ -125,9 +125,9 @@ func TestAllRolesMapResponseReturnsAgentResponse(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			role := GetRole(tc.name)
+			role := Role(tc.name)
 			if role == nil {
-				t.Fatalf("GetRole(%q) returned nil", tc.name)
+				t.Fatalf("Role(%q) returned nil", tc.name)
 			}
 
 			resp, err := role.MapResponse([]byte(tc.response))
@@ -155,9 +155,9 @@ func TestAllRolesMapRequestAcceptsValidJSON(t *testing.T) {
 
 	for _, name := range expectedRoles {
 		t.Run(name, func(t *testing.T) {
-			role := GetRole(name)
+			role := Role(name)
 			if role == nil {
-				t.Fatalf("GetRole(%q) returned nil", name)
+				t.Fatalf("Role(%q) returned nil", name)
 			}
 
 			req := []byte(`{"run":{"id":"run-1","iteration":1},"task":{"id":"task-1","title":"title","description":"desc","acceptance_criteria":[{"id":"AC1","text":"test"}]},"step":{"index":1,"name":"` + name + `"},"paths":{"workspace_dir":"/tmp","run_dir":"/tmp"},"budgets":{"max_iterations":1},"context":{"facts":{},"links":[]},"stop_reasons_allowed":["budget_exceeded"]}`)

@@ -350,7 +350,7 @@ func (a *runtime) runStep(ctx agent.InvocationContext, iteration int, roleName s
 		return nil, fmt.Errorf("set current_step_index in session state: %w", err)
 	}
 
-	role := GetRole(roleName)
+	role := Role(roleName)
 	if role == nil {
 		return nil, fmt.Errorf("unknown role %q", roleName)
 	}
