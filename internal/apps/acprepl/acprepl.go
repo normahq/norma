@@ -317,6 +317,9 @@ func (a *acpToolTurnAccumulator) flushAll() {
 }
 
 func (a *acpToolTurnAccumulator) printToolCallStart(title string, params any) {
+	// Parameter payloads are intentionally hidden to keep transcripts readable.
+	// Only the tool name/title is displayed here, providing clear identification
+	// of which tool ran without introducing large request bodies into the output.
 	toolTitle := strings.TrimSpace(title)
 	if toolTitle == "" {
 		toolTitle = acpToolCallEventName
