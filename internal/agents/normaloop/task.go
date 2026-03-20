@@ -372,6 +372,7 @@ func (w *loopRuntime) handleReplan(ctx context.Context, oldTaskID string, oldTas
 	if err != nil {
 		w.logger.Warn().Err(err).Msg("failed to list blocked dependents")
 	} else {
+		w.logger.Info().Msg("rewiring blocked dependents to new replanning task")
 		for _, dep := range blockedDependents {
 			if err := w.tracker.AddDependency(ctx, dep.ID, newTaskID); err != nil {
 				w.logger.Warn().Err(err).Str("dep_id", dep.ID).Msg("failed to add new task as blocker")
