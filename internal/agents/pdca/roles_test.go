@@ -63,3 +63,109 @@ func TestDoRoleMapRequestRefinesDefaultsToEmptySlice(t *testing.T) {
 		t.Fatalf("len(refines) = %d, want 0", len(refines))
 	}
 }
+
+func TestAllRolesImplementRoleContract(t *testing.T) {
+	t.Parallel()
+
+	expectedRoles := []string{RolePlan, RoleDo, RoleCheck, RoleAct}
+
+	for _, name := range expectedRoles {
+		role := GetRole(name)
+		if role == nil {
+			t.Errorf("GetRole(%q) returned nil", name)
+			continue
+		}
+		if role.Name() != name {
+			t.Errorf("role.Name() = %q, want %q", role.Name(), name)
+		}
+	}
+}
+
+func TestAllRolesReturnValidSchemas(t *testing.T) {
+	t.Parallel()
+
+	expectedRoles := []string{RolePlan, RoleDo, RoleCheck, RoleAct}
+
+	for _, name := range expectedRoles {
+		role := GetRole(name)
+		if role == nil {
+			t.Errorf("GetRole(%q) returned nil", name)
+			continue
+		}
+
+		schemas := role.Schemas()
+		if schemas.InputSchema == "" {
+			t.Errorf("role %q has empty InputSchema", name)
+		}
+		if schemas.OutputSchema == "" {
+			t.Errorf("role %q has empty OutputSchema", name)
+		}
+		// Verify schemas are valid JSON
+		if !json.Valid([]byte(schemas.InputSchema)) {
+			t.Errorf("role %q InputSchema is not valid JSON", name)
+		}
+		if !json.Valid([]byte(schemas.OutputSchema)) {
+			t.Errorf("role %q OutputSchema is not valid JSON", name)
+		}
+	}
+}
+
+func TestAllRolesMapResponseReturnsAgentResponse(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name     string
+		response string
+	}{
+		{"plan", `{"status":"ok","summary":{"text":"done"},"progress":{"title":"plan done","details":["created plan"]},"plan_output":{"acceptance_criteria":{"effective":[]},"work_plan":{"timebox_minutes":10,"do_steps":[],"check_steps":[]}}}`},
+		{"do", `{"status":"ok","summary":{"text":"done"},"progress":{"title":"do done","details":["executed"]},"do_output":{"execution":{"executed_step_ids":[],"skipped_step_ids":[]}}}`},
+		{"check", `{"status":"ok","summary":{"text":"done"},"progress":{"title":"check done","details":["verified"]},"check_output":{"plan_match":{"do_steps":{"planned_ids":[],"executed_ids":[],"missing_ids":[],"unexpected_ids":[]},"commands":{"planned_ids":[],"executed_ids":[],"missing_ids":[],"unexpected_ids":[]}},"acceptance_results":[],"verdict":{"status":"PASS","recommendation":"standardize","basis":{"plan_match":"MATCH","all_acceptance_passed":true}}}}`},
+		{"act", `{"status":"ok","summary":{"text":"done"},"progress":{"title":"act done","details":["decided"]},"act_output":{"decision":"close","rationale":"completed"}}`},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			role := GetRole(tc.name)
+			if role == nil {
+				t.Fatalf("GetRole(%q) returned nil", tc.name)
+			}
+
+			resp, err := role.MapResponse([]byte(tc.response))
+			if err != nil {
+				t.Fatalf("MapResponse() error = %v", err)
+			}
+
+			if resp.Status != "ok" {
+				t.Errorf("resp.Status = %q, want %q", resp.Status, "ok")
+			}
+			if resp.Summary.Text != "done" {
+				t.Errorf("resp.Summary.Text = %q, want %q", resp.Summary.Text, "done")
+			}
+			if resp.Progress.Title == "" {
+				t.Error("resp.Progress.Title is empty")
+			}
+		})
+	}
+}
+
+func TestAllRolesMapRequestAcceptsValidJSON(t *testing.T) {
+	t.Parallel()
+
+	expectedRoles := []string{RolePlan, RoleDo, RoleCheck, RoleAct}
+
+	for _, name := range expectedRoles {
+		t.Run(name, func(t *testing.T) {
+			role := GetRole(name)
+			if role == nil {
+				t.Fatalf("GetRole(%q) returned nil", name)
+			}
+
+			req := []byte(`{"run":{"id":"run-1","iteration":1},"task":{"id":"task-1","title":"title","description":"desc","acceptance_criteria":[{"id":"AC1","text":"test"}]},"step":{"index":1,"name":"` + name + `"},"paths":{"workspace_dir":"/tmp","run_dir":"/tmp"},"budgets":{"max_iterations":1},"context":{"facts":{},"links":[]},"stop_reasons_allowed":["budget_exceeded"]}`)
+
+			_, err := role.MapRequest(roleagent.AgentRequest(req))
+			if err != nil {
+				t.Errorf("MapRequest() error = %v", err)
+			}
+		})
+	}
+}
