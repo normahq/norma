@@ -10,10 +10,12 @@ import (
 
 func tuiCommand() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "tui",
-		Short: "Interactively decompose an epic into features and tasks and persist them to Beads",
-		Args:  cobra.NoArgs,
-		RunE:  runTUI,
+		Use:     "tui",
+		Short:   "Launch the interactive TUI planner",
+		Long:    "Launch an interactive terminal UI (TUI) for decomposing epics into features and tasks. The TUI provides a visual, step-by-step workflow for planning work with AI agent assistance.",
+		Example: "  codex plan tui",
+		Args:    cobra.NoArgs,
+		RunE:    runTUI,
 	}
 	return cmd
 }

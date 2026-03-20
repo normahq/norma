@@ -21,10 +21,12 @@ const (
 
 func replCommand() *cobra.Command {
 	return &cobra.Command{
-		Use:   "repl",
-		Short: "Run the planner agent in a line-based terminal REPL",
-		Args:  cobra.NoArgs,
-		RunE:  runREPL,
+		Use:     "repl",
+		Short:   "Run the planner in a line-based REPL",
+		Long:    "Run the planner agent in an interactive line-based Read-Eval-Print Loop (REPL). The REPL allows you to issue planning commands and receive agent responses in a simple terminal interface.",
+		Example: "  codex plan repl",
+		Args:    cobra.NoArgs,
+		RunE:    runREPL,
 	}
 }
 
