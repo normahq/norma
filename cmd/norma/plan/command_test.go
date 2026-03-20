@@ -147,6 +147,56 @@ func TestPlanCommand_ReplSubcommandResolved(t *testing.T) {
 	}
 }
 
+func TestPlanCommand_HelpOutput_ListsSubcommands(t *testing.T) {
+	t.Parallel()
+
+	cmd := Command()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetArgs([]string{"--help"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("plan --help failed: %v", err)
+	}
+
+	var helpBuf bytes.Buffer
+	cmd.SetOut(&helpBuf)
+	cmd.Execute()
+
+	output := helpBuf.String()
+
+	if !strings.Contains(output, "tui") {
+		t.Error("plan --help output should list 'tui' subcommand")
+	}
+	if !strings.Contains(output, "repl") {
+		t.Error("plan --help output should list 'repl' subcommand")
+	}
+}
+
+func TestPlanCommand_HelpOutput_NoImplicitTUI(t *testing.T) {
+	t.Parallel()
+
+	cmd := Command()
+
+	var helpBuf bytes.Buffer
+	cmd.SetOut(&helpBuf)
+	cmd.SetArgs([]string{"--help"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("plan --help failed: %v", err)
+	}
+
+	output := helpBuf.String()
+
+	if strings.Contains(output, "default") && strings.Contains(output, "tui") {
+		t.Error("plan --help should not describe implicit default TUI launch on bare 'plan'")
+	}
+	if strings.Contains(output, "launch") && strings.Contains(output, "automatically") {
+		t.Error("plan --help should not describe automatic TUI launch")
+	}
+}
+
 func findSubcommand(parent *cobra.Command, name string) *cobra.Command {
 	for _, c := range parent.Commands() {
 		if c.Name() == name {
