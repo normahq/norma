@@ -168,9 +168,23 @@ func TestWrapperAgentValidationCases(t *testing.T) {
 			wantInnerCalls:    1,
 		},
 		{
-			name:            "output_with_trailing_backticks_fails_validation",
+			name:              "output_with_trailing_backticks_succeeds",
+			input:             `{"input":"hello"}`,
+			output:            "analysis\n" + validStructuredOutputJSON + "\n```",
+			wantOutputContain: `"output":"done"`,
+			wantInnerCalls:    1,
+		},
+		{
+			name:              "output_with_fenced_json_block_succeeds",
+			input:             `{"input":"hello"}`,
+			output:            "```json\n" + validStructuredOutputJSON + "\n```",
+			wantOutputContain: `"output":"done"`,
+			wantInnerCalls:    1,
+		},
+		{
+			name:            "output_with_trailing_backticks_and_text_fails_validation",
 			input:           `{"input":"hello"}`,
-			output:          "analysis\n" + validStructuredOutputJSON + "\n```",
+			output:          "analysis\n" + validStructuredOutputJSON + "\n```\nextra",
 			wantErrContains: "validate structured output",
 			wantInnerCalls:  2,
 		},
@@ -241,8 +255,28 @@ func TestExtractOutputJSON(t *testing.T) {
 			want: `{"output":"done"}`,
 		},
 		{
+			name: "extract_allows_markdown_closing_fence_after_json",
+			raw:  "notes\n" + `{"output":"done"}` + "\n```",
+			want: `{"output":"done"}`,
+		},
+		{
+			name: "extract_allows_fenced_json_block",
+			raw:  "```json\n" + `{"output":"done"}` + "\n```",
+			want: `{"output":"done"}`,
+		},
+		{
 			name:      "error_on_non_whitespace_after_json",
-			raw:       "notes\n" + `{"output":"done"}` + "\n```",
+			raw:       "notes\n" + `{"output":"done"}` + "\nextra",
+			wantError: "non-whitespace content after JSON object",
+		},
+		{
+			name:      "error_on_non_whitespace_after_markdown_closing_fence",
+			raw:       "notes\n" + `{"output":"done"}` + "\n```\nextra",
+			wantError: "non-whitespace content after JSON object",
+		},
+		{
+			name:      "error_on_multiple_markdown_closing_fences",
+			raw:       "notes\n" + `{"output":"done"}` + "\n```\n```",
 			wantError: "non-whitespace content after JSON object",
 		},
 		{
@@ -313,6 +347,9 @@ func TestWrapperAgentLogsOutputValidationFailureWithContextLogger(t *testing.T) 
 	}
 	if !strings.Contains(logs, "accumulated_output_preview") {
 		t.Fatalf("logs = %q, want accumulated output preview field", logs)
+	}
+	if !strings.Contains(logs, "validation_json_full") {
+		t.Fatalf("logs = %q, want validation_json_full field", logs)
 	}
 	if !strings.Contains(logs, "I am not JSON output") {
 		t.Fatalf("logs = %q, want failing output preview", logs)
@@ -882,7 +919,7 @@ func TestRetryMatrix(t *testing.T) {
 		t.Parallel()
 
 		var callCount int32
-		invalidOutput := "analysis\n" + validStructuredOutputJSON + "\n```"
+		invalidOutput := "analysis\n" + validStructuredOutputJSON + "\n```\nextra"
 		validOutput := validStructuredOutputJSON
 
 		inner := newMultiOutputAgent(t, []string{invalidOutput, validOutput}, &callCount, nil)
@@ -904,7 +941,7 @@ func TestRetryMatrix(t *testing.T) {
 		t.Parallel()
 
 		var callCount int32
-		invalidOutput := "analysis\n" + validStructuredOutputJSON + "\n```"
+		invalidOutput := "analysis\n" + validStructuredOutputJSON + "\n```\nextra"
 
 		inner := newMultiOutputAgent(t, []string{invalidOutput, invalidOutput}, &callCount, nil)
 		wrapped, err := NewAgent(inner, WithOutputValidationRetries(1))

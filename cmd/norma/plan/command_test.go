@@ -161,7 +161,10 @@ func TestPlanCommand_HelpOutput_ListsSubcommands(t *testing.T) {
 
 	var helpBuf bytes.Buffer
 	cmd.SetOut(&helpBuf)
-	cmd.Execute()
+	err = cmd.Execute()
+	if err != nil {
+		t.Fatalf("plan --help failed: %v", err)
+	}
 
 	output := helpBuf.String()
 

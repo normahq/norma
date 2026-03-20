@@ -730,7 +730,7 @@ func TestAgentRunDoesNotDuplicatePartialInFinalEvent(t *testing.T) {
 
 func TestAgentRunUsesInvocationLogger(t *testing.T) {
 	var bootstrapBuf bytes.Buffer
-	bootstrapLogger := zerolog.New(&bootstrapBuf).Level(zerolog.DebugLevel)
+	bootstrapLogger := zerolog.New(zerolog.SyncWriter(&bootstrapBuf)).Level(zerolog.DebugLevel)
 
 	a, err := New(Config{
 		Context:    context.Background(),
@@ -741,7 +741,12 @@ func TestAgentRunUsesInvocationLogger(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	defer func() { _ = a.Close() }()
+	closed := false
+	defer func() {
+		if !closed {
+			_ = a.Close()
+		}
+	}()
 	bootstrapBuf.Reset()
 
 	sessionService := session.InMemoryService()
@@ -759,7 +764,7 @@ func TestAgentRunUsesInvocationLogger(t *testing.T) {
 	}
 
 	var invocationBuf bytes.Buffer
-	invocationLogger := zerolog.New(&invocationBuf).Level(zerolog.DebugLevel).With().Str("source", "invocation").Logger()
+	invocationLogger := zerolog.New(zerolog.SyncWriter(&invocationBuf)).Level(zerolog.DebugLevel).With().Str("source", "invocation").Logger()
 	invocationCtx := invocationLogger.WithContext(context.Background())
 
 	for _, runErr := range r.Run(invocationCtx, "test-user", sess.Session.ID(), genai.NewContentFromText("hello", genai.RoleUser), agent.RunConfig{}) {
@@ -767,6 +772,10 @@ func TestAgentRunUsesInvocationLogger(t *testing.T) {
 			t.Fatalf("runner event error = %v", runErr)
 		}
 	}
+	if err := a.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	closed = true
 
 	invocationLogs := invocationBuf.String()
 	if !strings.Contains(invocationLogs, `"source":"invocation"`) {

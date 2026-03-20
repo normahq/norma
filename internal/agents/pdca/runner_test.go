@@ -184,14 +184,14 @@ func TestAinvokeRunner_RunHandlesChunkedStructuredOutput(t *testing.T) {
 	assert.Equal(t, "done", resp.Progress.Title)
 }
 
-func TestAinvokeRunner_RunRejectsTrailingContentAfterJSON(t *testing.T) {
+func TestAinvokeRunner_RunRejectsTrailingContentAfterMarkdownFence(t *testing.T) {
 	workingDir, err := os.MkdirTemp("", "norma-agent-test-*")
 	require.NoError(t, err)
 	defer func() { _ = os.RemoveAll(workingDir) }()
 
 	response := "Let me inspect first.\n" +
 		`{"status":"ok","summary":{"text":"success"},"progress":{"title":"done","details":[]}}` +
-		"\n```"
+		"\n```\nextra"
 	cfg := config.AgentConfig{
 		Type: config.AgentTypeGenericACP,
 		Cmd:  helperACPCommandChunked(t, response, 7),

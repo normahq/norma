@@ -318,6 +318,8 @@ func (w *wrapperAgent) Run(ctx adkagent.InvocationContext) iter.Seq2[*session.Ev
 					Err(lastOutputErr).
 					Str("invocation_id", ctx.InvocationID()).
 					Int("attempt", attempt).
+					Int("accumulated_output_len", len(accumulatedText)).
+					Str("validation_json_full", validationJSONForLog(accumulatedText)).
 					Msg("non-retryable validation error")
 				break
 			}
@@ -328,6 +330,8 @@ func (w *wrapperAgent) Run(ctx adkagent.InvocationContext) iter.Seq2[*session.Ev
 					Str("invocation_id", ctx.InvocationID()).
 					Int("attempt", attempt).
 					Int("max_attempts", maxAttempts).
+					Int("accumulated_output_len", len(accumulatedText)).
+					Str("validation_json_full", validationJSONForLog(accumulatedText)).
 					Msg("output schema validation failed, retrying")
 
 				accumulated.Reset()
@@ -367,6 +371,8 @@ func (w *wrapperAgent) Run(ctx adkagent.InvocationContext) iter.Seq2[*session.Ev
 				Str("invocation_id", ctx.InvocationID()).
 				Int("attempts", attemptsPerformed).
 				Int("max_attempts", maxAttempts).
+				Int("accumulated_output_len", len(accumulatedText)).
+				Str("validation_json_full", validationJSONForLog(accumulatedText)).
 				Msg("output schema validation failed after all retries")
 			yield(nil, fmt.Errorf("validate structured output: %w", lastOutputErr))
 			return
@@ -517,7 +523,8 @@ func extractOutputJSON(raw string) (string, error) {
 		return "", fmt.Errorf("JSON payload is empty")
 	}
 
-	if trailing := raw[endIdx+1:]; strings.TrimSpace(trailing) != "" {
+	trailing := strings.TrimSpace(raw[endIdx+1:])
+	if trailing != "" && trailing != "```" {
 		return "", fmt.Errorf("non-whitespace content after JSON object")
 	}
 
@@ -592,4 +599,15 @@ func truncateForLog(s string, limit int) string {
 		return s
 	}
 	return s[:limit] + "...(truncated)"
+}
+
+func validationJSONForLog(raw string) string {
+	if raw == "" {
+		return raw
+	}
+	start := firstLineStartedJSONObject(raw)
+	if start == -1 {
+		return raw
+	}
+	return raw[start:]
 }
