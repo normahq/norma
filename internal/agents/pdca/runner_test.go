@@ -140,7 +140,7 @@ func TestAinvokeRunner_RunHandlesChunkedStructuredOutput(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = os.RemoveAll(workingDir) }()
 
-	response := "Let me inspect first.\n###OUTPUT###\n" +
+	response := "Let me inspect first.\n" +
 		`{"status":"ok","summary":{"text":"success"},"progress":{"title":"done","details":[]}}`
 	cfg := config.AgentConfig{
 		Type: config.AgentTypeGenericACP,

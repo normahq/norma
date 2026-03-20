@@ -21,7 +21,6 @@ const (
 	defaultWrapperName               = "StructuredWrappedAgent"
 	defaultMaxAccumulatedOutputBytes = 1024 * 1024
 	validationFailurePreviewLimit    = 4096
-	outputDelimiter                  = "###OUTPUT###"
 
 	inputSchemaJSON = `{
   "type": "object",
@@ -46,19 +45,17 @@ const (
 - Produce output JSON that conforms to the output schema.
 
 STRICT OUTPUT CONTRACT:
-- MUST include the delimiter line exactly as: ###OUTPUT###
-- MUST place exactly one JSON object after the delimiter.
-- MUST ensure only whitespace appears between delimiter and JSON.
+- MUST return exactly one JSON object that matches the output schema.
+- MUST start the JSON object with "{" at byte-start OR at the beginning of a new line (column 1).
+- MUST NOT include any text before the JSON object.
 - MUST NOT include any text after the JSON object.
 - MUST NOT include markdown code fences, headings, explanations, or commentary.
-- SHOULD avoid text before the delimiter.
 
 Invalid example (DO NOT DO THIS):
 Let me explore first.
 {"status":"ok"}
 
 Valid example:
-###OUTPUT###
 {"status":"ok"}
 
 Input JSON Schema:
@@ -497,22 +494,33 @@ func validateJSONAgainstSchema(raw, schema, label string) error {
 }
 
 func extractOutputJSON(raw string) (string, error) {
-	text := strings.TrimSpace(raw)
-	if text == "" {
+	if strings.TrimSpace(raw) == "" {
 		return "", fmt.Errorf("output is empty")
 	}
 
-	idx := strings.LastIndex(text, outputDelimiter)
+	idx := firstLineStartedJSONObject(raw)
 	if idx == -1 {
-		return text, nil
+		return "", fmt.Errorf("no JSON object found at byte start or line start")
 	}
 
-	candidate := strings.TrimSpace(text[idx+len(outputDelimiter):])
+	candidate := raw[idx:]
 	if candidate == "" {
-		return "", fmt.Errorf("delimiter present but JSON payload is empty")
+		return "", fmt.Errorf("JSON payload is empty")
 	}
 
 	return candidate, nil
+}
+
+func firstLineStartedJSONObject(text string) int {
+	for i := 0; i < len(text); i++ {
+		if text[i] != '{' {
+			continue
+		}
+		if i == 0 || text[i-1] == '\n' {
+			return i
+		}
+	}
+	return -1
 }
 
 func validateSchemaDefinition(schema, label string) error {

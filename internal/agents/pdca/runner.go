@@ -164,22 +164,16 @@ func (r *adkRunner) Run(ctx context.Context, req contracts.AgentRequest, stdout,
 	}
 	rawOutput := []byte(outputText)
 
-	// 7. Extract and map final response.
-	extracted, ok := ExtractJSON(rawOutput)
-	if !ok {
-		extracted = rawOutput
-	}
-
-	// Validate that it actually matches the role response (mapped via role.MapResponse).
-	agentResp, err := r.role.MapResponse(extracted)
+	// 7. Map final response.
+	agentResp, err := r.role.MapResponse(rawOutput)
 	if err != nil {
-		return extracted, nil, 0, fmt.Errorf("map agent response: %w", err)
+		return rawOutput, nil, 0, fmt.Errorf("map agent response: %w", err)
 	}
 
 	// Final normalization to ensure it is clean JSON.
 	normalized, err := json.Marshal(agentResp)
 	if err != nil {
-		return extracted, nil, 0, fmt.Errorf("marshal normalized response: %w", err)
+		return rawOutput, nil, 0, fmt.Errorf("marshal normalized response: %w", err)
 	}
 
 	return normalized, nil, 0, nil
@@ -203,28 +197,6 @@ func toPascal(s string) string {
 		return ""
 	}
 	return strings.ToUpper(s[:1]) + s[1:]
-}
-
-// ExtractJSON finds the first JSON object in a byte slice.
-func ExtractJSON(data []byte) ([]byte, bool) {
-	start := -1
-	for i, b := range data {
-		if b == '{' {
-			start = i
-			break
-		}
-	}
-	end := -1
-	for i := len(data) - 1; i >= 0; i-- {
-		if data[i] == '}' {
-			end = i
-			break
-		}
-	}
-	if start == -1 || end == -1 || start >= end {
-		return nil, false
-	}
-	return data[start : end+1], true
 }
 
 func defaultACPPermissionHandler(_ context.Context, req acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error) {

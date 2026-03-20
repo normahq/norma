@@ -119,13 +119,12 @@ func TestBuildPrompt_IncludesStrictOutputContract(t *testing.T) {
 
 	assertContainsAll(t, prompt,
 		"STRICT OUTPUT CONTRACT:",
-		"MUST include the delimiter line exactly as: ###OUTPUT###",
-		"MUST place exactly one JSON object after the delimiter.",
-		"MUST ensure only whitespace appears between delimiter and JSON.",
+		"MUST return exactly one JSON object that matches the output schema.",
+		"MUST start the JSON object with \"{\" at byte-start OR at the beginning of a new line (column 1).",
+		"MUST NOT include any text before the JSON object.",
 		"MUST NOT include markdown code fences",
 		"Invalid example (DO NOT DO THIS):",
 		"Valid example:",
-		"###OUTPUT###",
 	)
 }
 
@@ -162,16 +161,16 @@ func TestWrapperAgentValidationCases(t *testing.T) {
 			wantInnerCalls:    1,
 		},
 		{
-			name:              "valid_output_with_delimiter_and_preface",
+			name:              "valid_output_with_preface_and_newline_started_json",
 			input:             `{"input":"hello"}`,
-			output:            "analysis\n" + outputDelimiter + "\n" + validStructuredOutputJSON,
+			output:            "analysis\n" + validStructuredOutputJSON,
 			wantOutputContain: `"output":"done"`,
 			wantInnerCalls:    1,
 		},
 		{
-			name:            "delimiter_present_without_json_payload",
+			name:            "output_without_line_started_json_payload",
 			input:           `{"input":"hello"}`,
-			output:          outputDelimiter + "\n  ",
+			output:          "analysis " + validStructuredOutputJSON,
 			wantErrContains: "validate structured output",
 			wantInnerCalls:  1,
 		},
@@ -220,24 +219,29 @@ func TestExtractOutputJSON(t *testing.T) {
 		wantError string
 	}{
 		{
-			name: "fallback_without_delimiter",
+			name: "extract_from_byte_start",
 			raw:  `{"output":"done"}`,
 			want: `{"output":"done"}`,
 		},
 		{
-			name: "extract_after_delimiter",
-			raw:  "notes\n" + outputDelimiter + "\n" + `{"output":"done"}`,
+			name: "extract_from_line_start_after_preface",
+			raw:  "notes\n" + `{"output":"done"}`,
 			want: `{"output":"done"}`,
 		},
 		{
-			name: "uses_last_delimiter",
-			raw:  outputDelimiter + `{"output":"old"}` + "\n" + outputDelimiter + "\n" + `{"output":"done"}`,
-			want: `{"output":"done"}`,
+			name: "extract_takes_slice_from_first_line_started_json",
+			raw:  "notes\n" + `{"output":"done"}` + "\ntrailing",
+			want: `{"output":"done"}` + "\ntrailing",
 		},
 		{
-			name:      "error_on_empty_payload_after_delimiter",
-			raw:       outputDelimiter + "\n  ",
-			wantError: "delimiter present but JSON payload is empty",
+			name:      "error_when_no_line_started_json",
+			raw:       "notes " + `{"output":"done"}`,
+			wantError: "no JSON object found at byte start or line start",
+		},
+		{
+			name:      "error_on_empty_output",
+			raw:       " \n\t ",
+			wantError: "output is empty",
 		},
 	}
 
@@ -525,7 +529,7 @@ func TestWrapperAgentEmitsSingleJSONTextChunk(t *testing.T) {
 			return func(yield func(*session.Event, error) bool) {
 				chunks := []string{
 					"analysis before output\n",
-					outputDelimiter + "\n" + `{"output":"`,
+					`{"output":"`,
 					`done"}`,
 				}
 				for _, chunk := range chunks {
