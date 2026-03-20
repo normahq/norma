@@ -33,8 +33,8 @@ func TestPlanCommand_RootIsRunnable(t *testing.T) {
 
 	cmd := Command()
 
-	if cmd.RunE == nil && cmd.Run == nil {
-		t.Error("plan root command should have RunE (should default to TUI)")
+	if cmd.RunE != nil || cmd.Run != nil {
+		t.Error("plan root command should not be runnable (should show help)")
 	}
 }
 
