@@ -307,6 +307,161 @@ func stripANSI(s string) string {
 	return ansiSequenceRE.ReplaceAllString(s, "")
 }
 
+func TestRenderACPToolEvent_ToolCallHidesParams(t *testing.T) {
+	var stdout bytes.Buffer
+	ui := newACPToolTerminal(strings.NewReader(""), &stdout, &stdout)
+	accumulator := newACPToolTurnAccumulator(ui)
+
+	renderACPToolEvent(accumulator, testEvent(false, false, []*genai.Part{
+		{
+			FunctionCall: &genai.FunctionCall{
+				ID:   "call-1",
+				Name: acpToolCallEventName,
+				Args: map[string]any{
+					"title": "run shell",
+					"rawInput": map[string]any{
+						"command": "echo secret_password_123",
+						"timeout": 30,
+					},
+				},
+			},
+		},
+	}))
+	renderACPToolEvent(accumulator, testEvent(false, true, nil))
+
+	output := stdout.String()
+	gotPlain := stripANSI(output)
+
+	// Verify params are NOT in output
+	if strings.Contains(gotPlain, "secret_password_123") {
+		t.Fatalf("plain stdout contains secret param: %q", gotPlain)
+	}
+	if strings.Contains(gotPlain, "command") {
+		t.Fatalf("plain stdout contains 'command' param key: %q", gotPlain)
+	}
+	if strings.Contains(gotPlain, "timeout") {
+		t.Fatalf("plain stdout contains 'timeout' param key: %q", gotPlain)
+	}
+
+	// Verify ToolCall params are intentionally hidden in REPL output
+	// to keep transcripts readable and secure. Tool name remains visible.
+	if !strings.Contains(gotPlain, "ToolCall: run shell") {
+		t.Fatalf("plain stdout should contain 'ToolCall: run shell', got %q", gotPlain)
+	}
+}
+
+func TestRenderACPToolEvent_ComplexParamsAreHidden(t *testing.T) {
+	var stdout bytes.Buffer
+	ui := newACPToolTerminal(strings.NewReader(""), &stdout, &stdout)
+	accumulator := newACPToolTurnAccumulator(ui)
+
+	renderACPToolEvent(accumulator, testEvent(false, false, []*genai.Part{
+		{
+			FunctionCall: &genai.FunctionCall{
+				ID:   "call-2",
+				Name: acpToolCallEventName,
+				Args: map[string]any{
+					"title": "deep_parser",
+					"rawInput": map[string]any{
+						"structure": map[string]any{
+							"level1": map[string]any{
+								"secret": "hidden_value",
+								"array":  []string{"item1", "item2"},
+							},
+						},
+					},
+				},
+			},
+		},
+	}))
+	renderACPToolEvent(accumulator, testEvent(false, true, nil))
+
+	output := stdout.String()
+	gotPlain := stripANSI(output)
+
+	// Verify no param serialization is visible
+	if strings.Contains(gotPlain, "hidden_value") {
+		t.Fatalf("plain stdout contains nested secret param: %q", gotPlain)
+	}
+	if strings.Contains(gotPlain, "item1") || strings.Contains(gotPlain, "item2") {
+		t.Fatalf("plain stdout contains array params: %q", gotPlain)
+	}
+	if strings.Contains(gotPlain, "structure") || strings.Contains(gotPlain, "level1") {
+		t.Fatalf("plain stdout contains param keys: %q", gotPlain)
+	}
+
+	// Verify only tool name is shown
+	if !strings.Contains(gotPlain, "ToolCall: deep_parser") {
+		t.Fatalf("plain stdout should contain 'ToolCall: deep_parser', got %q", gotPlain)
+	}
+}
+
+func TestRenderACPToolEvent_ToolNameStillVisible(t *testing.T) {
+	testCases := []struct {
+		name     string
+		title    string
+		expected string
+	}{
+		{
+			name:     "simple tool name",
+			title:    "bash",
+			expected: "ToolCall: bash",
+		},
+		{
+			name:     "tool name with spaces",
+			title:    "run shell script",
+			expected: "ToolCall: run shell script",
+		},
+		{
+			name:     "tool name with special chars",
+			title:    "grep-find_files.sh",
+			expected: "ToolCall: grep-find_files.sh",
+		},
+		{
+			name:     "empty title uses default",
+			title:    "",
+			expected: "ToolCall: " + acpToolCallEventName,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var stdout bytes.Buffer
+			ui := newACPToolTerminal(strings.NewReader(""), &stdout, &stdout)
+			accumulator := newACPToolTurnAccumulator(ui)
+
+			renderACPToolEvent(accumulator, testEvent(false, false, []*genai.Part{
+				{
+					FunctionCall: &genai.FunctionCall{
+						ID:   "call-test",
+						Name: acpToolCallEventName,
+						Args: map[string]any{
+							"title": tc.title,
+							"rawInput": map[string]any{
+								"param1": "value1",
+								"param2": "value2",
+							},
+						},
+					},
+				},
+			}))
+			renderACPToolEvent(accumulator, testEvent(false, true, nil))
+
+			output := stdout.String()
+			gotPlain := stripANSI(output)
+
+			if !strings.Contains(gotPlain, tc.expected) {
+				t.Fatalf("plain stdout should contain %q, got %q", tc.expected, gotPlain)
+			}
+
+			// Verify params are hidden
+			if strings.Contains(gotPlain, "param1") || strings.Contains(gotPlain, "value1") {
+				t.Fatalf("plain stdout should not contain params: %q", gotPlain)
+			}
+		})
+	}
+}
+
 func TestRunREPLRejectsNilStreams(t *testing.T) {
 	ctx := context.Background()
 	workingDir := t.TempDir()
