@@ -57,18 +57,12 @@ func (r *adkRunner) Run(ctx context.Context, req []byte, stdout, stderr, eventsL
 	}
 
 	roleReq := roleagent.RoleRequest{
-		Run: roleagent.RunInfo{
-			ID:        fields.Run.ID,
-			Iteration: fields.Run.Iteration,
-		},
-		Step: roleagent.StepInfo{
-			Index: fields.Step.Index,
-			Name:  fields.Step.Name,
-		},
-		Paths: roleagent.RequestPaths{
-			WorkspaceDir: fields.Paths.WorkspaceDir,
-			RunDir:       fields.Paths.RunDir,
-		},
+		RunID:        fields.Run.ID,
+		RunIteration: fields.Run.Iteration,
+		StepIndex:    fields.Step.Index,
+		StepName:     fields.Step.Name,
+		WorkspaceDir: fields.Paths.WorkspaceDir,
+		RunDir:       fields.Paths.RunDir,
 	}
 
 	return r.executor.Run(ctx, r.role, roleReq, req, stdout, stderr, eventsLog)

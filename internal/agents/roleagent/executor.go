@@ -20,37 +20,29 @@ import (
 	"google.golang.org/genai"
 )
 
-type RunInfo struct {
-	ID        string `json:"id"`
-	Iteration int    `json:"iteration"`
-}
-
-type StepInfo struct {
-	Index int    `json:"index"`
-	Name  string `json:"name"`
-}
-
-type RequestPaths struct {
+// RoleRequest contains the metadata for executing a role step.
+type RoleRequest struct {
+	RunID        string `json:"run_id"`
+	RunIteration int    `json:"run_iteration"`
+	StepIndex    int    `json:"step_index"`
+	StepName     string `json:"step_name"`
 	WorkspaceDir string `json:"workspace_dir"`
 	RunDir       string `json:"run_dir"`
 }
 
-type RoleRequest struct {
-	Run   RunInfo      `json:"run"`
-	Step  StepInfo     `json:"step"`
-	Paths RequestPaths `json:"paths"`
-}
-
+// ExecutorConfig holds the configuration for creating an Executor.
 type ExecutorConfig struct {
 	AgentConfig agentconfig.Config
 	MCPServers  map[string]agentconfig.MCPServerConfig
 }
 
+// Executor runs a single role step using an ADK agent.
 type Executor struct {
 	cfg        ExecutorConfig
 	permission func(context.Context, acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error)
 }
 
+// NewExecutor creates a new Executor with the given configuration.
 func NewExecutor(cfg ExecutorConfig) *Executor {
 	return &Executor{
 		cfg:        cfg,
@@ -66,9 +58,9 @@ func (e *Executor) WithPermissionHandler(fn func(context.Context, acp.RequestPer
 func (e *Executor) Run(ctx context.Context, role RoleContract, req RoleRequest, roleInput AgentRequest, stdout, stderr, eventsLog io.Writer) ([]byte, []byte, int, error) {
 	l := log.With().
 		Str("role", role.Name()).
-		Str("run_id", req.Run.ID).
-		Int("step_index", req.Step.Index).
-		Str("step_name", req.Step.Name).
+		Str("run_id", req.RunID).
+		Int("step_index", req.StepIndex).
+		Str("step_name", req.StepName).
 		Logger()
 	ctx = l.WithContext(ctx)
 	eventWriter := newADKEventLogWriter(eventsLog)
@@ -87,7 +79,7 @@ func (e *Executor) Run(ctx context.Context, role RoleContract, req RoleRequest, 
 		return nil, nil, 0, fmt.Errorf("generate role prompt: %w", err)
 	}
 
-	workingDirectory := resolveWorkingDirectory(req.Paths.WorkspaceDir, req.Paths.RunDir)
+	workingDirectory := resolveWorkingDirectory(req.WorkspaceDir, req.RunDir)
 
 	agentRegistry := map[string]agentconfig.Config{
 		role.Name(): e.cfg.AgentConfig,
@@ -97,8 +89,8 @@ func (e *Executor) Run(ctx context.Context, role RoleContract, req RoleRequest, 
 		factory = agentfactory.NewFactoryWithMCPServers(agentRegistry, e.cfg.MCPServers)
 	}
 	creationReq := agentfactory.CreationRequest{
-		Name:              "Norma" + toPascal(req.Step.Name) + "Agent",
-		Description:       "Norma " + req.Step.Name + " agent",
+		Name:              "Norma" + toPascal(req.StepName) + "Agent",
+		Description:       "Norma " + req.StepName + " agent",
 		SystemInstruction: systemInstruction,
 		WorkingDirectory:  workingDirectory,
 		Stdout:            stdout,

@@ -361,9 +361,9 @@ func TestBasePromptBuilder(t *testing.T) {
 {{.Common}}
 Role-specific instructions here.`
 
-	builder, err := NewBasePromptBuilder("test", rolePrompt)
+	builder, err := newBasePromptBuilder("test", rolePrompt)
 	if err != nil {
-		t.Fatalf("failed to create BasePromptBuilder: %v", err)
+		t.Fatalf("failed to create basePromptBuilder: %v", err)
 	}
 
 	if builder.RoleName() != "test" {
@@ -391,9 +391,9 @@ Role-specific instructions here.`
 
 func TestBasePromptBuilderContainsCommonInstructions(t *testing.T) {
 	rolePrompt := `{{.Role}}`
-	builder, err := NewBasePromptBuilder("do", rolePrompt)
+	builder, err := newBasePromptBuilder("do", rolePrompt)
 	if err != nil {
-		t.Fatalf("failed to create BasePromptBuilder: %v", err)
+		t.Fatalf("failed to create basePromptBuilder: %v", err)
 	}
 
 	prompt, err := builder.Build(nil, "do-role-data")
@@ -414,9 +414,9 @@ func TestBasePromptBuilderContainsCommonInstructions(t *testing.T) {
 
 func TestBasePromptBuilderBuildFromRequest(t *testing.T) {
 	rolePrompt := `{{.Role}}`
-	builder, err := NewBasePromptBuilder("plan", rolePrompt)
+	builder, err := newBasePromptBuilder("plan", rolePrompt)
 	if err != nil {
-		t.Fatalf("failed to create BasePromptBuilder: %v", err)
+		t.Fatalf("failed to create basePromptBuilder: %v", err)
 	}
 
 	req := json.RawMessage(`{"task_id":"norma-123"}`)

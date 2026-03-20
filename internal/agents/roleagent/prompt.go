@@ -6,7 +6,7 @@ import (
 	"text/template"
 )
 
-const DefaultBasePromptTemplate = `You are a %s agent. Follow the instructions strictly.
+const defaultBasePromptTemplate = `You are a %s agent. Follow the instructions strictly.
 - IMPORTANT: ACCESS RESTRICTION: You MUST ONLY read files within the assigned 'run_dir' and 'workspace_dir' as specified in the input JSON.
 - IMPORTANT: DO NOT attempt to read, list, or index the project root directory or any directory outside of your assigned workspace.
 - IMPORTANT: DO NOT use recursive tools (like 'grep -r', 'find', or 'ls -R') on the project root.
@@ -22,14 +22,14 @@ const DefaultBasePromptTemplate = `You are a %s agent. Follow the instructions s
 - Use status='stop' or 'error' only for technical failures or when budgets are exceeded.
 `
 
-type BasePromptBuilder struct {
+type basePromptBuilder struct {
 	baseTmpl *template.Template
 	roleTmpl *template.Template
 	roleName string
 }
 
-func NewBasePromptBuilder(roleName, rolePrompt string) (*BasePromptBuilder, error) {
-	baseStr := fmt.Sprintf(DefaultBasePromptTemplate, roleName)
+func newBasePromptBuilder(roleName, rolePrompt string) (*basePromptBuilder, error) {
+	baseStr := fmt.Sprintf(defaultBasePromptTemplate, roleName)
 	baseTmpl, err := template.New(roleName + "-base").Parse(baseStr)
 	if err != nil {
 		return nil, fmt.Errorf("parse base template: %w", err)
@@ -40,14 +40,14 @@ func NewBasePromptBuilder(roleName, rolePrompt string) (*BasePromptBuilder, erro
 		return nil, fmt.Errorf("parse role template: %w", err)
 	}
 
-	return &BasePromptBuilder{
+	return &basePromptBuilder{
 		baseTmpl: baseTmpl,
 		roleTmpl: roleTmpl,
 		roleName: roleName,
 	}, nil
 }
 
-func (b *BasePromptBuilder) Build(commonData, roleData any) (string, error) {
+func (b *basePromptBuilder) Build(commonData, roleData any) (string, error) {
 	var baseBuf bytes.Buffer
 	if err := b.baseTmpl.Execute(&baseBuf, commonData); err != nil {
 		return "", fmt.Errorf("execute base template: %w", err)
@@ -74,10 +74,10 @@ func (b *BasePromptBuilder) Build(commonData, roleData any) (string, error) {
 	return combined.String(), nil
 }
 
-func (b *BasePromptBuilder) BuildFromRequest(req AgentRequest, roleData any) (string, error) {
+func (b *basePromptBuilder) BuildFromRequest(req AgentRequest, roleData any) (string, error) {
 	return b.Build(req, roleData)
 }
 
-func (b *BasePromptBuilder) RoleName() string {
+func (b *basePromptBuilder) RoleName() string {
 	return b.roleName
 }

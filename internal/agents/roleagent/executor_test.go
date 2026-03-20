@@ -116,12 +116,12 @@ func TestExecutor_Run(t *testing.T) {
 	}
 
 	req := RoleRequest{
-		Run:  RunInfo{ID: "run-1", Iteration: 1},
-		Step: StepInfo{Index: 1, Name: "plan"},
-		Paths: RequestPaths{
-			WorkspaceDir: workingDir,
-			RunDir:       workingDir,
-		},
+		RunID:        "run-1",
+		RunIteration: 1,
+		StepIndex:    1,
+		StepName:     "plan",
+		WorkspaceDir: workingDir,
+		RunDir:       workingDir,
 	}
 
 	ctx := context.Background()
@@ -168,12 +168,12 @@ func TestExecutor_RunHandlesChunkedStructuredOutput(t *testing.T) {
 	}
 
 	req := RoleRequest{
-		Run:  RunInfo{ID: "run-1", Iteration: 1},
-		Step: StepInfo{Index: 1, Name: "plan"},
-		Paths: RequestPaths{
-			WorkspaceDir: workingDir,
-			RunDir:       workingDir,
-		},
+		RunID:        "run-1",
+		RunIteration: 1,
+		StepIndex:    1,
+		StepName:     "plan",
+		WorkspaceDir: workingDir,
+		RunDir:       workingDir,
 	}
 
 	var events bytes.Buffer
@@ -214,12 +214,12 @@ func TestExecutor_RunRejectsTrailingContentAfterJSON(t *testing.T) {
 	}
 
 	req := RoleRequest{
-		Run:  RunInfo{ID: "run-1", Iteration: 1},
-		Step: StepInfo{Index: 1, Name: "plan"},
-		Paths: RequestPaths{
-			WorkspaceDir: workingDir,
-			RunDir:       workingDir,
-		},
+		RunID:        "run-1",
+		RunIteration: 1,
+		StepIndex:    1,
+		StepName:     "plan",
+		WorkspaceDir: workingDir,
+		RunDir:       workingDir,
 	}
 
 	var events bytes.Buffer
@@ -283,12 +283,12 @@ func TestExecutor_RunReturnsErrorOnMappingFailure(t *testing.T) {
 			}
 
 			req := RoleRequest{
-				Run:  RunInfo{ID: tt.runID, Iteration: tt.iteration},
-				Step: StepInfo{Index: tt.iteration, Name: tt.stepName},
-				Paths: RequestPaths{
-					WorkspaceDir: workingDir,
-					RunDir:       workingDir,
-				},
+				RunID:        tt.runID,
+				RunIteration: tt.iteration,
+				StepIndex:    tt.iteration,
+				StepName:     tt.stepName,
+				WorkspaceDir: workingDir,
+				RunDir:       workingDir,
 			}
 
 			_, _, exitCode, err := executor.Run(context.Background(), role, req, nil, io.Discard, io.Discard, io.Discard)
@@ -320,12 +320,12 @@ func TestExecutor_RunWritesErrorEventLogOnError(t *testing.T) {
 	}
 
 	req := RoleRequest{
-		Run:  RunInfo{ID: "run-1", Iteration: 1},
-		Step: StepInfo{Index: 1, Name: "plan"},
-		Paths: RequestPaths{
-			WorkspaceDir: workingDir,
-			RunDir:       workingDir,
-		},
+		RunID:        "run-1",
+		RunIteration: 1,
+		StepIndex:    1,
+		StepName:     "plan",
+		WorkspaceDir: workingDir,
+		RunDir:       workingDir,
 	}
 
 	ctx := context.Background()
@@ -628,12 +628,12 @@ func TestExecutor_RunPreservesRoleSpecificPayloads(t *testing.T) {
 	}
 
 	req := RoleRequest{
-		Run:  RunInfo{ID: "run-1", Iteration: 1},
-		Step: StepInfo{Index: 1, Name: "plan"},
-		Paths: RequestPaths{
-			WorkspaceDir: workingDir,
-			RunDir:       workingDir,
-		},
+		RunID:        "run-1",
+		RunIteration: 1,
+		StepIndex:    1,
+		StepName:     "plan",
+		WorkspaceDir: workingDir,
+		RunDir:       workingDir,
 	}
 
 	stdout, _, exitCode, err := executor.Run(context.Background(), role, req, nil, io.Discard, io.Discard, io.Discard)
@@ -670,12 +670,12 @@ func TestExecutor_RunPreservesDoOutput(t *testing.T) {
 	}
 
 	req := RoleRequest{
-		Run:  RunInfo{ID: "run-1", Iteration: 1},
-		Step: StepInfo{Index: 2, Name: "do"},
-		Paths: RequestPaths{
-			WorkspaceDir: workingDir,
-			RunDir:       workingDir,
-		},
+		RunID:        "run-1",
+		RunIteration: 1,
+		StepIndex:    2,
+		StepName:     "do",
+		WorkspaceDir: workingDir,
+		RunDir:       workingDir,
 	}
 
 	stdout, _, exitCode, err := executor.Run(context.Background(), role, req, nil, io.Discard, io.Discard, io.Discard)
@@ -710,12 +710,12 @@ func TestExecutor_RunEventLogJSONLShapeRegression(t *testing.T) {
 	}
 
 	req := RoleRequest{
-		Run:  RunInfo{ID: "run-event-shape", Iteration: 1},
-		Step: StepInfo{Index: 1, Name: "plan"},
-		Paths: RequestPaths{
-			WorkspaceDir: workingDir,
-			RunDir:       workingDir,
-		},
+		RunID:        "run-event-shape",
+		RunIteration: 1,
+		StepIndex:    1,
+		StepName:     "plan",
+		WorkspaceDir: workingDir,
+		RunDir:       workingDir,
 	}
 
 	ctx := context.Background()
@@ -798,12 +798,12 @@ func TestExecutor_RunSchemaValidationFailureRegression(t *testing.T) {
 	}
 
 	req := RoleRequest{
-		Run:  RunInfo{ID: "run-validation-fail", Iteration: 1},
-		Step: StepInfo{Index: 1, Name: "plan"},
-		Paths: RequestPaths{
-			WorkspaceDir: workingDir,
-			RunDir:       workingDir,
-		},
+		RunID:        "run-validation-fail",
+		RunIteration: 1,
+		StepIndex:    1,
+		StepName:     "plan",
+		WorkspaceDir: workingDir,
+		RunDir:       workingDir,
 	}
 
 	ctx := context.Background()
