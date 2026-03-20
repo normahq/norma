@@ -168,11 +168,18 @@ func TestWrapperAgentValidationCases(t *testing.T) {
 			wantInnerCalls:    1,
 		},
 		{
+			name:            "output_with_trailing_backticks_fails_validation",
+			input:           `{"input":"hello"}`,
+			output:          "analysis\n" + validStructuredOutputJSON + "\n```",
+			wantErrContains: "validate structured output",
+			wantInnerCalls:  2,
+		},
+		{
 			name:            "output_without_line_started_json_payload",
 			input:           `{"input":"hello"}`,
 			output:          "analysis " + validStructuredOutputJSON,
 			wantErrContains: "validate structured output",
-			wantInnerCalls:  1,
+			wantInnerCalls:  2,
 		},
 	}
 
@@ -229,9 +236,14 @@ func TestExtractOutputJSON(t *testing.T) {
 			want: `{"output":"done"}`,
 		},
 		{
-			name: "extract_takes_slice_from_first_line_started_json",
-			raw:  "notes\n" + `{"output":"done"}` + "\ntrailing",
-			want: `{"output":"done"}` + "\ntrailing",
+			name: "extract_allows_whitespace_after_json",
+			raw:  "notes\n" + `{"output":"done"}` + "\n  \t",
+			want: `{"output":"done"}`,
+		},
+		{
+			name:      "error_on_non_whitespace_after_json",
+			raw:       "notes\n" + `{"output":"done"}` + "\n```",
+			wantError: "non-whitespace content after JSON object",
 		},
 		{
 			name:      "error_when_no_line_started_json",
@@ -242,6 +254,11 @@ func TestExtractOutputJSON(t *testing.T) {
 			name:      "error_on_empty_output",
 			raw:       " \n\t ",
 			wantError: "output is empty",
+		},
+		{
+			name:      "error_on_unterminated_json_object",
+			raw:       "notes\n" + `{"output":"done"`,
+			wantError: "unterminated JSON object",
 		},
 	}
 
@@ -839,6 +856,55 @@ func TestRetryMatrix(t *testing.T) {
 
 		var callCount int32
 		invalidOutput := `{"invalid":"response"}`
+
+		inner := newMultiOutputAgent(t, []string{invalidOutput, invalidOutput}, &callCount, nil)
+		wrapped, err := NewAgent(inner, WithOutputValidationRetries(1))
+		if err != nil {
+			t.Fatalf("NewAgent() error = %v", err)
+		}
+
+		_, runErr := runSingleTurn(t, wrapped, `{"input":"hello"}`)
+		if runErr == nil {
+			t.Fatal("expected error after exhausted retries")
+		}
+		if !errors.Is(runErr, ErrStructuredOutputSchemaValidation) {
+			t.Fatalf("error should satisfy ErrStructuredOutputSchemaValidation, got %v", runErr)
+		}
+		if !errors.Is(runErr, ErrStructuredIOSchemaValidation) {
+			t.Fatalf("error should satisfy ErrStructuredIOSchemaValidation (umbrella), got %v", runErr)
+		}
+		if atomic.LoadInt32(&callCount) != 2 {
+			t.Errorf("expected 2 calls (initial + 1 retry), got %d", callCount)
+		}
+	})
+
+	t.Run("extraction_error_then_valid_retries", func(t *testing.T) {
+		t.Parallel()
+
+		var callCount int32
+		invalidOutput := "analysis\n" + validStructuredOutputJSON + "\n```"
+		validOutput := validStructuredOutputJSON
+
+		inner := newMultiOutputAgent(t, []string{invalidOutput, validOutput}, &callCount, nil)
+		wrapped, err := NewAgent(inner, WithOutputValidationRetries(1))
+		if err != nil {
+			t.Fatalf("NewAgent() error = %v", err)
+		}
+
+		_, runErr := runSingleTurn(t, wrapped, `{"input":"hello"}`)
+		if runErr != nil {
+			t.Fatalf("expected success after retry, got error: %v", runErr)
+		}
+		if atomic.LoadInt32(&callCount) != 2 {
+			t.Errorf("expected 2 calls (initial + retry), got %d", callCount)
+		}
+	})
+
+	t.Run("extraction_error_all_attempts_exhausted", func(t *testing.T) {
+		t.Parallel()
+
+		var callCount int32
+		invalidOutput := "analysis\n" + validStructuredOutputJSON + "\n```"
 
 		inner := newMultiOutputAgent(t, []string{invalidOutput, invalidOutput}, &callCount, nil)
 		wrapped, err := NewAgent(inner, WithOutputValidationRetries(1))

@@ -294,8 +294,10 @@ func (w *wrapperAgent) Run(ctx adkagent.InvocationContext) iter.Seq2[*session.Ev
 		var jsonOutput string
 		var lastOutputErr error
 		maxAttempts := w.outputValidationRetries + 1
+		attemptsPerformed := 0
 
 		for attempt := 1; attempt <= maxAttempts; attempt++ {
+			attemptsPerformed = attempt
 			logger.Debug().
 				Str("invocation_id", ctx.InvocationID()).
 				Int("attempt", attempt).
@@ -363,7 +365,8 @@ func (w *wrapperAgent) Run(ctx adkagent.InvocationContext) iter.Seq2[*session.Ev
 			logger.Debug().
 				Err(lastOutputErr).
 				Str("invocation_id", ctx.InvocationID()).
-				Int("attempts", maxAttempts).
+				Int("attempts", attemptsPerformed).
+				Int("max_attempts", maxAttempts).
 				Msg("output schema validation failed after all retries")
 			yield(nil, fmt.Errorf("validate structured output: %w", lastOutputErr))
 			return
@@ -453,7 +456,10 @@ func validateInputSchema(schema, rawInput string) error {
 func extractAndValidateOutputJSON(schema, rawOutput string) (string, error) {
 	candidate, err := extractOutputJSON(rawOutput)
 	if err != nil {
-		return "", fmt.Errorf("extract output JSON: %w", err)
+		return "", errors.Join(
+			ErrStructuredOutputSchemaValidation,
+			fmt.Errorf("extract output JSON: %w", err),
+		)
 	}
 	if err := validateJSONAgainstSchema(candidate, schema, "output"); err != nil {
 		return "", errors.Join(ErrStructuredOutputSchemaValidation, err)
@@ -503,12 +509,19 @@ func extractOutputJSON(raw string) (string, error) {
 		return "", fmt.Errorf("no JSON object found at byte start or line start")
 	}
 
-	candidate := raw[idx:]
-	if candidate == "" {
+	endIdx, err := findJSONObjectEnd(raw, idx)
+	if err != nil {
+		return "", err
+	}
+	if endIdx < idx {
 		return "", fmt.Errorf("JSON payload is empty")
 	}
 
-	return candidate, nil
+	if trailing := raw[endIdx+1:]; strings.TrimSpace(trailing) != "" {
+		return "", fmt.Errorf("non-whitespace content after JSON object")
+	}
+
+	return raw[idx : endIdx+1], nil
 }
 
 func firstLineStartedJSONObject(text string) int {
@@ -521,6 +534,47 @@ func firstLineStartedJSONObject(text string) int {
 		}
 	}
 	return -1
+}
+
+func findJSONObjectEnd(text string, start int) (int, error) {
+	if start < 0 || start >= len(text) || text[start] != '{' {
+		return -1, fmt.Errorf("JSON payload is empty")
+	}
+
+	depth := 0
+	inString := false
+	escaped := false
+
+	for i := start; i < len(text); i++ {
+		ch := text[i]
+		if inString {
+			if escaped {
+				escaped = false
+				continue
+			}
+			switch ch {
+			case '\\':
+				escaped = true
+			case '"':
+				inString = false
+			}
+			continue
+		}
+
+		switch ch {
+		case '"':
+			inString = true
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return i, nil
+			}
+		}
+	}
+
+	return -1, fmt.Errorf("unterminated JSON object")
 }
 
 func validateSchemaDefinition(schema, label string) error {

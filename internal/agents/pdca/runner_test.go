@@ -184,6 +184,49 @@ func TestAinvokeRunner_RunHandlesChunkedStructuredOutput(t *testing.T) {
 	assert.Equal(t, "done", resp.Progress.Title)
 }
 
+func TestAinvokeRunner_RunRejectsTrailingContentAfterJSON(t *testing.T) {
+	workingDir, err := os.MkdirTemp("", "norma-agent-test-*")
+	require.NoError(t, err)
+	defer func() { _ = os.RemoveAll(workingDir) }()
+
+	response := "Let me inspect first.\n" +
+		`{"status":"ok","summary":{"text":"success"},"progress":{"title":"done","details":[]}}` +
+		"\n```"
+	cfg := config.AgentConfig{
+		Type: config.AgentTypeGenericACP,
+		Cmd:  helperACPCommandChunked(t, response, 7),
+	}
+
+	runner, err := NewRunner(cfg, &dummyRole{}, nil)
+	require.NoError(t, err)
+
+	req := contracts.AgentRequest{
+		Run:  contracts.RunInfo{ID: "run-1", Iteration: 1},
+		Task: contracts.TaskInfo{ID: "task-1", Title: "title", Description: "desc", AcceptanceCriteria: []task.AcceptanceCriterion{{ID: "AC1", Text: "text"}}},
+		Step: contracts.StepInfo{Index: 1, Name: "plan"},
+		Paths: contracts.RequestPaths{
+			WorkspaceDir: workingDir,
+			RunDir:       workingDir,
+		},
+		Budgets: contracts.Budgets{
+			MaxIterations: 1,
+		},
+		Context: contracts.RequestContext{
+			Facts: make(map[string]any),
+			Links: []string{},
+		},
+		StopReasonsAllowed: []string{"budget_exceeded"},
+		Plan:               &plan.PlanInput{Task: &plan.PlanTaskID{Id: "task-1"}},
+	}
+
+	var events bytes.Buffer
+	_, _, exitCode, runErr := runner.Run(context.Background(), req, io.Discard, io.Discard, &events)
+	require.Error(t, runErr)
+	assert.NotEqual(t, 0, exitCode)
+	assert.Contains(t, runErr.Error(), "validate structured output")
+	assert.NotContains(t, runErr.Error(), "map agent response")
+}
+
 func TestAinvokeRunner_RunWritesErrorToStderr(t *testing.T) {
 	// For ACP agents, errors are usually reported via the protocol or connection failure.
 	// Here we simulate a connection failure (binary not found).
