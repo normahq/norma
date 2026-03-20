@@ -393,8 +393,8 @@ func (a *codexACPProxyAgent) sendUpdate(ctx context.Context, sessionID acp.Sessi
 	if conn == nil {
 		return errors.New("acp connection is not initialized")
 	}
-	if a.logger.Debug().Enabled() {
-		a.logger.Debug().
+	if a.logger.Trace().Enabled() {
+		a.logger.Trace().
 			Str("proto", "acp").
 			Str("session_id", string(sessionID)).
 			Str("update_type", sessionUpdateType(update)).
