@@ -19,6 +19,7 @@ import (
 	"github.com/metalagman/norma/internal/agents/pdca/roles/check"
 	"github.com/metalagman/norma/internal/agents/pdca/roles/do"
 	"github.com/metalagman/norma/internal/agents/pdca/roles/plan"
+	"github.com/metalagman/norma/internal/agents/roleagent"
 	"github.com/metalagman/norma/internal/config"
 	"github.com/metalagman/norma/internal/db"
 	"github.com/metalagman/norma/internal/git"
@@ -148,7 +149,7 @@ func (a *runtime) runRoleLoop(ctx context.Context, roleName string) func(ctx age
 	}
 }
 
-func (a *runtime) processRoleResult(ctx agent.InvocationContext, yield func(*session.Event, error) bool, roleName string, resp *contracts.AgentResponse, itNum int) {
+func (a *runtime) processRoleResult(ctx agent.InvocationContext, yield func(*session.Event, error) bool, roleName string, resp *roleagent.AgentResponse, itNum int) {
 	l := log.With().
 		Str("component", "pdca").
 		Str("agent_name", ctx.Agent().Name()).
@@ -156,33 +157,39 @@ func (a *runtime) processRoleResult(ctx agent.InvocationContext, yield func(*ses
 		Logger()
 
 	// Communicate results via session state
-	if roleName == RoleCheck && resp.Check != nil {
-		l.Debug().Str("verdict", resp.Check.Verdict.Status).Msg("setting check verdict in state")
-		if err := ctx.Session().State().Set("verdict", resp.Check.Verdict.Status); err != nil {
-			yield(nil, fmt.Errorf("set verdict in session state: %w", err))
-			return
-		}
-	}
-	if roleName == RoleAct && resp.Act != nil {
-		l.Debug().Str("decision", resp.Act.Decision).Msg("setting act decision in state")
-		if err := ctx.Session().State().Set("decision", resp.Act.Decision); err != nil {
-			yield(nil, fmt.Errorf("set decision in session state: %w", err))
-			return
-		}
-		if resp.Act.Decision == "close" {
-			l.Info().Msg("act decision is close, stopping loop")
-			if err := ctx.Session().State().Set("stop", true); err != nil {
-				yield(nil, fmt.Errorf("set stop flag in session state: %w", err))
+	if roleName == RoleCheck && resp.CheckOutput != nil {
+		var checkOut roleagent.CheckOutput
+		if err := json.Unmarshal(resp.CheckOutput, &checkOut); err == nil {
+			l.Debug().Str("verdict", checkOut.Verdict.Status).Msg("setting check verdict in state")
+			if err := ctx.Session().State().Set("verdict", checkOut.Verdict.Status); err != nil {
+				yield(nil, fmt.Errorf("set verdict in session state: %w", err))
 				return
 			}
-			ev := session.NewEvent(ctx.InvocationID())
-			ev.Actions.Escalate = true
-			_ = yield(ev, nil)
-			return
 		}
-		if err := ctx.Session().State().Set("iteration", itNum+1); err != nil {
-			yield(nil, fmt.Errorf("update iteration in session state: %w", err))
-			return
+	}
+	if roleName == RoleAct && resp.ActOutput != nil {
+		var actOut roleagent.ActOutput
+		if err := json.Unmarshal(resp.ActOutput, &actOut); err == nil {
+			l.Debug().Str("decision", actOut.Decision).Msg("setting act decision in state")
+			if err := ctx.Session().State().Set("decision", actOut.Decision); err != nil {
+				yield(nil, fmt.Errorf("set decision in session state: %w", err))
+				return
+			}
+			if actOut.Decision == "close" {
+				l.Info().Msg("act decision is close, stopping loop")
+				if err := ctx.Session().State().Set("stop", true); err != nil {
+					yield(nil, fmt.Errorf("set stop flag in session state: %w", err))
+					return
+				}
+				ev := session.NewEvent(ctx.InvocationID())
+				ev.Actions.Escalate = true
+				_ = yield(ev, nil)
+				return
+			}
+			if err := ctx.Session().State().Set("iteration", itNum+1); err != nil {
+				yield(nil, fmt.Errorf("update iteration in session state: %w", err))
+				return
+			}
 		}
 	}
 	if resp.Status != "ok" {
@@ -213,7 +220,7 @@ func (a *runtime) shouldStop(ctx agent.InvocationContext) bool {
 	return false
 }
 
-func (a *runtime) runStep(ctx agent.InvocationContext, iteration int, roleName string) (*contracts.AgentResponse, error) {
+func (a *runtime) runStep(ctx agent.InvocationContext, iteration int, roleName string) (*roleagent.AgentResponse, error) {
 	if a.tracker != nil {
 		workflowState := ""
 		switch roleName {
@@ -256,26 +263,36 @@ func (a *runtime) runStep(ctx agent.InvocationContext, iteration int, roleName s
 				if hasLabel {
 					log.Info().Str("task_id", a.runInput.TaskID).Str("role", roleName).Msg("skipping step due to label")
 					state := a.getTaskState(ctx)
-					resp := &contracts.AgentResponse{
+					resp := &roleagent.AgentResponse{
 						Status: "ok",
-						Summary: contracts.ResponseSummary{
+						Summary: roleagent.ResponseSummary{
 							Text: fmt.Sprintf("Skipped %s step: already completed (label %s found)", roleName, skipLabel),
 						},
-						Progress: contracts.StepProgress{
+						Progress: roleagent.StepProgress{
 							Title:   fmt.Sprintf("%s skipped (resumed)", roleName),
 							Details: []string{fmt.Sprintf("Label %s is present on task", skipLabel)},
 						},
 					}
 					// Restore state from task notes if possible
-					switch roleName {
-					case RolePlan:
-						resp.Plan = state.Plan
-					case RoleDo:
-						resp.Do = state.Do
-					case RoleCheck:
-						resp.Check = state.Check
-					case RoleAct:
-						resp.Act = state.Act
+					if state.Plan != nil {
+						if data, err := json.Marshal(state.Plan); err == nil {
+							resp.PlanOutput = data
+						}
+					}
+					if state.Do != nil {
+						if data, err := json.Marshal(state.Do); err == nil {
+							resp.DoOutput = data
+						}
+					}
+					if state.Check != nil {
+						if data, err := json.Marshal(state.Check); err == nil {
+							resp.CheckOutput = data
+						}
+					}
+					if state.Act != nil {
+						if data, err := json.Marshal(state.Act); err == nil {
+							resp.ActOutput = data
+						}
 					}
 
 					// Increment step index
@@ -458,8 +475,13 @@ func (a *runtime) runStep(ctx agent.InvocationContext, iteration int, roleName s
 
 	multiStdout, multiStderr := agentOutputWriters(logging.DebugEnabled(), stdoutFile, stderrFile)
 
+	reqBytes, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
+
 	startTime := time.Now()
-	lastOut, _, exitCode, err := runner.Run(ctx, req, multiStdout, multiStderr, eventsFile)
+	lastOut, _, exitCode, err := runner.Run(ctx, reqBytes, multiStdout, multiStderr, eventsFile)
 	if err != nil {
 		return nil, fmt.Errorf("run role %q agent (exit code %d): %w", roleName, exitCode, err)
 	}
@@ -568,7 +590,7 @@ func (a *runtime) baseRequest(iteration, index int, role string) contracts.Agent
 	}
 }
 
-func validateStepResponse(roleName string, resp *contracts.AgentResponse) error {
+func validateStepResponse(roleName string, resp *roleagent.AgentResponse) error {
 	if resp == nil {
 		return fmt.Errorf("nil response for role %q", roleName)
 	}
@@ -584,19 +606,19 @@ func validateStepResponse(roleName string, resp *contracts.AgentResponse) error 
 
 	switch roleName {
 	case RolePlan:
-		if resp.Plan == nil {
+		if resp.PlanOutput == nil {
 			return fmt.Errorf("plan step returned status ok without plan output")
 		}
 	case RoleDo:
-		if resp.Do == nil {
+		if resp.DoOutput == nil {
 			return fmt.Errorf("do step returned status ok without do output")
 		}
 	case RoleCheck:
-		if resp.Check == nil {
+		if resp.CheckOutput == nil {
 			return fmt.Errorf("check step returned status ok without check output")
 		}
 	case RoleAct:
-		if resp.Act == nil {
+		if resp.ActOutput == nil {
 			return fmt.Errorf("act step returned status ok without act output")
 		}
 	default:
@@ -785,7 +807,7 @@ func coerceTaskState(value any) *contracts.TaskState {
 	}
 }
 
-func (a *runtime) updateTaskState(ctx agent.InvocationContext, resp *contracts.AgentResponse, role string, iteration, index int) error {
+func (a *runtime) updateTaskState(ctx agent.InvocationContext, resp *roleagent.AgentResponse, role string, iteration, index int) error {
 	if resp == nil {
 		return fmt.Errorf("nil agent response for role %q", role)
 	}
@@ -810,16 +832,32 @@ func (a *runtime) updateTaskState(ctx agent.InvocationContext, resp *contracts.A
 	return nil
 }
 
-func applyAgentResponseToTaskState(state *contracts.TaskState, resp *contracts.AgentResponse, role, runID string, iteration, index int, now time.Time) {
+func applyAgentResponseToTaskState(state *contracts.TaskState, resp *roleagent.AgentResponse, role, runID string, iteration, index int, now time.Time) {
 	switch role {
 	case RolePlan:
-		state.Plan = resp.Plan
+		if resp.PlanOutput != nil {
+			if err := json.Unmarshal(resp.PlanOutput, &state.Plan); err != nil {
+				log.Warn().Err(err).Msg("unmarshal plan output to task state")
+			}
+		}
 	case RoleDo:
-		state.Do = resp.Do
+		if resp.DoOutput != nil {
+			if err := json.Unmarshal(resp.DoOutput, &state.Do); err != nil {
+				log.Warn().Err(err).Msg("unmarshal do output to task state")
+			}
+		}
 	case RoleCheck:
-		state.Check = resp.Check
+		if resp.CheckOutput != nil {
+			if err := json.Unmarshal(resp.CheckOutput, &state.Check); err != nil {
+				log.Warn().Err(err).Msg("unmarshal check output to task state")
+			}
+		}
 	case RoleAct:
-		state.Act = resp.Act
+		if resp.ActOutput != nil {
+			if err := json.Unmarshal(resp.ActOutput, &state.Act); err != nil {
+				log.Warn().Err(err).Msg("unmarshal act output to task state")
+			}
+		}
 	}
 
 	entry := contracts.JournalEntry{

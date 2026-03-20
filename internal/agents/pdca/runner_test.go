@@ -16,37 +16,34 @@ import (
 	acp "github.com/coder/acp-go-sdk"
 	"github.com/metalagman/norma/internal/adk/agentconfig"
 	"github.com/metalagman/norma/internal/adk/structuredio"
-	"github.com/metalagman/norma/internal/agents/pdca/contracts"
-	"github.com/metalagman/norma/internal/agents/pdca/roles/plan"
+	"github.com/metalagman/norma/internal/agents/roleagent"
 	"github.com/metalagman/norma/internal/config"
-	"github.com/metalagman/norma/internal/task"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 type dummyRole struct{}
 
-func (r *dummyRole) Name() string                                    { return "plan" }
-func (r *dummyRole) InputSchema() string                             { return "{}" }
-func (r *dummyRole) OutputSchema() string                            { return "{}" }
-func (r *dummyRole) Prompt(_ contracts.AgentRequest) (string, error) { return "prompt", nil }
-func (r *dummyRole) MapRequest(req contracts.AgentRequest) (any, error) {
+func (r *dummyRole) Name() string { return "plan" }
+func (r *dummyRole) Schemas() roleagent.SchemaPair {
+	return roleagent.SchemaPair{InputSchema: "{}", OutputSchema: "{}"}
+}
+func (r *dummyRole) Prompt(_ roleagent.AgentRequest) (string, error) { return "prompt", nil }
+func (r *dummyRole) MapRequest(req roleagent.AgentRequest) (any, error) {
 	return req, nil
 }
-func (r *dummyRole) MapResponse(outBytes []byte) (contracts.AgentResponse, error) {
-	var resp contracts.AgentResponse
+func (r *dummyRole) MapResponse(outBytes []byte) (roleagent.AgentResponse, error) {
+	var resp roleagent.AgentResponse
 	err := json.Unmarshal(outBytes, &resp)
 	return resp, err
 }
-func (r *dummyRole) SetRunner(_ any) {}
-func (r *dummyRole) Runner() any     { return nil }
 
 type failingMapRole struct {
 	dummyRole
 }
 
-func (r *failingMapRole) MapResponse(_ []byte) (contracts.AgentResponse, error) {
-	return contracts.AgentResponse{}, errors.New("map failed")
+func (r *failingMapRole) MapResponse(_ []byte) (roleagent.AgentResponse, error) {
+	return roleagent.AgentResponse{}, errors.New("map failed")
 }
 
 func TestNewRunner(t *testing.T) {
@@ -94,35 +91,18 @@ func TestAinvokeRunner_Run(t *testing.T) {
 	runner, err := NewRunner(cfg, &dummyRole{}, nil)
 	require.NoError(t, err)
 
-	req := contracts.AgentRequest{
-		Run:  contracts.RunInfo{ID: "run-1", Iteration: 1},
-		Task: contracts.TaskInfo{ID: "task-1", Title: "title", Description: "desc", AcceptanceCriteria: []task.AcceptanceCriterion{{ID: "AC1", Text: "text"}}},
-		Step: contracts.StepInfo{Index: 1, Name: "plan"},
-		Paths: contracts.RequestPaths{
-			WorkspaceDir: workingDir,
-			RunDir:       workingDir,
-		},
-		Budgets: contracts.Budgets{
-			MaxIterations: 1,
-		},
-		Context: contracts.RequestContext{
-			Facts: make(map[string]any),
-			Links: []string{},
-		},
-		StopReasonsAllowed: []string{"budget_exceeded"},
-		Plan:               &plan.PlanInput{Task: &plan.PlanTaskID{Id: "task-1"}},
-	}
+	reqJSON := []byte(`{"run":{"id":"run-1","iteration":1},"task":{"id":"task-1","title":"title","description":"desc","acceptance_criteria":[{"id":"AC1","text":"text"}]},"step":{"index":1,"name":"plan"},"paths":{"workspace_dir":"` + workingDir + `","run_dir":"` + workingDir + `"},"budgets":{"max_iterations":1},"context":{"facts":{},"links":[]},"stop_reasons_allowed":["budget_exceeded"],"plan_input":{"task":{"id":"task-1"}}}`)
 
 	ctx := context.Background()
 	var events bytes.Buffer
-	stdout, stderr, exitCode, err := runner.Run(ctx, req, io.Discard, io.Discard, &events)
+	stdout, stderr, exitCode, err := runner.Run(ctx, reqJSON, io.Discard, io.Discard, &events)
 	assert.NoError(t, err)
 	assert.Equal(t, 0, exitCode)
 	assert.Empty(t, stderr)
 	assert.NotEmpty(t, stdout)
 	assert.NotEmpty(t, events.String())
 
-	var resp contracts.AgentResponse
+	var resp roleagent.AgentResponse
 	err = json.Unmarshal(stdout, &resp)
 	assert.NoError(t, err)
 	assert.Equal(t, "ok", resp.Status)
@@ -150,33 +130,16 @@ func TestAinvokeRunner_RunHandlesChunkedStructuredOutput(t *testing.T) {
 	runner, err := NewRunner(cfg, &dummyRole{}, nil)
 	require.NoError(t, err)
 
-	req := contracts.AgentRequest{
-		Run:  contracts.RunInfo{ID: "run-1", Iteration: 1},
-		Task: contracts.TaskInfo{ID: "task-1", Title: "title", Description: "desc", AcceptanceCriteria: []task.AcceptanceCriterion{{ID: "AC1", Text: "text"}}},
-		Step: contracts.StepInfo{Index: 1, Name: "plan"},
-		Paths: contracts.RequestPaths{
-			WorkspaceDir: workingDir,
-			RunDir:       workingDir,
-		},
-		Budgets: contracts.Budgets{
-			MaxIterations: 1,
-		},
-		Context: contracts.RequestContext{
-			Facts: make(map[string]any),
-			Links: []string{},
-		},
-		StopReasonsAllowed: []string{"budget_exceeded"},
-		Plan:               &plan.PlanInput{Task: &plan.PlanTaskID{Id: "task-1"}},
-	}
+	reqJSON := []byte(`{"run":{"id":"run-1","iteration":1},"task":{"id":"task-1","title":"title","description":"desc","acceptance_criteria":[{"id":"AC1","text":"text"}]},"step":{"index":1,"name":"plan"},"paths":{"workspace_dir":"` + workingDir + `","run_dir":"` + workingDir + `"},"budgets":{"max_iterations":1},"context":{"facts":{},"links":[]},"stop_reasons_allowed":["budget_exceeded"],"plan_input":{"task":{"id":"task-1"}}}`)
 
 	var events bytes.Buffer
-	stdout, stderr, exitCode, runErr := runner.Run(context.Background(), req, io.Discard, io.Discard, &events)
+	stdout, stderr, exitCode, runErr := runner.Run(context.Background(), reqJSON, io.Discard, io.Discard, &events)
 	require.NoError(t, runErr)
 	assert.Equal(t, 0, exitCode)
 	assert.Empty(t, stderr)
 	assert.NotEmpty(t, stdout)
 
-	var resp contracts.AgentResponse
+	var resp roleagent.AgentResponse
 	err = json.Unmarshal(stdout, &resp)
 	require.NoError(t, err)
 	assert.Equal(t, "ok", resp.Status)
@@ -200,27 +163,10 @@ func TestAinvokeRunner_RunRejectsTrailingContentAfterMarkdownFence(t *testing.T)
 	runner, err := NewRunner(cfg, &dummyRole{}, nil)
 	require.NoError(t, err)
 
-	req := contracts.AgentRequest{
-		Run:  contracts.RunInfo{ID: "run-1", Iteration: 1},
-		Task: contracts.TaskInfo{ID: "task-1", Title: "title", Description: "desc", AcceptanceCriteria: []task.AcceptanceCriterion{{ID: "AC1", Text: "text"}}},
-		Step: contracts.StepInfo{Index: 1, Name: "plan"},
-		Paths: contracts.RequestPaths{
-			WorkspaceDir: workingDir,
-			RunDir:       workingDir,
-		},
-		Budgets: contracts.Budgets{
-			MaxIterations: 1,
-		},
-		Context: contracts.RequestContext{
-			Facts: make(map[string]any),
-			Links: []string{},
-		},
-		StopReasonsAllowed: []string{"budget_exceeded"},
-		Plan:               &plan.PlanInput{Task: &plan.PlanTaskID{Id: "task-1"}},
-	}
+	reqJSON := []byte(`{"run":{"id":"run-1","iteration":1},"task":{"id":"task-1","title":"title","description":"desc","acceptance_criteria":[{"id":"AC1","text":"text"}]},"step":{"index":1,"name":"plan"},"paths":{"workspace_dir":"` + workingDir + `","run_dir":"` + workingDir + `"},"budgets":{"max_iterations":1},"context":{"facts":{},"links":[]},"stop_reasons_allowed":["budget_exceeded"],"plan_input":{"task":{"id":"task-1"}}}`)
 
 	var events bytes.Buffer
-	_, _, exitCode, runErr := runner.Run(context.Background(), req, io.Discard, io.Discard, &events)
+	_, _, exitCode, runErr := runner.Run(context.Background(), reqJSON, io.Discard, io.Discard, &events)
 	require.Error(t, runErr)
 	assert.NotEqual(t, 0, exitCode)
 	assert.Contains(t, runErr.Error(), "validate structured output")
@@ -238,21 +184,11 @@ func TestAinvokeRunner_RunWritesErrorToStderr(t *testing.T) {
 	runner, err := NewRunner(cfg, &dummyRole{}, nil)
 	require.NoError(t, err)
 
-	req := contracts.AgentRequest{
-		Run:  contracts.RunInfo{ID: "run-1", Iteration: 1},
-		Task: contracts.TaskInfo{ID: "task-1", Title: "title", Description: "desc", AcceptanceCriteria: []task.AcceptanceCriterion{{ID: "AC1", Text: "text"}}},
-		Step: contracts.StepInfo{Index: 1, Name: "plan"},
-		Paths: contracts.RequestPaths{
-			WorkspaceDir: t.TempDir(),
-			RunDir:       t.TempDir(),
-		},
-		Budgets:            contracts.Budgets{MaxIterations: 1},
-		StopReasonsAllowed: []string{"budget_exceeded"},
-	}
+	reqJSON := []byte(`{"run":{"id":"run-1","iteration":1},"task":{"id":"task-1","title":"title","description":"desc","acceptance_criteria":[{"id":"AC1","text":"text"}]},"step":{"index":1,"name":"plan"},"paths":{"workspace_dir":"` + t.TempDir() + `","run_dir":"` + t.TempDir() + `"},"budgets":{"max_iterations":1},"context":{"facts":{},"links":[]},"stop_reasons_allowed":["budget_exceeded"]}`)
 
 	ctx := context.Background()
 	var stderr bytes.Buffer
-	_, _, exitCode, err := runner.Run(ctx, req, io.Discard, &stderr, io.Discard)
+	_, _, exitCode, err := runner.Run(ctx, reqJSON, io.Discard, &stderr, io.Discard)
 	assert.Error(t, err)
 	assert.NotEqual(t, 0, exitCode)
 }
@@ -266,19 +202,9 @@ func TestAinvokeRunner_RunReturnsErrorWhenResponseMappingFails(t *testing.T) {
 	runner, err := NewRunner(cfg, &failingMapRole{}, nil)
 	require.NoError(t, err)
 
-	req := contracts.AgentRequest{
-		Run:  contracts.RunInfo{ID: "run-1", Iteration: 1},
-		Task: contracts.TaskInfo{ID: "task-1", Title: "title", Description: "desc", AcceptanceCriteria: []task.AcceptanceCriterion{{ID: "AC1", Text: "text"}}},
-		Step: contracts.StepInfo{Index: 1, Name: "plan"},
-		Paths: contracts.RequestPaths{
-			WorkspaceDir: t.TempDir(),
-			RunDir:       t.TempDir(),
-		},
-		Budgets:            contracts.Budgets{MaxIterations: 1},
-		StopReasonsAllowed: []string{"budget_exceeded"},
-	}
+	reqJSON := []byte(`{"run":{"id":"run-1","iteration":1},"task":{"id":"task-1","title":"title","description":"desc","acceptance_criteria":[{"id":"AC1","text":"text"}]},"step":{"index":1,"name":"plan"},"paths":{"workspace_dir":"` + t.TempDir() + `","run_dir":"` + t.TempDir() + `"},"budgets":{"max_iterations":1},"context":{"facts":{},"links":[]},"stop_reasons_allowed":["budget_exceeded"]}`)
 
-	_, _, exitCode, err := runner.Run(context.Background(), req, io.Discard, io.Discard, io.Discard)
+	_, _, exitCode, err := runner.Run(context.Background(), reqJSON, io.Discard, io.Discard, io.Discard)
 	require.Error(t, err)
 	assert.Equal(t, 0, exitCode)
 	assert.Contains(t, err.Error(), "map agent response")
@@ -294,20 +220,10 @@ func TestAinvokeRunner_RunWritesErrorEventLogOnPromptFailure(t *testing.T) {
 	runner, err := NewRunner(cfg, &dummyRole{}, nil)
 	require.NoError(t, err)
 
-	req := contracts.AgentRequest{
-		Run:  contracts.RunInfo{ID: "run-1", Iteration: 1},
-		Task: contracts.TaskInfo{ID: "task-1", Title: "title", Description: "desc", AcceptanceCriteria: []task.AcceptanceCriterion{{ID: "AC1", Text: "text"}}},
-		Step: contracts.StepInfo{Index: 1, Name: "plan"},
-		Paths: contracts.RequestPaths{
-			WorkspaceDir: t.TempDir(),
-			RunDir:       t.TempDir(),
-		},
-		Budgets:            contracts.Budgets{MaxIterations: 1},
-		StopReasonsAllowed: []string{"budget_exceeded"},
-	}
+	reqJSON := []byte(`{"run":{"id":"run-1","iteration":1},"task":{"id":"task-1","title":"title","description":"desc","acceptance_criteria":[{"id":"AC1","text":"text"}]},"step":{"index":1,"name":"plan"},"paths":{"workspace_dir":"` + t.TempDir() + `","run_dir":"` + t.TempDir() + `"},"budgets":{"max_iterations":1},"context":{"facts":{},"links":[]},"stop_reasons_allowed":["budget_exceeded"]}`)
 
 	var events bytes.Buffer
-	_, _, exitCode, err := runner.Run(context.Background(), req, io.Discard, io.Discard, &events)
+	_, _, exitCode, err := runner.Run(context.Background(), reqJSON, io.Discard, io.Discard, &events)
 	require.Error(t, err)
 	assert.NotEqual(t, 0, exitCode)
 
@@ -499,21 +415,13 @@ type roleWithPlanOutput struct {
 	dummyRole
 }
 
-func (r *roleWithPlanOutput) MapResponse(outBytes []byte) (contracts.AgentResponse, error) {
-	var resp contracts.AgentResponse
+func (r *roleWithPlanOutput) MapResponse(outBytes []byte) (roleagent.AgentResponse, error) {
+	var resp roleagent.AgentResponse
 	err := json.Unmarshal(outBytes, &resp)
 	if err != nil {
 		return resp, err
 	}
-	resp.Plan = &plan.PlanOutput{
-		WorkPlan: &plan.PlanWorkPlan{
-			TimeboxMinutes: 30,
-			DoSteps:        []plan.PlanDoStep{{Id: "DO-1", Text: "test step", TargetsAcIds: []string{"AC-1"}}},
-		},
-		AcceptanceCriteria: &plan.PlanOutputAcceptanceCriteria{
-			Effective: []plan.EffectiveAcceptanceCriteria{{Id: "AC-1", Text: "test", Origin: "baseline", Checks: []plan.CriterionCheck{}}},
-		},
-	}
+	resp.PlanOutput = []byte(`{"acceptance_criteria":{"effective":[{"id":"AC-1","text":"test","origin":"baseline","checks":[]}]},"work_plan":{"timebox_minutes":30,"do_steps":[{"id":"DO-1","text":"test step","targets_ac_ids":["AC-1"]}]}}`)
 	return resp, nil
 }
 
@@ -530,38 +438,18 @@ func TestAinvokeRunner_RunPreservesPlanOutput(t *testing.T) {
 	runner, err := NewRunner(cfg, &roleWithPlanOutput{}, nil)
 	require.NoError(t, err)
 
-	req := contracts.AgentRequest{
-		Run:  contracts.RunInfo{ID: "run-1", Iteration: 1},
-		Task: contracts.TaskInfo{ID: "task-1", Title: "title", Description: "desc", AcceptanceCriteria: []task.AcceptanceCriterion{{ID: "AC1", Text: "text"}}},
-		Step: contracts.StepInfo{Index: 1, Name: "plan"},
-		Paths: contracts.RequestPaths{
-			WorkspaceDir: workingDir,
-			RunDir:       workingDir,
-		},
-		Budgets: contracts.Budgets{
-			MaxIterations: 1,
-		},
-		Context: contracts.RequestContext{
-			Facts: make(map[string]any),
-			Links: []string{},
-		},
-		StopReasonsAllowed: []string{"budget_exceeded"},
-		Plan:               &plan.PlanInput{Task: &plan.PlanTaskID{Id: "task-1"}},
-	}
+	reqJSON := []byte(`{"run":{"id":"run-1","iteration":1},"task":{"id":"task-1","title":"title","description":"desc","acceptance_criteria":[{"id":"AC1","text":"text"}]},"step":{"index":1,"name":"plan"},"paths":{"workspace_dir":"` + workingDir + `","run_dir":"` + workingDir + `"},"budgets":{"max_iterations":1},"context":{"facts":{},"links":[]},"stop_reasons_allowed":["budget_exceeded"],"plan_input":{"task":{"id":"task-1"}}}`)
 
 	ctx := context.Background()
-	stdout, stderr, exitCode, err := runner.Run(ctx, req, io.Discard, io.Discard, io.Discard)
+	stdout, stderr, exitCode, err := runner.Run(ctx, reqJSON, io.Discard, io.Discard, io.Discard)
 	assert.NoError(t, err)
 	assert.Equal(t, 0, exitCode)
 	assert.Empty(t, stderr)
 	assert.NotEmpty(t, stdout)
 
-	var resp contracts.AgentResponse
+	var resp roleagent.AgentResponse
 	err = json.Unmarshal(stdout, &resp)
 	assert.NoError(t, err)
 	assert.Equal(t, "ok", resp.Status)
-	require.NotNil(t, resp.Plan, "plan_output should be preserved")
-	require.NotNil(t, resp.Plan.WorkPlan)
-	assert.Equal(t, int64(30), resp.Plan.WorkPlan.TimeboxMinutes)
-	assert.Len(t, resp.Plan.WorkPlan.DoSteps, 1)
+	require.NotNil(t, resp.PlanOutput, "plan_output should be preserved")
 }

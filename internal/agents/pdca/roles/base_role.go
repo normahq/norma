@@ -6,46 +6,46 @@ import (
 	"fmt"
 	"text/template"
 
-	"github.com/metalagman/norma/internal/agents/pdca/contracts"
+	"github.com/metalagman/norma/internal/agents/roleagent"
 )
 
 //go:embed common.gotmpl
 var commonPromptTemplate string
 
 type baseRole struct {
-	name         string
-	inputSchema  string
-	outputSchema string
-	baseTmpl     *template.Template
-	roleTmpl     *template.Template
+	name     string
+	schemas  roleagent.SchemaPair
+	baseTmpl *template.Template
+	roleTmpl *template.Template
 }
 
 func newBaseRole(name, inputSchema, outputSchema, roleTmplStr string) *baseRole {
 	baseTmpl := template.Must(template.New(name + "-base").Parse(commonPromptTemplate))
 	roleTmpl := template.Must(template.New(name).Parse(roleTmplStr))
 	return &baseRole{
-		name:         name,
-		inputSchema:  inputSchema,
-		outputSchema: outputSchema,
-		baseTmpl:     baseTmpl,
-		roleTmpl:     roleTmpl,
+		name: name,
+		schemas: roleagent.SchemaPair{
+			InputSchema:  inputSchema,
+			OutputSchema: outputSchema,
+		},
+		baseTmpl: baseTmpl,
+		roleTmpl: roleTmpl,
 	}
 }
 
-func (r *baseRole) Name() string         { return r.name }
-func (r *baseRole) InputSchema() string  { return r.inputSchema }
-func (r *baseRole) OutputSchema() string { return r.outputSchema }
+func (r *baseRole) Name() string                  { return r.name }
+func (r *baseRole) Schemas() roleagent.SchemaPair { return r.schemas }
 
-func (r *baseRole) Prompt(req contracts.AgentRequest) (string, error) {
+func (r *baseRole) Prompt(req roleagent.AgentRequest) (string, error) {
 	var baseBuf bytes.Buffer
 	if err := r.baseTmpl.Execute(&baseBuf, struct {
-		Request contracts.AgentRequest
+		Request roleagent.AgentRequest
 	}{Request: req}); err != nil {
 		return "", fmt.Errorf("execute base prompt template: %w", err)
 	}
 
 	data := struct {
-		Request      contracts.AgentRequest
+		Request      roleagent.AgentRequest
 		CommonPrompt string
 	}{
 		Request:      req,

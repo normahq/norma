@@ -13,9 +13,7 @@ import (
 
 	"github.com/metalagman/norma/internal/agents/pdca/contracts"
 	"github.com/metalagman/norma/internal/agents/pdca/roles/act"
-	"github.com/metalagman/norma/internal/agents/pdca/roles/check"
-	"github.com/metalagman/norma/internal/agents/pdca/roles/do"
-	"github.com/metalagman/norma/internal/agents/pdca/roles/plan"
+	"github.com/metalagman/norma/internal/agents/roleagent"
 	"github.com/metalagman/norma/internal/config"
 )
 
@@ -97,16 +95,14 @@ func TestApplyAgentResponseToTaskStateActPersistsOutputAndJournal(t *testing.T) 
 	t.Parallel()
 
 	state := &contracts.TaskState{}
-	resp := &contracts.AgentResponse{
+	resp := &roleagent.AgentResponse{
 		Status:     "ok",
 		StopReason: "none",
-		Progress: contracts.StepProgress{
+		Progress: roleagent.StepProgress{
 			Title:   "Act decision applied",
 			Details: []string{"Decision close"},
 		},
-		Act: &act.ActOutput{
-			Decision: "close",
-		},
+		ActOutput: []byte(`{"decision":"close"}`),
 	}
 
 	ts := time.Date(2026, time.February, 12, 13, 14, 15, 0, time.UTC)
@@ -147,15 +143,13 @@ func TestApplyAgentResponseToTaskStateDefaultsJournalTitle(t *testing.T) {
 	t.Parallel()
 
 	state := &contracts.TaskState{}
-	resp := &contracts.AgentResponse{
+	resp := &roleagent.AgentResponse{
 		Status:     "ok",
 		StopReason: "none",
-		Progress: contracts.StepProgress{
+		Progress: roleagent.StepProgress{
 			Details: []string{"no explicit title"},
 		},
-		Act: &act.ActOutput{
-			Decision: "replan",
-		},
+		ActOutput: []byte(`{"decision":"replan"}`),
 	}
 
 	ts := time.Date(2026, time.February, 12, 13, 14, 15, 0, time.UTC)
@@ -233,22 +227,22 @@ func TestValidateStepResponse(t *testing.T) {
 	tests := []struct {
 		name    string
 		role    string
-		resp    *contracts.AgentResponse
+		resp    *roleagent.AgentResponse
 		wantErr bool
 	}{
 		{
 			name: "plan ok with payload",
 			role: RolePlan,
-			resp: &contracts.AgentResponse{
-				Status: "ok",
-				Plan:   &plan.PlanOutput{},
+			resp: &roleagent.AgentResponse{
+				Status:     "ok",
+				PlanOutput: []byte(`{}`),
 			},
 			wantErr: false,
 		},
 		{
 			name: "plan ok missing payload",
 			role: RolePlan,
-			resp: &contracts.AgentResponse{
+			resp: &roleagent.AgentResponse{
 				Status: "ok",
 			},
 			wantErr: true,
@@ -256,7 +250,7 @@ func TestValidateStepResponse(t *testing.T) {
 		{
 			name: "plan stop without payload",
 			role: RolePlan,
-			resp: &contracts.AgentResponse{
+			resp: &roleagent.AgentResponse{
 				Status: "stop",
 			},
 			wantErr: false,
@@ -264,7 +258,7 @@ func TestValidateStepResponse(t *testing.T) {
 		{
 			name: "plan error status",
 			role: RolePlan,
-			resp: &contracts.AgentResponse{
+			resp: &roleagent.AgentResponse{
 				Status: "error",
 			},
 			wantErr: false,
@@ -272,16 +266,16 @@ func TestValidateStepResponse(t *testing.T) {
 		{
 			name: "do ok with payload",
 			role: RoleDo,
-			resp: &contracts.AgentResponse{
-				Status: "ok",
-				Do:     &do.DoOutput{},
+			resp: &roleagent.AgentResponse{
+				Status:   "ok",
+				DoOutput: []byte(`{}`),
 			},
 			wantErr: false,
 		},
 		{
 			name: "do ok missing payload",
 			role: RoleDo,
-			resp: &contracts.AgentResponse{
+			resp: &roleagent.AgentResponse{
 				Status: "ok",
 			},
 			wantErr: true,
@@ -289,7 +283,7 @@ func TestValidateStepResponse(t *testing.T) {
 		{
 			name: "do stop without payload",
 			role: RoleDo,
-			resp: &contracts.AgentResponse{
+			resp: &roleagent.AgentResponse{
 				Status: "stop",
 			},
 			wantErr: false,
@@ -297,7 +291,7 @@ func TestValidateStepResponse(t *testing.T) {
 		{
 			name: "do error status",
 			role: RoleDo,
-			resp: &contracts.AgentResponse{
+			resp: &roleagent.AgentResponse{
 				Status: "error",
 			},
 			wantErr: false,
@@ -305,16 +299,16 @@ func TestValidateStepResponse(t *testing.T) {
 		{
 			name: "check ok with payload",
 			role: RoleCheck,
-			resp: &contracts.AgentResponse{
-				Status: "ok",
-				Check:  &check.CheckOutput{},
+			resp: &roleagent.AgentResponse{
+				Status:      "ok",
+				CheckOutput: []byte(`{}`),
 			},
 			wantErr: false,
 		},
 		{
 			name: "check ok missing payload",
 			role: RoleCheck,
-			resp: &contracts.AgentResponse{
+			resp: &roleagent.AgentResponse{
 				Status: "ok",
 			},
 			wantErr: true,
@@ -322,7 +316,7 @@ func TestValidateStepResponse(t *testing.T) {
 		{
 			name: "check error status",
 			role: RoleCheck,
-			resp: &contracts.AgentResponse{
+			resp: &roleagent.AgentResponse{
 				Status: "error",
 			},
 			wantErr: false,
@@ -330,16 +324,16 @@ func TestValidateStepResponse(t *testing.T) {
 		{
 			name: "act ok with payload",
 			role: RoleAct,
-			resp: &contracts.AgentResponse{
-				Status: "ok",
-				Act:    &act.ActOutput{},
+			resp: &roleagent.AgentResponse{
+				Status:    "ok",
+				ActOutput: []byte(`{}`),
 			},
 			wantErr: false,
 		},
 		{
 			name: "act ok missing payload",
 			role: RoleAct,
-			resp: &contracts.AgentResponse{
+			resp: &roleagent.AgentResponse{
 				Status: "ok",
 			},
 			wantErr: true,
@@ -347,7 +341,7 @@ func TestValidateStepResponse(t *testing.T) {
 		{
 			name: "unknown role",
 			role: "unknown",
-			resp: &contracts.AgentResponse{
+			resp: &roleagent.AgentResponse{
 				Status: "ok",
 			},
 			wantErr: true,
