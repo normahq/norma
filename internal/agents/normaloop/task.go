@@ -142,7 +142,7 @@ func (w *loopRuntime) runTaskByID(ctx context.Context, id string) error {
 
 	outcome, err := w.factory.Finalize(ctx, meta, payload, finalSession)
 	if err != nil {
-		_ = w.tracker.MarkStatus(ctx, id, runpkg.StatusFailed)
+		_ = w.markStatusWithTimeout(ctx, id, runpkg.StatusFailed)
 		return fmt.Errorf("finalize run: %w", err)
 	}
 
@@ -151,10 +151,10 @@ func (w *loopRuntime) runTaskByID(ctx context.Context, id string) error {
 		err = w.applyChanges(ctx, runID, item.Goal, id)
 		if err != nil {
 			w.logger.Error().Err(err).Msg("failed to apply changes")
-			_ = w.tracker.MarkStatus(ctx, id, runpkg.StatusFailed)
+			_ = w.markStatusWithTimeout(ctx, id, runpkg.StatusFailed)
 			return fmt.Errorf("apply changes: %w", err)
 		}
-		if err := w.tracker.MarkStatus(ctx, id, "done"); err != nil {
+		if err := w.markStatusWithTimeout(ctx, id, "done"); err != nil {
 			w.logger.Warn().Err(err).Msg("failed to mark task as done in tracker")
 		} else {
 			// Try to finalize parent feature/epic if all children are done.
@@ -172,7 +172,7 @@ func (w *loopRuntime) runTaskByID(ctx context.Context, id string) error {
 		w.logger.Info().Str("task_id", id).Str("run_id", runID).Msg("handling replan decision")
 		if err := w.handleReplan(ctx, id, item); err != nil {
 			w.logger.Error().Err(err).Msg("failed to handle replan")
-			_ = w.tracker.MarkStatus(ctx, id, runpkg.StatusFailed)
+			_ = w.markStatusWithTimeout(ctx, id, runpkg.StatusFailed)
 			return fmt.Errorf("handle replan: %w", err)
 		}
 		w.logger.Info().Str("task_id", id).Str("duration", time.Since(startedAt).String()).Msg("task handled replan, returning without hard failure")
@@ -180,11 +180,17 @@ func (w *loopRuntime) runTaskByID(ctx context.Context, id string) error {
 	}
 
 	if outcome.Status == runpkg.StatusFailed {
-		_ = w.tracker.MarkStatus(ctx, id, runpkg.StatusFailed)
+		_ = w.markStatusWithTimeout(ctx, id, runpkg.StatusFailed)
 		return fmt.Errorf("task %s failed (run %s)", id, runID)
 	}
-	_ = w.tracker.MarkStatus(ctx, id, runpkg.StatusStopped)
+	_ = w.markStatusWithTimeout(ctx, id, runpkg.StatusStopped)
 	return fmt.Errorf("task %s stopped (run %s)", id, runID)
+}
+
+func (w *loopRuntime) markStatusWithTimeout(ctx context.Context, id, status string) error {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	return w.tracker.MarkStatus(ctx, id, status)
 }
 
 func (w *loopRuntime) finalizeAncestors(ctx context.Context, parentID string) error {
@@ -337,6 +343,10 @@ func randomHex(bytesLen int) (string, error) {
 }
 
 func (w *loopRuntime) handleReplan(ctx context.Context, oldTaskID string, oldTask task.Task) error {
+	// Safety timeout to prevent infinite hangs on tracker operations
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+
 	staleLabels := []string{"norma-has-plan", "norma-has-do", "norma-has-check"}
 	for _, label := range staleLabels {
 		if err := w.tracker.RemoveLabel(ctx, oldTaskID, label); err != nil {
