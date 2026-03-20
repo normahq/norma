@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/metalagman/norma/internal/logging"
@@ -21,12 +22,12 @@ func TestRunSuppressesPeerDisconnectInfoByDefault(t *testing.T) {
 	}
 
 	var stdout bytes.Buffer
-	var stderr bytes.Buffer
+	stderr := &lockedBuffer{}
 	err := Run(log.Logger.WithContext(context.Background()), RunConfig{
 		Command:    acpDumpHelperCommand(),
 		WorkingDir: t.TempDir(),
 		Stdout:     &stdout,
-		Stderr:     &stderr,
+		Stderr:     stderr,
 	})
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
@@ -44,12 +45,12 @@ func TestRunShowsPeerDisconnectDiagnosticsInDebug(t *testing.T) {
 	}
 
 	var stdout bytes.Buffer
-	var stderr bytes.Buffer
+	stderr := &lockedBuffer{}
 	err := Run(log.Logger.WithContext(context.Background()), RunConfig{
 		Command:    acpDumpHelperCommand(),
 		WorkingDir: t.TempDir(),
 		Stdout:     &stdout,
-		Stderr:     &stderr,
+		Stderr:     stderr,
 	})
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
@@ -67,12 +68,12 @@ func TestRunSendsEmptyMCPServersArrayWhenUnset(t *testing.T) {
 	}
 
 	var stdout bytes.Buffer
-	var stderr bytes.Buffer
+	stderr := &lockedBuffer{}
 	err := Run(log.Logger.WithContext(context.Background()), RunConfig{
 		Command:    acpDumpHelperCommand(),
 		WorkingDir: t.TempDir(),
 		Stdout:     &stdout,
-		Stderr:     &stderr,
+		Stderr:     stderr,
 	})
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
@@ -87,12 +88,12 @@ func TestRunInitializeFailureDoesNotWarnOnClose(t *testing.T) {
 	}
 
 	var stdout bytes.Buffer
-	var stderr bytes.Buffer
+	stderr := &lockedBuffer{}
 	err := Run(log.Logger.WithContext(context.Background()), RunConfig{
 		Command:    acpDumpHelperCommand(),
 		WorkingDir: t.TempDir(),
 		Stdout:     &stdout,
-		Stderr:     &stderr,
+		Stderr:     stderr,
 	})
 	if err == nil {
 		t.Fatal("Run() error = nil, want initialize failure")
@@ -106,6 +107,23 @@ func TestRunInitializeFailureDoesNotWarnOnClose(t *testing.T) {
 	if got := stderr.String(); strings.Contains(got, "acp process exited with error") {
 		t.Fatalf("stderr contains unexpected process exit warning: %q", got)
 	}
+}
+
+type lockedBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (l *lockedBuffer) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+
+func (l *lockedBuffer) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
 }
 
 func TestACPDumpHelperProcess(t *testing.T) {

@@ -393,7 +393,7 @@ func (t *BeadsTracker) Update(ctx context.Context, id string, title, goal string
 
 // Delete deletes a task.
 func (t *BeadsTracker) Delete(ctx context.Context, id string) error {
-	_, err := t.exec(ctx, "delete", id, "--json", "--quiet")
+	_, err := t.exec(ctx, "delete", id, "--force", "--json", "--quiet")
 	return err
 }
 

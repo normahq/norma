@@ -3,7 +3,6 @@ package acprepl
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -483,21 +482,6 @@ func mapFieldString(values map[string]any, key string) string {
 	default:
 		return strings.TrimSpace(fmt.Sprint(typed))
 	}
-}
-
-func formatToolCallParams(params any) string {
-	if params == nil {
-		return ""
-	}
-	raw, err := json.Marshal(params)
-	if err != nil {
-		return strings.TrimSpace(fmt.Sprint(params))
-	}
-	text := strings.TrimSpace(string(raw))
-	if text == "null" || text == "{}" || text == "[]" {
-		return ""
-	}
-	return text
 }
 
 type acpToolTerminal struct {
