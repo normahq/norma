@@ -1,6 +1,8 @@
 package plancmd
 
 import (
+	"bytes"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -80,6 +82,68 @@ func TestReplCommand_IsRunnable(t *testing.T) {
 
 	if replCmd.RunE == nil && replCmd.Run == nil {
 		t.Error("plan repl should be runnable")
+	}
+}
+
+func TestPlanCommand_NoSubcommandShowsHelp(t *testing.T) {
+	t.Parallel()
+
+	cmd := Command()
+
+	var outBuf bytes.Buffer
+	cmd.SetOut(&outBuf)
+	cmd.SetArgs([]string{})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("plan command execution failed: %v", err)
+	}
+
+	output := outBuf.String()
+	if output == "" {
+		t.Fatal("plan command produced no output")
+	}
+
+	if !strings.Contains(output, "Usage:") && !strings.Contains(output, "Available Commands:") {
+		t.Errorf("plan command output does not contain usage/help text:\n%s", output)
+	}
+}
+
+func TestPlanCommand_TuiSubcommandResolved(t *testing.T) {
+	t.Parallel()
+
+	cmd := Command()
+	tuiCmd := findSubcommand(cmd, "tui")
+
+	if tuiCmd == nil {
+		t.Fatal("plan tui subcommand not found")
+	}
+
+	if tuiCmd.RunE == nil && tuiCmd.Run == nil {
+		t.Error("plan tui should be runnable")
+	}
+
+	if tuiCmd.Name() != "tui" {
+		t.Errorf("plan tui name = %q, want %q", tuiCmd.Name(), "tui")
+	}
+}
+
+func TestPlanCommand_ReplSubcommandResolved(t *testing.T) {
+	t.Parallel()
+
+	cmd := Command()
+	replCmd := findSubcommand(cmd, "repl")
+
+	if replCmd == nil {
+		t.Fatal("plan repl subcommand not found")
+	}
+
+	if replCmd.RunE == nil && replCmd.Run == nil {
+		t.Error("plan repl should be runnable")
+	}
+
+	if replCmd.Name() != "repl" {
+		t.Errorf("plan repl name = %q, want %q", replCmd.Name(), "repl")
 	}
 }
 
