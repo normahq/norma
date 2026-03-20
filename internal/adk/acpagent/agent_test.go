@@ -557,6 +557,58 @@ func TestClientSessionUpdateCallbackLogsContentBlock(t *testing.T) {
 	}
 }
 
+func TestClientLogsSessionUpdateAtTraceOnly(t *testing.T) {
+	var logBuf bytes.Buffer
+	logger := zerolog.New(&logBuf).Level(zerolog.DebugLevel)
+
+	client := &Client{
+		logger: logger,
+	}
+
+	ext := ExtendedSessionNotification{
+		SessionNotification: acp.SessionNotification{
+			SessionId: "session-1",
+			Update: acp.SessionUpdate{
+				AgentMessageChunk: &acp.SessionUpdateAgentMessageChunk{
+					Content: acp.ContentBlock{},
+				},
+			},
+		},
+	}
+	client.dispatchSessionUpdate(ext)
+
+	got := logBuf.String()
+	if strings.Contains(got, "received acp session update") {
+		t.Fatalf("debug log unexpectedly contains trace-only session update: %q", got)
+	}
+}
+
+func TestClientLogsSessionUpdateAtTrace(t *testing.T) {
+	var logBuf bytes.Buffer
+	logger := zerolog.New(&logBuf).Level(zerolog.TraceLevel)
+
+	client := &Client{
+		logger: logger,
+	}
+
+	ext := ExtendedSessionNotification{
+		SessionNotification: acp.SessionNotification{
+			SessionId: "session-1",
+			Update: acp.SessionUpdate{
+				AgentMessageChunk: &acp.SessionUpdateAgentMessageChunk{
+					Content: acp.ContentBlock{},
+				},
+			},
+		},
+	}
+	client.dispatchSessionUpdate(ext)
+
+	got := logBuf.String()
+	if !strings.Contains(got, "received acp session update") {
+		t.Fatalf("trace log missing session update message: %q", got)
+	}
+}
+
 func TestClientLogsLastChunkInSeries(t *testing.T) {
 	var logBuf bytes.Buffer
 	logger := zerolog.New(&logBuf).Level(zerolog.DebugLevel)

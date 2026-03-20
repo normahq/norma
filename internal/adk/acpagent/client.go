@@ -681,7 +681,7 @@ func (c *Client) dispatchSessionUpdate(ext ExtendedSessionNotification) {
 			sessionLogger = active.logger
 		}
 	}
-	logEvent := sessionLogger.Debug().
+	logEvent := sessionLogger.Trace().
 		Str("session_id", string(ext.SessionId)).
 		Str("update_kind", updateType)
 
