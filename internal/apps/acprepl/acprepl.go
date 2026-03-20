@@ -321,13 +321,7 @@ func (a *acpToolTurnAccumulator) printToolCallStart(title string, params any) {
 	if toolTitle == "" {
 		toolTitle = acpToolCallEventName
 	}
-	paramsText := formatToolCallParams(params)
-	if paramsText == "" {
-		a.ui.Printf("ToolCall: %s\n", toolTitle)
-		a.auxOutputSeen = true
-		return
-	}
-	a.ui.Printf("ToolCall: %s params=%s\n", toolTitle, paramsText)
+	a.ui.Printf("ToolCall: %s\n", toolTitle)
 	a.auxOutputSeen = true
 }
 

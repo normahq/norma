@@ -162,7 +162,7 @@ func TestRenderACPToolEvent_AccumulatesTextWithoutNewlineUntilFlush(t *testing.T
 	}))
 	renderACPToolEvent(accumulator, testEvent(false, true, nil))
 
-	wantPlain := "Hello\nToolCall: run shell params={\"command\":\"date\"}\n"
+	wantPlain := "Hello\nToolCall: run shell\n"
 	if gotPlain := stripANSI(stdout.String()); gotPlain != wantPlain {
 		t.Fatalf("plain stdout = %q, want %q", gotPlain, wantPlain)
 	}
