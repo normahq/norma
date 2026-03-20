@@ -55,7 +55,7 @@ Enables the agent to inspect the codebase and project structure.
 To start a planning session:
 
 ```bash
-norma plan
+norma plan tui
 ```
 
 1.  Follow the prompts in the TUI.

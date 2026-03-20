@@ -143,10 +143,10 @@ norma loop norma-a3f2dd
 ```
 
 ### 5. Decompose a Global Epic
-Use `norma plan` to break a high-level epic into Beads epic/feature/task hierarchy.
+Use `norma plan tui` to break a high-level epic into Beads epic/feature/task hierarchy.
 
 ```bash
-norma plan       # interactive TUI
+norma plan tui   # interactive TUI
 norma plan repl  # line-based REPL
 ```
 
