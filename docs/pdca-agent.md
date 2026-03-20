@@ -219,3 +219,38 @@ Pool agents automatically pass MCP server configurations to their member agents.
   - `internal/agents/pdca/roles/do/*.schema.json`
   - `internal/agents/pdca/roles/check/*.schema.json`
   - `internal/agents/pdca/roles/act/*.schema.json`
+
+## RoleAgent Architecture
+
+The PDCA system uses the `roleagent` package for implementation-agnostic role execution. This abstraction allows roles to be reused across different workflow types.
+
+### Core Components
+
+- **`roleagent.RoleContract`**: Interface that all roles must implement:
+  - `Name() string` - Role identifier
+  - `Schemas() SchemaPair` - Input/output JSON schemas
+  - `Prompt(req AgentRequest) (string, error)` - Generate agent prompt
+  - `MapRequest(req AgentRequest) (any, error)` - Transform input for role
+  - `MapResponse(outBytes []byte) (AgentResponse, error)` - Parse agent output
+
+- **`roleagent.AgentRequest`**: JSON raw message (`json.RawMessage`) containing the full input for the role
+
+- **`roleagent.AgentResponse`**: Standardized response structure with role-specific outputs as JSON raw messages:
+  - `PlanOutput`, `DoOutput`, `CheckOutput`, `ActOutput` - Role-specific data
+
+### PDCA Composition
+
+The PDCA roles compose the roleagent abstraction:
+
+1. **`roles/base_role.go`**: Implements `RoleContract` with common prompt/schema handling
+2. **`roles/roles.go`**: Defines role-specific `MapRequest`/`MapResponse` for plan, do, check, act
+3. **`runner.go`**: Executes roles via `roleagent.Executor` with structured I/O
+4. **`agent.go`**: Orchestrates the PDCA loop using the role system
+
+### Migration Rationale
+
+Previously, PDCA used `contracts.Role` interface with typed structs. The migration to `roleagent.RoleContract`:
+- Removes PDCA-specific adapter layer
+- Enables role reuse in non-PDCA workflows
+- Maintains backward compatibility through JSON serialization
+- Simplifies the executor integration
