@@ -191,11 +191,23 @@ func parseFinalState(state session.State) (string, string, int, error) {
 	}
 	if err == nil {
 		coerced := coerceTaskState(taskState)
-		if verdict == "" && coerced.Check != nil {
-			verdict = strings.TrimSpace(coerced.Check.Verdict.Status)
+		if verdict == "" && len(coerced.Check) > 0 {
+			var checkOutput struct {
+				Verdict *struct {
+					Status string `json:"status"`
+				} `json:"verdict"`
+			}
+			if err := json.Unmarshal(coerced.Check, &checkOutput); err == nil && checkOutput.Verdict != nil {
+				verdict = strings.TrimSpace(checkOutput.Verdict.Status)
+			}
 		}
-		if decision == "" && coerced.Act != nil {
-			decision = strings.TrimSpace(coerced.Act.Decision)
+		if decision == "" && len(coerced.Act) > 0 {
+			var actOutput struct {
+				Decision string `json:"decision"`
+			}
+			if err := json.Unmarshal(coerced.Act, &actOutput); err == nil {
+				decision = strings.TrimSpace(actOutput.Decision)
+			}
 		}
 	}
 

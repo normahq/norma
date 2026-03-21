@@ -32,7 +32,6 @@ type planRole struct {
 	baseRole
 }
 
-//nolint:dupl // Typed generated requests require repeated field mapping.
 func (r *planRole) MapRequest(req contracts.RawAgentRequest) (any, error) {
 	var contractReq contracts.AgentRequest
 	if err := json.Unmarshal(req, &contractReq); err != nil {
@@ -55,6 +54,17 @@ func (r *planRole) MapRequest(req contracts.RawAgentRequest) (any, error) {
 	if links == nil {
 		links = []string{}
 	}
+
+	// Plan reads task_id from TaskState.Plan if resuming, otherwise from Task.ID
+	taskID := contractReq.Task.ID
+	var planInput *plan.PlanInput
+	if len(contractReq.TaskState.Plan) > 0 {
+		// Resuming - plan already exists, pass empty input
+		planInput = &plan.PlanInput{Task: &plan.PlanTaskID{Id: taskID}}
+	} else {
+		planInput = &plan.PlanInput{Task: &plan.PlanTaskID{Id: taskID}}
+	}
+
 	return &plan.PlanRequest{
 		Run:   &plan.PlanRun{Id: contractReq.Run.ID, Iteration: int64(contractReq.Run.Iteration)},
 		Task:  &plan.PlanTask{Id: contractReq.Task.ID, Title: contractReq.Task.Title, Description: contractReq.Task.Description, AcceptanceCriteria: acs},
@@ -70,7 +80,7 @@ func (r *planRole) MapRequest(req contracts.RawAgentRequest) (any, error) {
 			Links:   links,
 		},
 		StopReasonsAllowed: contractReq.StopReasonsAllowed,
-		PlanInput:          contractReq.Plan,
+		PlanInput:          planInput,
 	}, nil
 }
 
@@ -107,6 +117,18 @@ func (r *doRole) MapRequest(req contracts.RawAgentRequest) (any, error) {
 		return nil, fmt.Errorf("unmarshal request: %w", err)
 	}
 
+	// Do reads plan from TaskState
+	var doInput *do.DoInput
+	if len(contractReq.TaskState.Plan) > 0 {
+		var planOutput plan.PlanOutput
+		if err := json.Unmarshal(contractReq.TaskState.Plan, &planOutput); err != nil {
+			return nil, fmt.Errorf("unmarshal plan from task state: %w", err)
+		}
+		doInput = planOutputToDoInput(&planOutput)
+	} else {
+		return nil, fmt.Errorf("missing plan in task state for do step")
+	}
+
 	acs := make([]do.DoAcceptanceCriteria, 0, len(contractReq.Task.AcceptanceCriteria))
 	for _, ac := range contractReq.Task.AcceptanceCriteria {
 		hints := ac.VerifyHints
@@ -124,8 +146,6 @@ func (r *doRole) MapRequest(req contracts.RawAgentRequest) (any, error) {
 	if links == nil {
 		links = []string{}
 	}
-
-	doInput := normalizeDoInput(contractReq.Do)
 
 	return &do.DoRequest{
 		Run:   &do.DoRun{Id: contractReq.Run.ID, Iteration: int64(contractReq.Run.Iteration)},
@@ -173,11 +193,26 @@ type checkRole struct {
 	baseRole
 }
 
-//nolint:dupl // Typed generated requests require repeated field mapping.
 func (r *checkRole) MapRequest(req contracts.RawAgentRequest) (any, error) {
 	var contractReq contracts.AgentRequest
 	if err := json.Unmarshal(req, &contractReq); err != nil {
 		return nil, fmt.Errorf("unmarshal request: %w", err)
+	}
+
+	// Check reads plan and do from TaskState
+	var checkInput *check.CheckInput
+	if len(contractReq.TaskState.Plan) > 0 && len(contractReq.TaskState.Do) > 0 {
+		var planOutput plan.PlanOutput
+		if err := json.Unmarshal(contractReq.TaskState.Plan, &planOutput); err != nil {
+			return nil, fmt.Errorf("unmarshal plan from task state: %w", err)
+		}
+		var doOutput do.DoOutput
+		if err := json.Unmarshal(contractReq.TaskState.Do, &doOutput); err != nil {
+			return nil, fmt.Errorf("unmarshal do from task state: %w", err)
+		}
+		checkInput = planAndDoToCheckInput(&planOutput, &doOutput)
+	} else {
+		return nil, fmt.Errorf("missing plan or do in task state for check step")
 	}
 
 	acs := make([]check.CheckAcceptanceCriteria, 0, len(contractReq.Task.AcceptanceCriteria))
@@ -208,7 +243,7 @@ func (r *checkRole) MapRequest(req contracts.RawAgentRequest) (any, error) {
 			Links:   links,
 		},
 		StopReasonsAllowed: contractReq.StopReasonsAllowed,
-		CheckInput:         contractReq.Check,
+		CheckInput:         checkInput,
 	}, nil
 }
 
@@ -239,11 +274,22 @@ type actRole struct {
 	baseRole
 }
 
-//nolint:dupl // Typed generated requests require repeated field mapping.
 func (r *actRole) MapRequest(req contracts.RawAgentRequest) (any, error) {
 	var contractReq contracts.AgentRequest
 	if err := json.Unmarshal(req, &contractReq); err != nil {
 		return nil, fmt.Errorf("unmarshal request: %w", err)
+	}
+
+	// Act reads check from TaskState
+	var actInput *act.ActInput
+	if len(contractReq.TaskState.Check) > 0 {
+		var checkOutput check.CheckOutput
+		if err := json.Unmarshal(contractReq.TaskState.Check, &checkOutput); err != nil {
+			return nil, fmt.Errorf("unmarshal check from task state: %w", err)
+		}
+		actInput = checkOutputToActInput(&checkOutput)
+	} else {
+		return nil, fmt.Errorf("missing check in task state for act step")
 	}
 
 	acs := make([]any, 0, len(contractReq.Task.AcceptanceCriteria))
@@ -271,7 +317,7 @@ func (r *actRole) MapRequest(req contracts.RawAgentRequest) (any, error) {
 			Links:   links,
 		},
 		StopReasonsAllowed: contractReq.StopReasonsAllowed,
-		ActInput:           contractReq.Act,
+		ActInput:           actInput,
 	}, nil
 }
 
@@ -298,18 +344,20 @@ func (r *actRole) MapResponse(outBytes []byte) (contracts.RawAgentResponse, erro
 	return res, nil
 }
 
-func normalizeDoInput(input *do.DoInput) *do.DoInput {
-	if input == nil {
+// Type conversion helpers - each role converts from its own types when reading TaskState.
+
+func planOutputToDoInput(p *plan.PlanOutput) *do.DoInput {
+	if p == nil {
 		return nil
 	}
 
-	out := &do.DoInput{
-		AcceptanceCriteriaEffective: make([]do.DoEffectiveAcceptanceCriteria, 0, len(input.AcceptanceCriteriaEffective)),
+	doInput := &do.DoInput{
+		AcceptanceCriteriaEffective: make([]do.DoEffectiveAcceptanceCriteria, 0),
 	}
 
-	if input.WorkPlan != nil {
-		doSteps := make([]do.DoDoStep, 0, len(input.WorkPlan.DoSteps))
-		for _, step := range input.WorkPlan.DoSteps {
+	if p.WorkPlan != nil {
+		doSteps := make([]do.DoDoStep, 0, len(p.WorkPlan.DoSteps))
+		for _, step := range p.WorkPlan.DoSteps {
 			targets := step.TargetsAcIds
 			if targets == nil {
 				targets = []string{}
@@ -321,39 +369,137 @@ func normalizeDoInput(input *do.DoInput) *do.DoInput {
 			})
 		}
 
-		checkSteps := make([]do.DoCheckStep, 0, len(input.WorkPlan.CheckSteps))
-		checkSteps = append(checkSteps, input.WorkPlan.CheckSteps...)
+		checkSteps := make([]do.DoCheckStep, 0, len(p.WorkPlan.CheckSteps))
+		for _, step := range p.WorkPlan.CheckSteps {
+			checkSteps = append(checkSteps, do.DoCheckStep{
+				Id:   step.Id,
+				Mode: step.Mode,
+				Text: step.Text,
+			})
+		}
 
-		stopTriggers := input.WorkPlan.StopTriggers
+		stopTriggers := p.WorkPlan.StopTriggers
 		if stopTriggers == nil {
 			stopTriggers = []string{}
 		}
 
-		out.WorkPlan = &do.DoWorkPlan{
-			TimeboxMinutes: input.WorkPlan.TimeboxMinutes,
+		doInput.WorkPlan = &do.DoWorkPlan{
+			TimeboxMinutes: p.WorkPlan.TimeboxMinutes,
 			DoSteps:        doSteps,
 			CheckSteps:     checkSteps,
 			StopTriggers:   stopTriggers,
 		}
 	}
 
-	for _, ac := range input.AcceptanceCriteriaEffective {
-		refines := ac.Refines
-		if refines == nil {
-			refines = []string{}
+	if p.AcceptanceCriteria != nil {
+		for _, ac := range p.AcceptanceCriteria.Effective {
+			refines := ac.Refines
+			if refines == nil {
+				refines = []string{}
+			}
+			checks := make([]do.DoAcceptanceCriteriaCheck, 0, len(ac.Checks))
+			for _, c := range ac.Checks {
+				checks = append(checks, do.DoAcceptanceCriteriaCheck{
+					Id:              c.Id,
+					Cmd:             c.Cmd,
+					ExpectExitCodes: c.ExpectExitCodes,
+				})
+			}
+			doInput.AcceptanceCriteriaEffective = append(doInput.AcceptanceCriteriaEffective, do.DoEffectiveAcceptanceCriteria{
+				Id:      ac.Id,
+				Origin:  ac.Origin,
+				Refines: refines,
+				Text:    ac.Text,
+				Checks:  checks,
+				Reason:  ac.Reason,
+			})
 		}
-		checks := make([]do.DoAcceptanceCriteriaCheck, 0, len(ac.Checks))
-		checks = append(checks, ac.Checks...)
-
-		out.AcceptanceCriteriaEffective = append(out.AcceptanceCriteriaEffective, do.DoEffectiveAcceptanceCriteria{
-			Id:      ac.Id,
-			Origin:  ac.Origin,
-			Refines: refines,
-			Text:    ac.Text,
-			Checks:  checks,
-			Reason:  ac.Reason,
-		})
 	}
 
-	return out
+	return doInput
+}
+
+func planAndDoToCheckInput(p *plan.PlanOutput, d *do.DoOutput) *check.CheckInput {
+	input := &check.CheckInput{}
+
+	if p != nil && p.WorkPlan != nil {
+		doSteps := make([]check.CheckDoStep, 0, len(p.WorkPlan.DoSteps))
+		for _, step := range p.WorkPlan.DoSteps {
+			doSteps = append(doSteps, check.CheckDoStep{
+				Id:   step.Id,
+				Text: step.Text,
+			})
+		}
+
+		checkSteps := make([]check.CheckCheckStep, 0, len(p.WorkPlan.CheckSteps))
+		for _, step := range p.WorkPlan.CheckSteps {
+			checkSteps = append(checkSteps, check.CheckCheckStep{
+				Id:   step.Id,
+				Mode: step.Mode,
+				Text: step.Text,
+			})
+		}
+
+		input.WorkPlan = &check.CheckWorkPlan{
+			TimeboxMinutes: p.WorkPlan.TimeboxMinutes,
+			DoSteps:        doSteps,
+			CheckSteps:     checkSteps,
+			StopTriggers:   p.WorkPlan.StopTriggers,
+		}
+	}
+
+	if p != nil && p.AcceptanceCriteria != nil {
+		effective := make([]check.CheckEffectiveAcceptanceCriteria, 0, len(p.AcceptanceCriteria.Effective))
+		for _, ac := range p.AcceptanceCriteria.Effective {
+			effective = append(effective, check.CheckEffectiveAcceptanceCriteria{
+				Id:     ac.Id,
+				Origin: ac.Origin,
+				Text:   ac.Text,
+			})
+		}
+		input.AcceptanceCriteriaEffective = effective
+	}
+
+	if d != nil && d.Execution != nil {
+		input.DoExecution = &check.CheckDoExecution{
+			ExecutedStepIds: d.Execution.ExecutedStepIds,
+			SkippedStepIds:  d.Execution.SkippedStepIds,
+		}
+	}
+
+	return input
+}
+
+func checkOutputToActInput(c *check.CheckOutput) *act.ActInput {
+	if c == nil {
+		return nil
+	}
+
+	input := &act.ActInput{}
+
+	if c.Verdict != nil {
+		input.CheckVerdict = &act.ActCheckVerdict{
+			Status:         c.Verdict.Status,
+			Recommendation: c.Verdict.Recommendation,
+		}
+		if c.Verdict.Basis != nil {
+			input.CheckVerdict.Basis = &act.ActCheckVerdictBasis{
+				PlanMatch:           c.Verdict.Basis.PlanMatch,
+				AllAcceptancePassed: c.Verdict.Basis.AllAcceptancePassed,
+			}
+		}
+	}
+
+	if c.AcceptanceResults != nil {
+		input.AcceptanceResults = make([]act.ActAcceptanceResult, 0, len(c.AcceptanceResults))
+		for _, ar := range c.AcceptanceResults {
+			input.AcceptanceResults = append(input.AcceptanceResults, act.ActAcceptanceResult{
+				AcId:   ar.AcId,
+				Result: ar.Result,
+				Notes:  ar.Notes,
+			})
+		}
+	}
+
+	return input
 }

@@ -6,8 +6,6 @@ import (
 	"testing"
 
 	"github.com/metalagman/norma/internal/agents/pdca/contracts"
-	"github.com/metalagman/norma/internal/agents/pdca/roles/act"
-	"github.com/metalagman/norma/internal/agents/pdca/roles/check"
 	"google.golang.org/adk/session"
 )
 
@@ -147,14 +145,8 @@ func TestParseFinalState(t *testing.T) {
 				values: map[string]any{
 					"iteration": 5,
 					"task_state": &contracts.TaskState{
-						Check: &check.CheckOutput{
-							Verdict: &check.CheckVerdict{
-								Status: "PASS",
-							},
-						},
-						Act: &act.ActOutput{
-							Decision: "close",
-						},
+						Check: []byte(`{"verdict":{"status":"PASS"}}`),
+						Act:   []byte(`{"decision":"close"}`),
 					},
 				},
 			},
@@ -170,14 +162,8 @@ func TestParseFinalState(t *testing.T) {
 					"decision":  "rollback",
 					"iteration": 6,
 					"task_state": &contracts.TaskState{
-						Check: &check.CheckOutput{
-							Verdict: &check.CheckVerdict{
-								Status: "PASS",
-							},
-						},
-						Act: &act.ActOutput{
-							Decision: "close",
-						},
+						Check: []byte(`{"verdict":{"status":"PASS"}}`),
+						Act:   []byte(`{"decision":"close"}`),
 					},
 				},
 			},
@@ -323,14 +309,8 @@ func TestDecisionPropagation(t *testing.T) {
 				values: map[string]any{
 					"iteration": 5,
 					"task_state": &contracts.TaskState{
-						Check: &check.CheckOutput{
-							Verdict: &check.CheckVerdict{
-								Status: "PASS",
-							},
-						},
-						Act: &act.ActOutput{
-							Decision: "close",
-						},
+						Check: []byte(`{"verdict":{"status":"PASS"}}`),
+						Act:   []byte(`{"decision":"close"}`),
 					},
 				},
 			},

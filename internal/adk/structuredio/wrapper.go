@@ -38,7 +38,9 @@ const (
   "required": ["output"]
 }`
 
-	promptTemplate = `I/O Requirements:
+	promptTemplate = `{{ if .SystemInstruction }}{{ .SystemInstruction }}
+
+{{ end }}I/O Requirements:
 - Read input JSON schema (text below).
 - Read output JSON schema (text below).
 - Read input JSON content (text below).
@@ -78,6 +80,7 @@ type wrapperAgent struct {
 	name                      string
 	description               string
 	wrapped                   adkagent.Agent
+	systemInstruction         string
 	inputSchema               string
 	outputSchema              string
 	maxAccumulatedOutputBytes int
@@ -87,6 +90,7 @@ type wrapperAgent struct {
 type options struct {
 	inputSchema               string
 	outputSchema              string
+	systemInstruction         string
 	maxAccumulatedOutputBytes int
 	outputValidationRetries   int
 }
@@ -105,6 +109,14 @@ func WithInputSchema(inputSchema string) Option {
 func WithOutputSchema(outputSchema string) Option {
 	return func(o *options) {
 		o.outputSchema = strings.TrimSpace(outputSchema)
+	}
+}
+
+// WithSystemInstruction sets the system instruction for the agent.
+// This instruction is prepended to the I/O requirements prompt.
+func WithSystemInstruction(instruction string) Option {
+	return func(o *options) {
+		o.systemInstruction = strings.TrimSpace(instruction)
 	}
 }
 
@@ -182,6 +194,7 @@ func NewAgent(wrapped adkagent.Agent, setters ...Option) (adkagent.Agent, error)
 		name:                      name,
 		description:               description,
 		wrapped:                   wrapped,
+		systemInstruction:         opts.systemInstruction,
 		inputSchema:               opts.inputSchema,
 		outputSchema:              opts.outputSchema,
 		maxAccumulatedOutputBytes: opts.maxAccumulatedOutputBytes,
@@ -222,9 +235,10 @@ func (w *wrapperAgent) Run(ctx adkagent.InvocationContext) iter.Seq2[*session.Ev
 		}
 
 		prompt, err := buildPrompt(promptData{
-			Input:        rawInput,
-			InputSchema:  w.inputSchema,
-			OutputSchema: w.outputSchema,
+			Input:             rawInput,
+			InputSchema:       w.inputSchema,
+			OutputSchema:      w.outputSchema,
+			SystemInstruction: w.systemInstruction,
 		})
 		if err != nil {
 			yield(nil, fmt.Errorf("build structured prompt: %w", err))
@@ -415,9 +429,10 @@ func (c wrapperInvocationContext) WithContext(ctx context.Context) adkagent.Invo
 }
 
 type promptData struct {
-	Input        string
-	InputSchema  string
-	OutputSchema string
+	Input             string
+	InputSchema       string
+	OutputSchema      string
+	SystemInstruction string
 }
 
 func buildPrompt(data promptData) (string, error) {

@@ -13,7 +13,7 @@ func TestDoRoleMapRequestRefinesDefaultsToEmptySlice(t *testing.T) {
 		t.Fatal("Role(RoleDo) returned nil")
 	}
 
-	reqJSON := []byte(`{"run":{"id":"run-1","iteration":1},"task":{"id":"task-1","title":"title","description":"desc","acceptance_criteria":[]},"step":{"index":2,"name":"do"},"paths":{"workspace_dir":"/tmp","run_dir":"/tmp"},"budgets":{"max_iterations":1,"max_wall_time_minutes":10,"max_failed_checks":1},"context":{"facts":{},"links":[]},"stop_reasons_allowed":["budget_exceeded"],"do_input":{"work_plan":{"timebox_minutes":10,"do_steps":[],"check_steps":[],"stop_triggers":[]},"acceptance_criteria_effective":[{"id":"AC-1","origin":"baseline","text":"ok","checks":[{"id":"CHK-1","cmd":"true","expect_exit_codes":[0]}]}]}}`)
+	reqJSON := []byte(`{"run":{"id":"run-1","iteration":1},"task":{"id":"task-1","title":"title","description":"desc","acceptance_criteria":[]},"step":{"index":2,"name":"do"},"paths":{"workspace_dir":"/tmp","run_dir":"/tmp"},"budgets":{"max_iterations":1,"max_wall_time_minutes":10,"max_failed_checks":1},"context":{"facts":{},"links":[]},"stop_reasons_allowed":["budget_exceeded"],"task_state":{"plan":{"acceptance_criteria":{"effective":[{"id":"AC-1","origin":"baseline","text":"ok","checks":[{"id":"CHK-1","cmd":"true","expect_exit_codes":[0]}]}]},"work_plan":{"timebox_minutes":10,"do_steps":[],"check_steps":[],"stop_triggers":[]}}}}`)
 
 	mapped, err := role.MapRequest(contracts.RawAgentRequest(reqJSON))
 	if err != nil {
@@ -151,18 +151,36 @@ func TestAllRolesMapResponseReturnsAgentResponse(t *testing.T) {
 func TestAllRolesMapRequestAcceptsValidJSON(t *testing.T) {
 	t.Parallel()
 
-	expectedRoles := []string{RolePlan, RoleDo, RoleCheck, RoleAct}
+	// Plan only needs task ID
+	planReq := []byte(`{"run":{"id":"run-1","iteration":1},"task":{"id":"task-1","title":"title","description":"desc","acceptance_criteria":[{"id":"AC1","text":"test"}]},"step":{"index":1,"name":"plan"},"paths":{"workspace_dir":"/tmp","run_dir":"/tmp"},"budgets":{"max_iterations":1},"context":{"facts":{},"links":[]},"stop_reasons_allowed":["budget_exceeded"],"task_state":{}}`)
 
-	for _, name := range expectedRoles {
-		t.Run(name, func(t *testing.T) {
-			role := Role(name)
+	// Do needs plan in task_state
+	doReq := []byte(`{"run":{"id":"run-1","iteration":1},"task":{"id":"task-1","title":"title","description":"desc","acceptance_criteria":[{"id":"AC1","text":"test"}]},"step":{"index":2,"name":"do"},"paths":{"workspace_dir":"/tmp","run_dir":"/tmp"},"budgets":{"max_iterations":1},"context":{"facts":{},"links":[]},"stop_reasons_allowed":["budget_exceeded"],"task_state":{"plan":{"acceptance_criteria":{"effective":[{"id":"AC1","origin":"baseline","text":"test","checks":[]}]},"work_plan":{"timebox_minutes":10,"do_steps":[],"check_steps":[]}}}}`)
+
+	// Check needs plan and do in task_state
+	checkReq := []byte(`{"run":{"id":"run-1","iteration":1},"task":{"id":"task-1","title":"title","description":"desc","acceptance_criteria":[{"id":"AC1","text":"test"}]},"step":{"index":3,"name":"check"},"paths":{"workspace_dir":"/tmp","run_dir":"/tmp"},"budgets":{"max_iterations":1},"context":{"facts":{},"links":[]},"stop_reasons_allowed":["budget_exceeded"],"task_state":{"plan":{"acceptance_criteria":{"effective":[{"id":"AC1","origin":"baseline","text":"test","checks":[]}]},"work_plan":{"timebox_minutes":10,"do_steps":[],"check_steps":[]}},"do":{"execution":{"executed_step_ids":[],"skipped_step_ids":[]}}}}`)
+
+	// Act needs check in task_state
+	actReq := []byte(`{"run":{"id":"run-1","iteration":1},"task":{"id":"task-1","title":"title","description":"desc","acceptance_criteria":[{"id":"AC1","text":"test"}]},"step":{"index":4,"name":"act"},"paths":{"workspace_dir":"/tmp","run_dir":"/tmp"},"budgets":{"max_iterations":1},"context":{"facts":{},"links":[]},"stop_reasons_allowed":["budget_exceeded"],"task_state":{"check":{"verdict":{"status":"PASS","recommendation":"standardize","basis":{"plan_match":"MATCH","all_acceptance_passed":true}},"acceptance_results":[]}}}`)
+
+	testCases := []struct {
+		name    string
+		request []byte
+	}{
+		{"plan", planReq},
+		{"do", doReq},
+		{"check", checkReq},
+		{"act", actReq},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			role := Role(tc.name)
 			if role == nil {
-				t.Fatalf("Role(%q) returned nil", name)
+				t.Fatalf("Role(%q) returned nil", tc.name)
 			}
 
-			req := []byte(`{"run":{"id":"run-1","iteration":1},"task":{"id":"task-1","title":"title","description":"desc","acceptance_criteria":[{"id":"AC1","text":"test"}]},"step":{"index":1,"name":"` + name + `"},"paths":{"workspace_dir":"/tmp","run_dir":"/tmp"},"budgets":{"max_iterations":1},"context":{"facts":{},"links":[]},"stop_reasons_allowed":["budget_exceeded"]}`)
-
-			_, err := role.MapRequest(contracts.RawAgentRequest(req))
+			_, err := role.MapRequest(contracts.RawAgentRequest(tc.request))
 			if err != nil {
 				t.Errorf("MapRequest() error = %v", err)
 			}

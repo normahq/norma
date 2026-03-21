@@ -12,13 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-viper/mapstructure/v2"
-
 	"github.com/metalagman/norma/internal/agents/pdca/contracts"
 	"github.com/metalagman/norma/internal/agents/pdca/roles/act"
 	"github.com/metalagman/norma/internal/agents/pdca/roles/check"
-	"github.com/metalagman/norma/internal/agents/pdca/roles/do"
-	"github.com/metalagman/norma/internal/agents/pdca/roles/plan"
 	"github.com/metalagman/norma/internal/config"
 	"github.com/metalagman/norma/internal/db"
 	"github.com/metalagman/norma/internal/git"
@@ -356,37 +352,9 @@ func (a *runtime) runStep(ctx agent.InvocationContext, iteration int, roleName s
 
 	req := a.baseRequest(iteration, index, roleName)
 
-	// Enrich request based on role and current state
+	// Pass TaskState to all roles - each role reads what it needs
 	state := a.getTaskState(ctx)
-	switch roleName {
-	case RolePlan:
-		req.Plan = &plan.PlanInput{Task: &plan.PlanTaskID{Id: a.runInput.TaskID}}
-	case RoleDo:
-		if state.Plan == nil || state.Plan.WorkPlan == nil || state.Plan.AcceptanceCriteria == nil {
-			return nil, fmt.Errorf("missing plan for do step")
-		}
-		req.Do = &do.DoInput{
-			WorkPlan:                    planWorkPlanToDo(state.Plan.WorkPlan),
-			AcceptanceCriteriaEffective: planEffectiveToDo(state.Plan.AcceptanceCriteria.Effective),
-		}
-	case RoleCheck:
-		if state.Plan == nil || state.Plan.WorkPlan == nil || state.Plan.AcceptanceCriteria == nil || state.Do == nil || state.Do.Execution == nil {
-			return nil, fmt.Errorf("missing plan or do for check step")
-		}
-		req.Check = &check.CheckInput{
-			WorkPlan:                    planWorkPlanToCheck(state.Plan.WorkPlan),
-			AcceptanceCriteriaEffective: planEffectiveToCheck(state.Plan.AcceptanceCriteria.Effective),
-			DoExecution:                 doExecutionToCheck(state.Do.Execution),
-		}
-	case RoleAct:
-		if state.Check == nil || state.Check.Verdict == nil {
-			return nil, fmt.Errorf("missing check verdict for act step")
-		}
-		req.Act = &act.ActInput{
-			CheckVerdict:      checkVerdictToAct(state.Check.Verdict),
-			AcceptanceResults: checkAcceptanceResultsToAct(state.Check.AcceptanceResults),
-		}
-	}
+	req.TaskState = *state
 
 	// Prepare step directory and workspace
 	stepsDir := filepath.Join(a.runInput.RunDir, "steps")
@@ -627,135 +595,6 @@ func validateStepResponse(roleName string, resp *contracts.RawAgentResponse) err
 	return nil
 }
 
-func planWorkPlanToDo(src *plan.PlanWorkPlan) *do.DoWorkPlan {
-	if src == nil {
-		return nil
-	}
-	doSteps := make([]do.DoDoStep, 0, len(src.DoSteps))
-	for _, step := range src.DoSteps {
-		doSteps = append(doSteps, do.DoDoStep{
-			Id:           step.Id,
-			TargetsAcIds: step.TargetsAcIds,
-			Text:         step.Text,
-		})
-	}
-	checkSteps := make([]do.DoCheckStep, 0, len(src.CheckSteps))
-	for _, step := range src.CheckSteps {
-		checkSteps = append(checkSteps, do.DoCheckStep{
-			Id:   step.Id,
-			Mode: step.Mode,
-			Text: step.Text,
-		})
-	}
-	return &do.DoWorkPlan{
-		TimeboxMinutes: src.TimeboxMinutes,
-		DoSteps:        doSteps,
-		CheckSteps:     checkSteps,
-		StopTriggers:   src.StopTriggers,
-	}
-}
-
-func planEffectiveToDo(src []plan.EffectiveAcceptanceCriteria) []do.DoEffectiveAcceptanceCriteria {
-	out := make([]do.DoEffectiveAcceptanceCriteria, 0, len(src))
-	for _, ac := range src {
-		checks := make([]do.DoAcceptanceCriteriaCheck, 0, len(ac.Checks))
-		for _, c := range ac.Checks {
-			checks = append(checks, do.DoAcceptanceCriteriaCheck{
-				Id:              c.Id,
-				Cmd:             c.Cmd,
-				ExpectExitCodes: c.ExpectExitCodes,
-			})
-		}
-		out = append(out, do.DoEffectiveAcceptanceCriteria{
-			Id:      ac.Id,
-			Origin:  ac.Origin,
-			Refines: ac.Refines,
-			Text:    ac.Text,
-			Checks:  checks,
-			Reason:  ac.Reason,
-		})
-	}
-	return out
-}
-
-func planWorkPlanToCheck(src *plan.PlanWorkPlan) *check.CheckWorkPlan {
-	if src == nil {
-		return nil
-	}
-	doSteps := make([]check.CheckDoStep, 0, len(src.DoSteps))
-	for _, step := range src.DoSteps {
-		doSteps = append(doSteps, check.CheckDoStep{
-			Id:   step.Id,
-			Text: step.Text,
-		})
-	}
-	checkSteps := make([]check.CheckCheckStep, 0, len(src.CheckSteps))
-	for _, step := range src.CheckSteps {
-		checkSteps = append(checkSteps, check.CheckCheckStep{
-			Id:   step.Id,
-			Mode: step.Mode,
-			Text: step.Text,
-		})
-	}
-	return &check.CheckWorkPlan{
-		TimeboxMinutes: src.TimeboxMinutes,
-		DoSteps:        doSteps,
-		CheckSteps:     checkSteps,
-		StopTriggers:   src.StopTriggers,
-	}
-}
-
-func planEffectiveToCheck(src []plan.EffectiveAcceptanceCriteria) []check.CheckEffectiveAcceptanceCriteria {
-	out := make([]check.CheckEffectiveAcceptanceCriteria, 0, len(src))
-	for _, ac := range src {
-		out = append(out, check.CheckEffectiveAcceptanceCriteria{
-			Id:     ac.Id,
-			Origin: ac.Origin,
-			Text:   ac.Text,
-		})
-	}
-	return out
-}
-
-func doExecutionToCheck(src *do.DoExecution) *check.CheckDoExecution {
-	if src == nil {
-		return nil
-	}
-	return &check.CheckDoExecution{
-		ExecutedStepIds: src.ExecutedStepIds,
-		SkippedStepIds:  src.SkippedStepIds,
-	}
-}
-
-func checkVerdictToAct(src *check.CheckVerdict) *act.ActCheckVerdict {
-	if src == nil {
-		return nil
-	}
-	out := &act.ActCheckVerdict{
-		Status:         src.Status,
-		Recommendation: src.Recommendation,
-	}
-	if src.Basis != nil {
-		out.Basis = &act.ActCheckVerdictBasis{
-			PlanMatch:           src.Basis.PlanMatch,
-			AllAcceptancePassed: src.Basis.AllAcceptancePassed,
-		}
-	}
-	return out
-}
-
-func checkAcceptanceResultsToAct(src []check.CheckAcceptanceResult) []act.ActAcceptanceResult {
-	out := make([]act.ActAcceptanceResult, 0, len(src))
-	for _, ar := range src {
-		out = append(out, act.ActAcceptanceResult{
-			AcId:   ar.AcId,
-			Result: ar.Result,
-			Notes:  ar.Notes,
-		})
-	}
-	return out
-}
-
 func resolvedAgentForRole(registry map[string]config.AgentConfig, roleIDs map[string]string, roleName string) (config.AgentConfig, error) {
 	agentID, ok := roleIDs[roleName]
 	if !ok {
@@ -789,20 +628,18 @@ func coerceTaskState(value any) *contracts.TaskState {
 		copied := state
 		return &copied
 	default:
-		var result contracts.TaskState
-		cfg := &mapstructure.DecoderConfig{
-			Metadata: nil,
-			Result:   &result,
-			TagName:  "json",
+		// Handle map case by marshaling to JSON and back
+		if m, ok := value.(map[string]any); ok {
+			var result contracts.TaskState
+			// Marshal the whole map to JSON then unmarshal into TaskState
+			data, err := json.Marshal(m)
+			if err == nil {
+				if err := json.Unmarshal(data, &result); err == nil {
+					return &result
+				}
+			}
 		}
-		decoder, err := mapstructure.NewDecoder(cfg)
-		if err != nil {
-			return &contracts.TaskState{}
-		}
-		if err := decoder.Decode(value); err != nil {
-			return &contracts.TaskState{}
-		}
-		return &result
+		return &contracts.TaskState{}
 	}
 }
 

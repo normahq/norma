@@ -3,6 +3,7 @@ package pdca
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,7 +13,6 @@ import (
 	"time"
 
 	"github.com/metalagman/norma/internal/agents/pdca/contracts"
-	"github.com/metalagman/norma/internal/agents/pdca/roles/act"
 	"github.com/metalagman/norma/internal/config"
 )
 
@@ -110,8 +110,14 @@ func TestApplyAgentResponseToTaskStateActPersistsOutputAndJournal(t *testing.T) 
 	if state.Act == nil {
 		t.Fatalf("state.Act = nil, want persisted act output")
 	}
-	if state.Act.Decision != "close" {
-		t.Fatalf("state.Act.Decision = %q, want %q", state.Act.Decision, "close")
+	var actOutput struct {
+		Decision string `json:"decision"`
+	}
+	if err := json.Unmarshal(state.Act, &actOutput); err != nil {
+		t.Fatalf("unmarshal act output: %v", err)
+	}
+	if actOutput.Decision != "close" {
+		t.Fatalf("act decision = %q, want %q", actOutput.Decision, "close")
 	}
 
 	if len(state.Journal) != 1 {
@@ -165,8 +171,9 @@ func TestApplyAgentResponseToTaskStateDefaultsJournalTitle(t *testing.T) {
 func TestCoerceTaskStatePointerAndValue(t *testing.T) {
 	t.Parallel()
 
+	actJSON := []byte(`{"decision":"close"}`)
 	original := &contracts.TaskState{
-		Act: &act.ActOutput{Decision: "close"},
+		Act: actJSON,
 	}
 	gotPtr := coerceTaskState(original)
 	if gotPtr != original {
@@ -174,14 +181,20 @@ func TestCoerceTaskStatePointerAndValue(t *testing.T) {
 	}
 
 	value := contracts.TaskState{
-		Act: &act.ActOutput{Decision: "replan"},
+		Act: []byte(`{"decision":"replan"}`),
 	}
 	gotVal := coerceTaskState(value)
 	if gotVal == nil || gotVal.Act == nil {
 		t.Fatalf("coerceTaskState(value) returned nil act")
 	}
-	if gotVal.Act.Decision != "replan" {
-		t.Fatalf("coerceTaskState(value) decision = %q, want %q", gotVal.Act.Decision, "replan")
+	var actOutput struct {
+		Decision string `json:"decision"`
+	}
+	if err := json.Unmarshal(gotVal.Act, &actOutput); err != nil {
+		t.Fatalf("unmarshal act output: %v", err)
+	}
+	if actOutput.Decision != "replan" {
+		t.Fatalf("coerceTaskState(value) decision = %q, want %q", actOutput.Decision, "replan")
 	}
 }
 
@@ -215,8 +228,14 @@ func TestCoerceTaskStateFromMap(t *testing.T) {
 	if got == nil || got.Act == nil {
 		t.Fatalf("coerceTaskState(map) returned nil act")
 	}
-	if got.Act.Decision != "continue" {
-		t.Fatalf("coerceTaskState(map) decision = %q, want %q", got.Act.Decision, "continue")
+	var actOutput struct {
+		Decision string `json:"decision"`
+	}
+	if err := json.Unmarshal(got.Act, &actOutput); err != nil {
+		t.Fatalf("unmarshal act output: %v", err)
+	}
+	if actOutput.Decision != "continue" {
+		t.Fatalf("coerceTaskState(map) decision = %q, want %q", actOutput.Decision, "continue")
 	}
 }
 

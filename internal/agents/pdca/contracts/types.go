@@ -3,10 +3,6 @@ package contracts
 import (
 	"encoding/json"
 
-	"github.com/metalagman/norma/internal/agents/pdca/roles/act"
-	"github.com/metalagman/norma/internal/agents/pdca/roles/check"
-	"github.com/metalagman/norma/internal/agents/pdca/roles/do"
-	"github.com/metalagman/norma/internal/agents/pdca/roles/plan"
 	"github.com/metalagman/norma/internal/task"
 )
 
@@ -27,6 +23,7 @@ type Budgets struct {
 }
 
 // AgentRequest is the normalized request passed to agents.
+// Each role reads what it needs from TaskState.
 type AgentRequest struct {
 	Run     RunInfo        `json:"run"`
 	Task    TaskInfo       `json:"task"`
@@ -37,11 +34,9 @@ type AgentRequest struct {
 
 	StopReasonsAllowed []string `json:"stop_reasons_allowed"`
 
-	// Role-specific inputs. These always use schema-generated structs.
-	Plan  *plan.PlanInput   `json:"plan_input,omitempty"`
-	Do    *do.DoInput       `json:"do_input,omitempty"`
-	Check *check.CheckInput `json:"check_input,omitempty"`
-	Act   *act.ActInput     `json:"act_input,omitempty"`
+	// TaskState contains outputs from all previous roles.
+	// Each role reads what it needs from this shared state.
+	TaskState TaskState `json:"task_state"`
 }
 
 // RunInfo identifies the current run and its iteration.
@@ -90,20 +85,6 @@ type RawAgentResponse struct {
 	ActOutput   json.RawMessage `json:"act_output,omitempty"`
 }
 
-// AgentResponse is the normalized stdout response from agents.
-type AgentResponse struct {
-	Status     string          `json:"status"` // "ok", "stop", "error"
-	StopReason string          `json:"stop_reason,omitempty"`
-	Summary    ResponseSummary `json:"summary"`
-	Progress   StepProgress    `json:"progress"`
-
-	// Role-specific outputs. These always use schema-generated structs.
-	Plan  *plan.PlanOutput   `json:"plan_output,omitempty"`
-	Do    *do.DoOutput       `json:"do_output,omitempty"`
-	Check *check.CheckOutput `json:"check_output,omitempty"`
-	Act   *act.ActOutput     `json:"act_output,omitempty"`
-}
-
 // ResponseSummary captures the outcome of an agent's task.
 type ResponseSummary struct {
 	Text string `json:"text"`
@@ -116,12 +97,13 @@ type StepProgress struct {
 }
 
 // TaskState is stored in task notes to persist step outputs and journal across runs.
+// Each role reads/writes its own output field.
 type TaskState struct {
-	Plan    *plan.PlanOutput   `json:"plan,omitempty"`
-	Do      *do.DoOutput       `json:"do,omitempty"`
-	Check   *check.CheckOutput `json:"check,omitempty"`
-	Act     *act.ActOutput     `json:"act,omitempty"`
-	Journal []JournalEntry     `json:"journal,omitempty"`
+	Plan    json.RawMessage `json:"plan,omitempty"`
+	Do      json.RawMessage `json:"do,omitempty"`
+	Check   json.RawMessage `json:"check,omitempty"`
+	Act     json.RawMessage `json:"act,omitempty"`
+	Journal []JournalEntry  `json:"journal,omitempty"`
 }
 
 // JournalEntry records detailed progress for a single step.

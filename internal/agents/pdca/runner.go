@@ -10,8 +10,8 @@ import (
 
 	"github.com/metalagman/norma/internal/adk/agentconfig"
 	"github.com/metalagman/norma/internal/adk/agentfactory"
+	"github.com/metalagman/norma/internal/adk/structuredio"
 	"github.com/metalagman/norma/internal/agents/pdca/contracts"
-	"github.com/metalagman/norma/internal/agents/roleagent"
 	"github.com/metalagman/norma/internal/config"
 	"github.com/rs/zerolog/log"
 
@@ -123,7 +123,11 @@ func (r *adkRunner) Run(ctx context.Context, req []byte, stdout, stderr, eventsL
 
 	// Wrap with structured I/O
 	schemas := r.role.Schemas()
-	ag, err := roleagent.New(innerAgent, systemInstruction, schemas.InputSchema, schemas.OutputSchema)
+	ag, err := structuredio.NewAgent(innerAgent,
+		structuredio.WithSystemInstruction(systemInstruction),
+		structuredio.WithInputSchema(schemas.InputSchema),
+		structuredio.WithOutputSchema(schemas.OutputSchema),
+	)
 	if err != nil {
 		return nil, nil, 1, fmt.Errorf("wrap with structured IO: %w", err)
 	}
