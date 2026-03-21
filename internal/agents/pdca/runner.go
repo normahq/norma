@@ -123,7 +123,7 @@ func (r *adkRunner) Run(ctx context.Context, req []byte, stdout, stderr, eventsL
 
 	// Wrap with structured I/O
 	schemas := r.role.Schemas()
-	ag, err := roleagent.New(innerAgent, schemas.InputSchema, schemas.OutputSchema)
+	ag, err := roleagent.New(innerAgent, systemInstruction, schemas.InputSchema, schemas.OutputSchema)
 	if err != nil {
 		return nil, nil, 1, fmt.Errorf("wrap with structured IO: %w", err)
 	}
