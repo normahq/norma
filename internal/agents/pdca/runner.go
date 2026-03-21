@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/metalagman/norma/internal/adk/agentconfig"
+	"github.com/metalagman/norma/internal/adk/agentfactory"
 	"github.com/metalagman/norma/internal/agents/pdca/contracts"
 	"github.com/metalagman/norma/internal/agents/roleagent"
 	"github.com/metalagman/norma/internal/config"
@@ -77,7 +78,7 @@ func (r *adkRunner) Run(ctx context.Context, req []byte, stdout, stderr, eventsL
 		return nil, nil, 0, fmt.Errorf("generate role prompt: %w", err)
 	}
 
-	// Create role-agnostic agent
+	// Create base agent using agentfactory
 	l := log.With().
 		Str("role", r.role.Name()).
 		Str("run_id", fields.Run.ID).
@@ -90,28 +91,41 @@ func (r *adkRunner) Run(ctx context.Context, req []byte, stdout, stderr, eventsL
 		workingDir = strings.TrimSpace(fields.Paths.RunDir)
 	}
 
-	schemas := r.role.Schemas()
-	ag, err := roleagent.New(ctx, roleagent.Config{
-		Name:              r.role.Name(),
+	agentRegistry := map[string]agentconfig.Config{
+		r.role.Name(): r.cfg,
+	}
+	factory := agentfactory.NewFactory(agentRegistry)
+	if len(r.mcpServers) > 0 {
+		factory = agentfactory.NewFactoryWithMCPServers(agentRegistry, r.mcpServers)
+	}
+
+	creationReq := agentfactory.CreationRequest{
+		Name:              "Norma" + toPascal(r.role.Name()) + "Agent",
+		Description:       "Norma " + r.role.Name() + " agent",
 		SystemInstruction: systemInstruction,
-		InputSchema:       schemas.InputSchema,
-		OutputSchema:      schemas.OutputSchema,
-		AgentConfig:       r.cfg,
-		MCPServers:        r.mcpServers,
-		WorkingDir:        workingDir,
+		WorkingDirectory:  workingDir,
 		Stdout:            stdout,
 		Stderr:            stderr,
 		Logger:            &l,
-	})
-	if err != nil {
-		return nil, nil, 1, fmt.Errorf("create role agent: %w", err)
 	}
-	if closer, ok := ag.(interface{ Close() error }); ok {
+
+	innerAgent, err := factory.CreateAgent(ctx, r.role.Name(), creationReq)
+	if err != nil {
+		return nil, nil, 1, fmt.Errorf("create inner agent: %w", err)
+	}
+	if closer, ok := innerAgent.(interface{ Close() error }); ok {
 		defer func() {
 			if closeErr := closer.Close(); closeErr != nil {
 				l.Warn().Err(closeErr).Msg("failed to close agent runtime")
 			}
 		}()
+	}
+
+	// Wrap with structured I/O
+	schemas := r.role.Schemas()
+	ag, err := roleagent.New(innerAgent, schemas.InputSchema, schemas.OutputSchema)
+	if err != nil {
+		return nil, nil, 1, fmt.Errorf("wrap with structured IO: %w", err)
 	}
 
 	// Run agent with ADK
@@ -350,4 +364,12 @@ func adkEventLogParts(parts []*genai.Part) []adkEventLogPart {
 		out = append(out, p)
 	}
 	return out
+}
+
+func toPascal(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
 }
