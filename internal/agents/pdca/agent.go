@@ -19,7 +19,6 @@ import (
 	"github.com/metalagman/norma/internal/agents/pdca/roles/check"
 	"github.com/metalagman/norma/internal/agents/pdca/roles/do"
 	"github.com/metalagman/norma/internal/agents/pdca/roles/plan"
-	"github.com/metalagman/norma/internal/agents/roleagent"
 	"github.com/metalagman/norma/internal/config"
 	"github.com/metalagman/norma/internal/db"
 	"github.com/metalagman/norma/internal/git"
@@ -149,7 +148,7 @@ func (a *runtime) runRoleLoop(ctx context.Context, roleName string) func(ctx age
 	}
 }
 
-func (a *runtime) processRoleResult(ctx agent.InvocationContext, yield func(*session.Event, error) bool, roleName string, resp *roleagent.AgentResponse, itNum int) {
+func (a *runtime) processRoleResult(ctx agent.InvocationContext, yield func(*session.Event, error) bool, roleName string, resp *contracts.RawAgentResponse, itNum int) {
 	l := log.With().
 		Str("component", "pdca").
 		Str("agent_name", ctx.Agent().Name()).
@@ -158,7 +157,7 @@ func (a *runtime) processRoleResult(ctx agent.InvocationContext, yield func(*ses
 
 	// Communicate results via session state
 	if roleName == RoleCheck && resp.CheckOutput != nil {
-		var checkOut roleagent.CheckOutput
+		var checkOut check.CheckOutput
 		if err := json.Unmarshal(resp.CheckOutput, &checkOut); err == nil {
 			l.Debug().Str("verdict", checkOut.Verdict.Status).Msg("setting check verdict in state")
 			if err := ctx.Session().State().Set("verdict", checkOut.Verdict.Status); err != nil {
@@ -168,7 +167,7 @@ func (a *runtime) processRoleResult(ctx agent.InvocationContext, yield func(*ses
 		}
 	}
 	if roleName == RoleAct && resp.ActOutput != nil {
-		var actOut roleagent.ActOutput
+		var actOut act.ActOutput
 		if err := json.Unmarshal(resp.ActOutput, &actOut); err == nil {
 			l.Debug().Str("decision", actOut.Decision).Msg("setting act decision in state")
 			if err := ctx.Session().State().Set("decision", actOut.Decision); err != nil {
@@ -220,7 +219,7 @@ func (a *runtime) shouldStop(ctx agent.InvocationContext) bool {
 	return false
 }
 
-func (a *runtime) runStep(ctx agent.InvocationContext, iteration int, roleName string) (*roleagent.AgentResponse, error) {
+func (a *runtime) runStep(ctx agent.InvocationContext, iteration int, roleName string) (*contracts.RawAgentResponse, error) {
 	if a.tracker != nil {
 		workflowState := ""
 		switch roleName {
@@ -263,12 +262,12 @@ func (a *runtime) runStep(ctx agent.InvocationContext, iteration int, roleName s
 				if hasLabel {
 					log.Info().Str("task_id", a.runInput.TaskID).Str("role", roleName).Msg("skipping step due to label")
 					state := a.getTaskState(ctx)
-					resp := &roleagent.AgentResponse{
+					resp := &contracts.RawAgentResponse{
 						Status: "ok",
-						Summary: roleagent.ResponseSummary{
+						Summary: contracts.ResponseSummary{
 							Text: fmt.Sprintf("Skipped %s step: already completed (label %s found)", roleName, skipLabel),
 						},
-						Progress: roleagent.StepProgress{
+						Progress: contracts.StepProgress{
 							Title:   fmt.Sprintf("%s skipped (resumed)", roleName),
 							Details: []string{fmt.Sprintf("Label %s is present on task", skipLabel)},
 						},
@@ -590,7 +589,7 @@ func (a *runtime) baseRequest(iteration, index int, role string) contracts.Agent
 	}
 }
 
-func validateStepResponse(roleName string, resp *roleagent.AgentResponse) error {
+func validateStepResponse(roleName string, resp *contracts.RawAgentResponse) error {
 	if resp == nil {
 		return fmt.Errorf("nil response for role %q", roleName)
 	}
@@ -807,7 +806,7 @@ func coerceTaskState(value any) *contracts.TaskState {
 	}
 }
 
-func (a *runtime) updateTaskState(ctx agent.InvocationContext, resp *roleagent.AgentResponse, role string, iteration, index int) error {
+func (a *runtime) updateTaskState(ctx agent.InvocationContext, resp *contracts.RawAgentResponse, role string, iteration, index int) error {
 	if resp == nil {
 		return fmt.Errorf("nil agent response for role %q", role)
 	}
@@ -832,7 +831,7 @@ func (a *runtime) updateTaskState(ctx agent.InvocationContext, resp *roleagent.A
 	return nil
 }
 
-func applyAgentResponseToTaskState(state *contracts.TaskState, resp *roleagent.AgentResponse, role, runID string, iteration, index int, now time.Time) {
+func applyAgentResponseToTaskState(state *contracts.TaskState, resp *contracts.RawAgentResponse, role, runID string, iteration, index int, now time.Time) {
 	switch role {
 	case RolePlan:
 		if resp.PlanOutput != nil {

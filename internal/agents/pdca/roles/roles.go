@@ -9,7 +9,6 @@ import (
 	"github.com/metalagman/norma/internal/agents/pdca/roles/check"
 	"github.com/metalagman/norma/internal/agents/pdca/roles/do"
 	"github.com/metalagman/norma/internal/agents/pdca/roles/plan"
-	"github.com/metalagman/norma/internal/agents/roleagent"
 )
 
 const (
@@ -20,8 +19,8 @@ const (
 )
 
 // DefaultRoles returns the built-in PDCA role implementations keyed by role name.
-func DefaultRoles() map[string]roleagent.RoleContract {
-	return map[string]roleagent.RoleContract{
+func DefaultRoles() map[string]contracts.Role {
+	return map[string]contracts.Role{
 		rolePlan:  &planRole{baseRole: *newBaseRole(rolePlan, plan.InputSchema, plan.OutputSchema, plan.PromptTemplate)},
 		roleDo:    &doRole{baseRole: *newBaseRole(roleDo, do.InputSchema, do.OutputSchema, do.PromptTemplate)},
 		roleCheck: &checkRole{baseRole: *newBaseRole(roleCheck, check.InputSchema, check.OutputSchema, check.PromptTemplate)},
@@ -34,7 +33,7 @@ type planRole struct {
 }
 
 //nolint:dupl // Typed generated requests require repeated field mapping.
-func (r *planRole) MapRequest(req roleagent.AgentRequest) (any, error) {
+func (r *planRole) MapRequest(req contracts.RawAgentRequest) (any, error) {
 	var contractReq contracts.AgentRequest
 	if err := json.Unmarshal(req, &contractReq); err != nil {
 		return nil, fmt.Errorf("unmarshal request: %w", err)
@@ -75,20 +74,20 @@ func (r *planRole) MapRequest(req roleagent.AgentRequest) (any, error) {
 	}, nil
 }
 
-func (r *planRole) MapResponse(outBytes []byte) (roleagent.AgentResponse, error) {
+func (r *planRole) MapResponse(outBytes []byte) (contracts.RawAgentResponse, error) {
 	var roleResp plan.PlanResponse
 	if err := json.Unmarshal(outBytes, &roleResp); err != nil {
-		return roleagent.AgentResponse{}, err
+		return contracts.RawAgentResponse{}, err
 	}
-	res := roleagent.AgentResponse{
+	res := contracts.RawAgentResponse{
 		Status:     roleResp.Status,
 		StopReason: roleResp.StopReason,
 	}
 	if roleResp.Summary != nil {
-		res.Summary = roleagent.ResponseSummary{Text: roleResp.Summary.Text}
+		res.Summary = contracts.ResponseSummary{Text: roleResp.Summary.Text}
 	}
 	if roleResp.Progress != nil {
-		res.Progress = roleagent.StepProgress{Title: roleResp.Progress.Title, Details: roleResp.Progress.Details}
+		res.Progress = contracts.StepProgress{Title: roleResp.Progress.Title, Details: roleResp.Progress.Details}
 	}
 	if roleResp.PlanOutput != nil {
 		if planBytes, err := json.Marshal(roleResp.PlanOutput); err == nil {
@@ -102,7 +101,7 @@ type doRole struct {
 	baseRole
 }
 
-func (r *doRole) MapRequest(req roleagent.AgentRequest) (any, error) {
+func (r *doRole) MapRequest(req contracts.RawAgentRequest) (any, error) {
 	var contractReq contracts.AgentRequest
 	if err := json.Unmarshal(req, &contractReq); err != nil {
 		return nil, fmt.Errorf("unmarshal request: %w", err)
@@ -147,20 +146,20 @@ func (r *doRole) MapRequest(req roleagent.AgentRequest) (any, error) {
 	}, nil
 }
 
-func (r *doRole) MapResponse(outBytes []byte) (roleagent.AgentResponse, error) {
+func (r *doRole) MapResponse(outBytes []byte) (contracts.RawAgentResponse, error) {
 	var roleResp do.DoResponse
 	if err := json.Unmarshal(outBytes, &roleResp); err != nil {
-		return roleagent.AgentResponse{}, err
+		return contracts.RawAgentResponse{}, err
 	}
-	res := roleagent.AgentResponse{
+	res := contracts.RawAgentResponse{
 		Status:     roleResp.Status,
 		StopReason: roleResp.StopReason,
 	}
 	if roleResp.Summary != nil {
-		res.Summary = roleagent.ResponseSummary{Text: roleResp.Summary.Text}
+		res.Summary = contracts.ResponseSummary{Text: roleResp.Summary.Text}
 	}
 	if roleResp.Progress != nil {
-		res.Progress = roleagent.StepProgress{Title: roleResp.Progress.Title, Details: roleResp.Progress.Details}
+		res.Progress = contracts.StepProgress{Title: roleResp.Progress.Title, Details: roleResp.Progress.Details}
 	}
 	if roleResp.DoOutput != nil {
 		if doBytes, err := json.Marshal(roleResp.DoOutput); err == nil {
@@ -175,7 +174,7 @@ type checkRole struct {
 }
 
 //nolint:dupl // Typed generated requests require repeated field mapping.
-func (r *checkRole) MapRequest(req roleagent.AgentRequest) (any, error) {
+func (r *checkRole) MapRequest(req contracts.RawAgentRequest) (any, error) {
 	var contractReq contracts.AgentRequest
 	if err := json.Unmarshal(req, &contractReq); err != nil {
 		return nil, fmt.Errorf("unmarshal request: %w", err)
@@ -213,20 +212,20 @@ func (r *checkRole) MapRequest(req roleagent.AgentRequest) (any, error) {
 	}, nil
 }
 
-func (r *checkRole) MapResponse(outBytes []byte) (roleagent.AgentResponse, error) {
+func (r *checkRole) MapResponse(outBytes []byte) (contracts.RawAgentResponse, error) {
 	var roleResp check.CheckResponse
 	if err := json.Unmarshal(outBytes, &roleResp); err != nil {
-		return roleagent.AgentResponse{}, err
+		return contracts.RawAgentResponse{}, err
 	}
-	res := roleagent.AgentResponse{
+	res := contracts.RawAgentResponse{
 		Status:     roleResp.Status,
 		StopReason: roleResp.StopReason,
 	}
 	if roleResp.Summary != nil {
-		res.Summary = roleagent.ResponseSummary{Text: roleResp.Summary.Text}
+		res.Summary = contracts.ResponseSummary{Text: roleResp.Summary.Text}
 	}
 	if roleResp.Progress != nil {
-		res.Progress = roleagent.StepProgress{Title: roleResp.Progress.Title, Details: roleResp.Progress.Details}
+		res.Progress = contracts.StepProgress{Title: roleResp.Progress.Title, Details: roleResp.Progress.Details}
 	}
 	if roleResp.CheckOutput != nil {
 		if checkBytes, err := json.Marshal(roleResp.CheckOutput); err == nil {
@@ -241,7 +240,7 @@ type actRole struct {
 }
 
 //nolint:dupl // Typed generated requests require repeated field mapping.
-func (r *actRole) MapRequest(req roleagent.AgentRequest) (any, error) {
+func (r *actRole) MapRequest(req contracts.RawAgentRequest) (any, error) {
 	var contractReq contracts.AgentRequest
 	if err := json.Unmarshal(req, &contractReq); err != nil {
 		return nil, fmt.Errorf("unmarshal request: %w", err)
@@ -276,20 +275,20 @@ func (r *actRole) MapRequest(req roleagent.AgentRequest) (any, error) {
 	}, nil
 }
 
-func (r *actRole) MapResponse(outBytes []byte) (roleagent.AgentResponse, error) {
+func (r *actRole) MapResponse(outBytes []byte) (contracts.RawAgentResponse, error) {
 	var roleResp act.ActResponse
 	if err := json.Unmarshal(outBytes, &roleResp); err != nil {
-		return roleagent.AgentResponse{}, err
+		return contracts.RawAgentResponse{}, err
 	}
-	res := roleagent.AgentResponse{
+	res := contracts.RawAgentResponse{
 		Status:     roleResp.Status,
 		StopReason: roleResp.StopReason,
 	}
 	if roleResp.Summary != nil {
-		res.Summary = roleagent.ResponseSummary{Text: roleResp.Summary.Text}
+		res.Summary = contracts.ResponseSummary{Text: roleResp.Summary.Text}
 	}
 	if roleResp.Progress != nil {
-		res.Progress = roleagent.StepProgress{Title: roleResp.Progress.Title, Details: roleResp.Progress.Details}
+		res.Progress = contracts.StepProgress{Title: roleResp.Progress.Title, Details: roleResp.Progress.Details}
 	}
 	if roleResp.ActOutput != nil {
 		if actBytes, err := json.Marshal(roleResp.ActOutput); err == nil {

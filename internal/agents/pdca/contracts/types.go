@@ -1,12 +1,23 @@
 package contracts
 
 import (
+	"encoding/json"
+
 	"github.com/metalagman/norma/internal/agents/pdca/roles/act"
 	"github.com/metalagman/norma/internal/agents/pdca/roles/check"
 	"github.com/metalagman/norma/internal/agents/pdca/roles/do"
 	"github.com/metalagman/norma/internal/agents/pdca/roles/plan"
 	"github.com/metalagman/norma/internal/task"
 )
+
+// RawAgentRequest is the raw JSON bytes passed to role MapRequest implementations.
+type RawAgentRequest = json.RawMessage
+
+// SchemaPair holds input and output JSON schemas for a role.
+type SchemaPair struct {
+	InputSchema  string
+	OutputSchema string
+}
 
 // Budgets defines run budgets.
 type Budgets struct {
@@ -64,6 +75,19 @@ type RequestContext struct {
 	Facts   map[string]any `json:"facts"`
 	Links   []string       `json:"links"`
 	Attempt int            `json:"attempt,omitempty"`
+}
+
+// RawAgentResponse is the response with json.RawMessage fields used by role MapResponse implementations.
+type RawAgentResponse struct {
+	Status     string          `json:"status"`
+	StopReason string          `json:"stop_reason,omitempty"`
+	Summary    ResponseSummary `json:"summary"`
+	Progress   StepProgress    `json:"progress"`
+
+	PlanOutput  json.RawMessage `json:"plan_output,omitempty"`
+	DoOutput    json.RawMessage `json:"do_output,omitempty"`
+	CheckOutput json.RawMessage `json:"check_output,omitempty"`
+	ActOutput   json.RawMessage `json:"act_output,omitempty"`
 }
 
 // AgentResponse is the normalized stdout response from agents.

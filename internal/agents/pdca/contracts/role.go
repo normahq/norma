@@ -1,11 +1,15 @@
 package contracts
 
 // Role defines the interface for a workflow step implementation.
+// Roles are responsible for:
+// - Providing their name, input/output schemas.
+// - Generating system instructions (prompt).
+// - Mapping raw request bytes to role-specific input format.
+// - Mapping raw agent output to RawAgentResponse.
 type Role interface {
 	Name() string
-	InputSchema() string
-	OutputSchema() string
-	Prompt(req AgentRequest) (string, error)
-	MapRequest(req AgentRequest) (any, error)
-	MapResponse(outBytes []byte) (AgentResponse, error)
+	Schemas() SchemaPair
+	Prompt(req RawAgentRequest) (string, error)
+	MapRequest(req RawAgentRequest) (any, error)
+	MapResponse(outBytes []byte) (RawAgentResponse, error)
 }

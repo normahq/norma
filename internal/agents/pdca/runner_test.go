@@ -16,7 +16,7 @@ import (
 	acp "github.com/coder/acp-go-sdk"
 	"github.com/metalagman/norma/internal/adk/agentconfig"
 	"github.com/metalagman/norma/internal/adk/structuredio"
-	"github.com/metalagman/norma/internal/agents/roleagent"
+	"github.com/metalagman/norma/internal/agents/pdca/contracts"
 	"github.com/metalagman/norma/internal/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -25,15 +25,15 @@ import (
 type dummyRole struct{}
 
 func (r *dummyRole) Name() string { return "plan" }
-func (r *dummyRole) Schemas() roleagent.SchemaPair {
-	return roleagent.SchemaPair{InputSchema: "{}", OutputSchema: "{}"}
+func (r *dummyRole) Schemas() contracts.SchemaPair {
+	return contracts.SchemaPair{InputSchema: "{}", OutputSchema: "{}"}
 }
-func (r *dummyRole) Prompt(_ roleagent.AgentRequest) (string, error) { return "prompt", nil }
-func (r *dummyRole) MapRequest(req roleagent.AgentRequest) (any, error) {
+func (r *dummyRole) Prompt(_ contracts.RawAgentRequest) (string, error) { return "prompt", nil }
+func (r *dummyRole) MapRequest(req contracts.RawAgentRequest) (any, error) {
 	return req, nil
 }
-func (r *dummyRole) MapResponse(outBytes []byte) (roleagent.AgentResponse, error) {
-	var resp roleagent.AgentResponse
+func (r *dummyRole) MapResponse(outBytes []byte) (contracts.RawAgentResponse, error) {
+	var resp contracts.RawAgentResponse
 	err := json.Unmarshal(outBytes, &resp)
 	return resp, err
 }
@@ -42,8 +42,8 @@ type failingMapRole struct {
 	dummyRole
 }
 
-func (r *failingMapRole) MapResponse(_ []byte) (roleagent.AgentResponse, error) {
-	return roleagent.AgentResponse{}, errors.New("map failed")
+func (r *failingMapRole) MapResponse(_ []byte) (contracts.RawAgentResponse, error) {
+	return contracts.RawAgentResponse{}, errors.New("map failed")
 }
 
 func TestNewRunner(t *testing.T) {
@@ -102,7 +102,7 @@ func TestAinvokeRunner_Run(t *testing.T) {
 	assert.NotEmpty(t, stdout)
 	assert.NotEmpty(t, events.String())
 
-	var resp roleagent.AgentResponse
+	var resp contracts.RawAgentResponse
 	err = json.Unmarshal(stdout, &resp)
 	assert.NoError(t, err)
 	assert.Equal(t, "ok", resp.Status)
@@ -139,7 +139,7 @@ func TestAinvokeRunner_RunHandlesChunkedStructuredOutput(t *testing.T) {
 	assert.Empty(t, stderr)
 	assert.NotEmpty(t, stdout)
 
-	var resp roleagent.AgentResponse
+	var resp contracts.RawAgentResponse
 	err = json.Unmarshal(stdout, &resp)
 	require.NoError(t, err)
 	assert.Equal(t, "ok", resp.Status)
@@ -415,8 +415,8 @@ type roleWithPlanOutput struct {
 	dummyRole
 }
 
-func (r *roleWithPlanOutput) MapResponse(outBytes []byte) (roleagent.AgentResponse, error) {
-	var resp roleagent.AgentResponse
+func (r *roleWithPlanOutput) MapResponse(outBytes []byte) (contracts.RawAgentResponse, error) {
+	var resp contracts.RawAgentResponse
 	err := json.Unmarshal(outBytes, &resp)
 	if err != nil {
 		return resp, err
@@ -447,7 +447,7 @@ func TestAinvokeRunner_RunPreservesPlanOutput(t *testing.T) {
 	assert.Empty(t, stderr)
 	assert.NotEmpty(t, stdout)
 
-	var resp roleagent.AgentResponse
+	var resp contracts.RawAgentResponse
 	err = json.Unmarshal(stdout, &resp)
 	assert.NoError(t, err)
 	assert.Equal(t, "ok", resp.Status)

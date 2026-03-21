@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"text/template"
 
-	"github.com/metalagman/norma/internal/agents/roleagent"
+	"github.com/metalagman/norma/internal/agents/pdca/contracts"
 )
 
 //go:embed common.gotmpl
@@ -14,7 +14,7 @@ var commonPromptTemplate string
 
 type baseRole struct {
 	name     string
-	schemas  roleagent.SchemaPair
+	schemas  contracts.SchemaPair
 	baseTmpl *template.Template
 	roleTmpl *template.Template
 }
@@ -24,7 +24,7 @@ func newBaseRole(name, inputSchema, outputSchema, roleTmplStr string) *baseRole 
 	roleTmpl := template.Must(template.New(name).Parse(roleTmplStr))
 	return &baseRole{
 		name: name,
-		schemas: roleagent.SchemaPair{
+		schemas: contracts.SchemaPair{
 			InputSchema:  inputSchema,
 			OutputSchema: outputSchema,
 		},
@@ -34,18 +34,18 @@ func newBaseRole(name, inputSchema, outputSchema, roleTmplStr string) *baseRole 
 }
 
 func (r *baseRole) Name() string                  { return r.name }
-func (r *baseRole) Schemas() roleagent.SchemaPair { return r.schemas }
+func (r *baseRole) Schemas() contracts.SchemaPair { return r.schemas }
 
-func (r *baseRole) Prompt(req roleagent.AgentRequest) (string, error) {
+func (r *baseRole) Prompt(req contracts.RawAgentRequest) (string, error) {
 	var baseBuf bytes.Buffer
 	if err := r.baseTmpl.Execute(&baseBuf, struct {
-		Request roleagent.AgentRequest
+		Request contracts.RawAgentRequest
 	}{Request: req}); err != nil {
 		return "", fmt.Errorf("execute base prompt template: %w", err)
 	}
 
 	data := struct {
-		Request      roleagent.AgentRequest
+		Request      contracts.RawAgentRequest
 		CommonPrompt string
 	}{
 		Request:      req,
