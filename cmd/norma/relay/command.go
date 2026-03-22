@@ -1,18 +1,27 @@
 package relaycmd
 
 import (
+	"bytes"
 	"context"
+	_ "embed"
 	"fmt"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/metalagman/norma/internal/apps/relay"
 	"github.com/metalagman/norma/internal/apps/relay/auth"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
+
+//go:embed config.yaml
+var defaultConfig []byte
+
+const envPrefix = "NORMA"
 
 // Command builds the `norma relay` command.
 func Command() *cobra.Command {
@@ -29,13 +38,24 @@ func Command() *cobra.Command {
 }
 
 func serveCommand() *cobra.Command {
-	var token string
-
 	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Start Telegram relay bot",
 		Long:  "Start the Telegram relay bot server. A random owner token will be generated and displayed.",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Initialize viper with default config
+			if err := initConfig(); err != nil {
+				return fmt.Errorf("init config: %w", err)
+			}
+
+			// Build config from viper
+			cfg := buildConfig()
+
+			// Validate required fields
+			if cfg.Telegram.Token == "" {
+				return fmt.Errorf("telegram token is required\nSet it via:\n  - Environment: NORMA_RELAY_TELEGRAM_TOKEN=<token>\n  - Config file: relay.telegram.token in .norma/config.yaml")
+			}
+
 			// Get norma directory
 			normaDir, err := getNormaDir()
 			if err != nil {
@@ -60,19 +80,8 @@ func serveCommand() *cobra.Command {
 				Str("url", fmt.Sprintf("https://t.me/<bot_username>/start?auth=%s", ownerToken)).
 				Msg("Auth URL (replace <bot_username> with your bot username from @BotFather)")
 
-			// Create relay config
-			cfg := relay.Config{
-				Telegram: relay.TelegramConfig{
-					Token: token,
-				},
-				Auth: relay.AuthConfig{
-					OwnerToken: ownerToken,
-				},
-				Logger: relay.LoggerConfig{
-					Level:  "info",
-					Pretty: true,
-				},
-			}
+			// Set owner token in config
+			cfg.Auth.OwnerToken = ownerToken
 
 			// Create and run the relay app
 			app := relay.App(cfg, normaDir)
@@ -100,9 +109,43 @@ func serveCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&token, "token", "", "Telegram bot token (or set NORMA_RELAY_TELEGRAM_TOKEN env var)")
-
 	return cmd
+}
+
+func initConfig() error {
+	// Reset viper to avoid conflicts
+	viper.Reset()
+
+	// 1. Load embedded default config FIRST
+	viper.SetConfigType("yaml")
+	if err := viper.ReadConfig(bytes.NewBuffer(defaultConfig)); err != nil {
+		return fmt.Errorf("read default config: %w", err)
+	}
+
+	// 2. Set up env var support AFTER loading defaults
+	viper.SetEnvPrefix(envPrefix)
+	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_", "-", "_"))
+	viper.AutomaticEnv()
+
+	return nil
+}
+
+func buildConfig() relay.Config {
+	return relay.Config{
+		Telegram: relay.TelegramConfig{
+			Token:        viper.GetString("relay.telegram.token"),
+			WebhookToken: viper.GetString("relay.telegram.webhook_token"),
+			WebhookURL:   viper.GetString("relay.telegram.webhook_url"),
+		},
+		Auth: relay.AuthConfig{
+			OwnerToken: viper.GetString("relay.auth.owner_token"),
+			OwnerID:    viper.GetInt64("relay.auth.owner_id"),
+		},
+		Logger: relay.LoggerConfig{
+			Level:  viper.GetString("relay.logger.level"),
+			Pretty: viper.GetBool("relay.logger.pretty"),
+		},
+	}
 }
 
 func getNormaDir() (string, error) {

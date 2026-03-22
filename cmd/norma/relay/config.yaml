@@ -1,0 +1,22 @@
+# Norma Relay Bot Configuration
+# This file can be overridden by environment variables with NORMA_ prefix
+# Example: NORMA_RELAY_TELEGRAM_TOKEN=my-token
+
+relay:
+  telegram:
+    # Telegram bot token (required)
+    # Set via NORMA_RELAY_TELEGRAM_TOKEN env var or here
+    token: ""
+
+    # Optional webhook configuration
+    webhook_token: ""
+    webhook_url: ""
+
+  auth:
+    # Owner token is generated at runtime (one-time use)
+    owner_token: ""
+    owner_id: 0
+
+  logger:
+    level: "info"
+    pretty: true
