@@ -1,17 +1,92 @@
 package pdca
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/metalagman/norma/internal/adk/agentconfig"
+	"github.com/metalagman/norma/internal/apps/sessionmcp"
+	"github.com/metalagman/norma/internal/apps/tasksmcp"
+	"github.com/metalagman/norma/internal/task"
 )
 
-const tasksMCPServerName = "norma_tasks"
+const (
+	tasksMCPServerName   = "norma_tasks"
+	sessionMCPServerName = "norma_state"
+)
 
 var resolveExecutablePath = os.Executable
+
+// embeddedMCPServers holds the embedded server results for cleanup.
+type embeddedMCPServers struct {
+	TaskServer  *tasksmcp.HTTPServerResult
+	StateServer *sessionmcp.HTTPServerResult
+}
+
+// startEmbeddedMCPServers starts both the tasks and state MCP servers for inter-process communication.
+// Returns the embedded servers for cleanup.
+func startEmbeddedMCPServers(ctx context.Context, repoRoot string) (*embeddedMCPServers, map[string]agentconfig.MCPServerConfig, error) {
+	trimmedRepoRoot := strings.TrimSpace(repoRoot)
+	if trimmedRepoRoot == "" {
+		return nil, nil, fmt.Errorf("repo root is required")
+	}
+
+	absoluteRepoRoot, err := filepath.Abs(trimmedRepoRoot)
+	if err != nil {
+		return nil, nil, fmt.Errorf("resolve repo root path %q: %w", trimmedRepoRoot, err)
+	}
+
+	// Start tasks MCP server
+	tracker := task.NewBeadsTracker("")
+	tracker.WorkingDir = absoluteRepoRoot
+
+	taskServer, err := tasksmcp.StartHTTPServer(ctx, tracker, "127.0.0.1:0")
+	if err != nil {
+		return nil, nil, fmt.Errorf("start tasks MCP server: %w", err)
+	}
+
+	// Start state MCP server
+	stateServer, err := sessionmcp.StartHTTPServer(ctx, sessionmcp.NewMemoryStore(), "127.0.0.1:0")
+	if err != nil {
+		_ = taskServer.Close()
+		return nil, nil, fmt.Errorf("start state MCP server: %w", err)
+	}
+
+	mcpServers := map[string]agentconfig.MCPServerConfig{
+		tasksMCPServerName: {
+			Type: agentconfig.MCPServerTypeHTTP,
+			URL:  fmt.Sprintf("http://%s", taskServer.Addr),
+		},
+		sessionMCPServerName: {
+			Type: agentconfig.MCPServerTypeHTTP,
+			URL:  fmt.Sprintf("http://%s", stateServer.Addr),
+		},
+	}
+
+	return &embeddedMCPServers{
+		TaskServer:  taskServer,
+		StateServer: stateServer,
+	}, mcpServers, nil
+}
+
+// close stops all embedded MCP servers.
+func (e *embeddedMCPServers) close() error {
+	var firstErr error
+	if e.TaskServer != nil {
+		if err := e.TaskServer.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	if e.StateServer != nil {
+		if err := e.StateServer.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
 
 func roleMCPServers(roleName, repoRoot string) (map[string]agentconfig.MCPServerConfig, error) {
 	if strings.TrimSpace(roleName) != RolePlan {

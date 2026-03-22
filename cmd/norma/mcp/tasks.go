@@ -12,21 +12,27 @@ import (
 )
 
 var (
-	runTasksServer = tasksmcp.Run
-	newTracker     = func(repoRoot string) task.Tracker {
+	runTasksServer     = tasksmcp.Run
+	runTasksServerHTTP = tasksmcp.RunHTTP
+	newTracker         = func(repoRoot string) task.Tracker {
 		tracker := task.NewBeadsTracker("")
 		tracker.WorkingDir = repoRoot
 		return tracker
 	}
 )
 
-// TasksCommand runs the tracker-parity tasks MCP server over stdio.
+// TasksCommand runs the tracker-parity tasks MCP server.
+// By default it runs over stdio; use --http to run over HTTP.
 func TasksCommand() *cobra.Command {
-	var repoRoot string
+	var (
+		repoRoot string
+		httpMode bool
+		httpAddr string
+	)
 
 	cmd := &cobra.Command{
 		Use:          "tasks",
-		Short:        "Run norma task tracker MCP server over stdio",
+		Short:        "Run norma task tracker MCP server",
 		SilenceUsage: true,
 		Args:         cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -44,10 +50,22 @@ func TasksCommand() *cobra.Command {
 				return fmt.Errorf("resolve absolute repo root %q: %w", resolvedRepoRoot, err)
 			}
 
-			return runTasksServer(cmd.Context(), newTracker(absoluteRepoRoot))
+			tracker := newTracker(absoluteRepoRoot)
+
+			if httpMode {
+				addr := strings.TrimSpace(httpAddr)
+				if addr == "" {
+					addr = "localhost:8080"
+				}
+				return runTasksServerHTTP(cmd.Context(), tracker, addr)
+			}
+
+			return runTasksServer(cmd.Context(), tracker)
 		},
 	}
 
 	cmd.Flags().StringVar(&repoRoot, "repo-root", "", "Repository root for task context resolution (default: current directory)")
+	cmd.Flags().BoolVar(&httpMode, "http", false, "Run over HTTP instead of stdio")
+	cmd.Flags().StringVar(&httpAddr, "addr", "localhost:8080", "HTTP listen address (host:port)")
 	return cmd
 }

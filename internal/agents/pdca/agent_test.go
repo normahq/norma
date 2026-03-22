@@ -395,7 +395,7 @@ func TestNewLoopAgentRegistersRoleSubAgents(t *testing.T) {
 		config.Config{},
 		nil,
 		nil,
-		AgentInput{},
+		AgentInput{WorkingDir: t.TempDir()},
 		"",
 		3,
 	)

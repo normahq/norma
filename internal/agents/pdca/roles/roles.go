@@ -57,14 +57,9 @@ func (r *planRole) MapRequest(req contracts.RawAgentRequest) (any, error) {
 
 	// Plan reads task_id from TaskState.Plan if resuming, otherwise from Task.ID
 	taskID := contractReq.Task.ID
-	var planInput *plan.PlanInput
-	if len(contractReq.TaskState.Plan) > 0 {
-		// Resuming - plan already exists, pass empty input
-		planInput = &plan.PlanInput{Task: &plan.PlanTaskID{Id: taskID}}
-	} else {
-		planInput = &plan.PlanInput{Task: &plan.PlanTaskID{Id: taskID}}
-	}
+	planInput := &plan.PlanInput{Task: &plan.PlanTaskID{Id: taskID}}
 
+	//nolint:dupl // Each role has structurally similar request building, but must return its own typed struct
 	return &plan.PlanRequest{
 		Run:   &plan.PlanRun{Id: contractReq.Run.ID, Iteration: int64(contractReq.Run.Iteration)},
 		Task:  &plan.PlanTask{Id: contractReq.Task.ID, Title: contractReq.Task.Title, Description: contractReq.Task.Description, AcceptanceCriteria: acs},
@@ -147,6 +142,7 @@ func (r *doRole) MapRequest(req contracts.RawAgentRequest) (any, error) {
 		links = []string{}
 	}
 
+	//nolint:dupl // Each role has structurally similar request building, but must return its own typed struct
 	return &do.DoRequest{
 		Run:   &do.DoRun{Id: contractReq.Run.ID, Iteration: int64(contractReq.Run.Iteration)},
 		Task:  &do.DoTask{Id: contractReq.Task.ID, Title: contractReq.Task.Title, Description: contractReq.Task.Description, AcceptanceCriteria: acs},
@@ -228,6 +224,7 @@ func (r *checkRole) MapRequest(req contracts.RawAgentRequest) (any, error) {
 		links = []string{}
 	}
 
+	//nolint:dupl // Each role has structurally similar request building, but must return its own typed struct
 	return &check.CheckRequest{
 		Run:   &check.CheckRun{Id: contractReq.Run.ID, Iteration: int64(contractReq.Run.Iteration)},
 		Task:  &check.CheckTask{Id: contractReq.Task.ID, Title: contractReq.Task.Title, Description: contractReq.Task.Description, AcceptanceCriteria: acs},
@@ -302,6 +299,7 @@ func (r *actRole) MapRequest(req contracts.RawAgentRequest) (any, error) {
 		links = []string{}
 	}
 
+	//nolint:dupl // Each role has structurally similar request building, but must return its own typed struct
 	return &act.ActRequest{
 		Run:   &act.ActRun{Id: contractReq.Run.ID, Iteration: int64(contractReq.Run.Iteration)},
 		Task:  &act.ActTask{Id: contractReq.Task.ID, Title: contractReq.Task.Title, Description: contractReq.Task.Description, AcceptanceCriteria: acs},

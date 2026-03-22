@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -15,7 +14,9 @@ import (
 	"github.com/metalagman/norma/internal/adk/agentconfig"
 	"github.com/metalagman/norma/internal/adk/agentfactory"
 	"github.com/metalagman/norma/internal/agents/planner"
+	"github.com/metalagman/norma/internal/apps/tasksmcp"
 	"github.com/metalagman/norma/internal/config"
+	"github.com/metalagman/norma/internal/task"
 	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 	adkagent "google.golang.org/adk/agent"
@@ -29,9 +30,8 @@ const (
 	plannerUserID        = "norma-planner-user"
 	plannerFollowupInput = "Your response? Ctrl+C to exit."
 	plannerTasksMCPName  = "norma_tasks"
+	plannerStateMCPName  = "norma_state"
 )
-
-var resolvePlannerExecutablePath = os.Executable
 
 func runAgentPlanner(
 	cmd *cobra.Command,
@@ -334,8 +334,16 @@ func createPlannerAgentWithOptions(
 	if stderr == nil {
 		stderr = io.Discard
 	}
-	plannerMCP, err := plannerMCPServers(workingDir, mcpRegistry)
+
+	// Start embedded tasks MCP server over HTTP
+	taskServer, err := startEmbeddedTaskServer(ctx, workingDir)
 	if err != nil {
+		return nil, nil, fmt.Errorf("start embedded tasks MCP server: %w", err)
+	}
+
+	plannerMCP, err := plannerMCPServers(workingDir, mcpRegistry, taskServer.Addr)
+	if err != nil {
+		_ = taskServer.Close()
 		return nil, nil, err
 	}
 
@@ -350,6 +358,7 @@ func createPlannerAgentWithOptions(
 		MCPServers:        plannerMCP,
 	})
 	if err != nil {
+		_ = taskServer.Close()
 		return nil, nil, fmt.Errorf("create planner base agent %q: %w", plannerID, err)
 	}
 
@@ -358,44 +367,52 @@ func createPlannerAgentWithOptions(
 		if closer, ok := baseAgent.(interface{ Close() error }); ok {
 			_ = closer.Close()
 		}
+		_ = taskServer.Close()
 		return nil, nil, fmt.Errorf("decorate planner agent %q: %w", plannerID, err)
 	}
 
 	closeFn := func() error {
+		var firstErr error
 		if closer, ok := plannerAgent.(interface{ Close() error }); ok {
-			return closer.Close()
+			if err := closer.Close(); err != nil && firstErr == nil {
+				firstErr = err
+			}
 		}
-		return nil
+		if err := taskServer.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+		return firstErr
 	}
 	return plannerAgent, closeFn, nil
 }
 
-func plannerMCPServers(repoRoot string, configured map[string]config.MCPServerConfig) (map[string]agentconfig.MCPServerConfig, error) {
+// startEmbeddedTaskServer starts an embedded tasks MCP server over HTTP with a random port.
+func startEmbeddedTaskServer(ctx context.Context, repoRoot string) (*tasksmcp.HTTPServerResult, error) {
 	trimmedRepoRoot := strings.TrimSpace(repoRoot)
 	if trimmedRepoRoot == "" {
-		return nil, fmt.Errorf("planner repo root is required for tasks MCP server")
+		return nil, fmt.Errorf("repo root is required")
 	}
 	absoluteRepoRoot, err := filepath.Abs(trimmedRepoRoot)
 	if err != nil {
-		return nil, fmt.Errorf("resolve planner repo root %q: %w", trimmedRepoRoot, err)
+		return nil, fmt.Errorf("resolve repo root path %q: %w", trimmedRepoRoot, err)
 	}
 
-	executablePath, err := resolvePlannerExecutablePath()
-	if err != nil {
-		return nil, fmt.Errorf("resolve norma executable path: %w", err)
-	}
-	executablePath = strings.TrimSpace(executablePath)
-	if executablePath == "" {
-		return nil, fmt.Errorf("resolved empty norma executable path")
-	}
+	tracker := task.NewBeadsTracker("")
+	tracker.WorkingDir = absoluteRepoRoot
+
+	return tasksmcp.StartHTTPServer(ctx, tracker, "127.0.0.1:0")
+}
+
+func plannerMCPServers(repoRoot string, configured map[string]config.MCPServerConfig, tasksServerAddr string) (map[string]agentconfig.MCPServerConfig, error) {
+	_ = strings.TrimSpace(repoRoot)
 
 	merged := make(map[string]agentconfig.MCPServerConfig, len(configured)+1)
 	for name, cfg := range configured {
 		merged[name] = cfg
 	}
 	merged[plannerTasksMCPName] = agentconfig.MCPServerConfig{
-		Type: agentconfig.MCPServerTypeStdio,
-		Cmd:  []string{executablePath, "mcp", "tasks", "--repo-root", absoluteRepoRoot},
+		Type: agentconfig.MCPServerTypeHTTP,
+		URL:  fmt.Sprintf("http://%s", tasksServerAddr),
 	}
 	return merged, nil
 }

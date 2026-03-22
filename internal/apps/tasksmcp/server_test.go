@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/metalagman/norma/internal/task"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -490,4 +492,87 @@ func sampleTask(id, status string) task.Task {
 
 func (m *mockTracker) String() string {
 	return fmt.Sprintf("mockTracker(%v)", m.failByMethod)
+}
+
+func TestRunHTTPRequiresTracker(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := RunHTTP(ctx, nil, "localhost:0")
+	if err == nil {
+		t.Fatal("RunHTTP(nil tracker) error = nil, want non-nil")
+	}
+}
+
+func TestRunHTTPRequiresAddr(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := RunHTTP(ctx, &mockTracker{}, "")
+	if err == nil {
+		t.Fatal("RunHTTP(empty addr) error = nil, want non-nil")
+	}
+}
+
+func TestRunHTTPStartsAndAcceptsConnections(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- RunHTTP(ctx, &mockTracker{}, "localhost:0")
+	}()
+
+	// Give the server time to start.
+	select {
+	case <-time.After(100 * time.Millisecond):
+	case err := <-errCh:
+		t.Fatalf("RunHTTP returned early with error: %v", err)
+	}
+
+	cancel()
+
+	select {
+	case err := <-errCh:
+		if err != nil && !errors.Is(err, context.Canceled) {
+			t.Fatalf("RunHTTP error = %v, want nil or context.Canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("RunHTTP did not stop after context cancel")
+	}
+}
+
+func TestStartHTTPServerRequiresTracker(t *testing.T) {
+	_, err := StartHTTPServer(context.Background(), nil, "localhost:0")
+	if err == nil {
+		t.Fatal("StartHTTPServer(nil tracker) error = nil, want non-nil")
+	}
+}
+
+func TestStartHTTPServerRequiresAddr(t *testing.T) {
+	_, err := StartHTTPServer(context.Background(), &mockTracker{}, "")
+	if err == nil {
+		t.Fatal("StartHTTPServer(empty addr) error = nil, want non-nil")
+	}
+}
+
+func TestStartHTTPServerStartsAndReturnsAddr(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	result, err := StartHTTPServer(ctx, &mockTracker{}, "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("StartHTTPServer() error = %v", err)
+	}
+	defer func() {
+		if err := result.Close(); err != nil {
+			t.Errorf("Close() error = %v", err)
+		}
+	}()
+
+	if result.Addr == "" {
+		t.Fatal("StartHTTPServer() Addr is empty")
+	}
+	if !strings.Contains(result.Addr, "127.0.0.1:") {
+		t.Fatalf("StartHTTPServer() Addr = %q, want contains 127.0.0.1:", result.Addr)
+	}
 }

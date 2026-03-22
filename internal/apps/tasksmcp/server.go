@@ -3,6 +3,8 @@ package tasksmcp
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/http"
 	"strings"
 
 	"github.com/metalagman/norma/internal/task"
@@ -24,6 +26,101 @@ func Run(ctx context.Context, tracker task.Tracker) error {
 		return err
 	}
 	return server.Run(ctx, &mcp.StdioTransport{})
+}
+
+// RunHTTP serves the tasks MCP server over HTTP using the streamable HTTP transport.
+// It listens on the given address (e.g., "localhost:8080") and serves MCP requests.
+func RunHTTP(ctx context.Context, tracker task.Tracker, addr string) error {
+	if tracker == nil {
+		return fmt.Errorf("tracker is required")
+	}
+	if strings.TrimSpace(addr) == "" {
+		return fmt.Errorf("address is required")
+	}
+
+	getServer := func(_ *http.Request) *mcp.Server {
+		server, err := NewServer(tracker)
+		if err != nil {
+			return nil
+		}
+		return server
+	}
+
+	handler := mcp.NewStreamableHTTPHandler(getServer, &mcp.StreamableHTTPOptions{})
+
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("listen on %q: %w", addr, err)
+	}
+
+	server := &http.Server{Handler: handler}
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- server.Serve(listener)
+	}()
+
+	select {
+	case <-ctx.Done():
+		_ = server.Close()
+		return ctx.Err()
+	case err := <-errCh:
+		return err
+	}
+}
+
+// HTTPServerResult contains the address and cleanup function for an embedded HTTP server.
+type HTTPServerResult struct {
+	// Addr is the actual listen address (e.g., "127.0.0.1:54321").
+	Addr string
+	// Close shuts down the server.
+	Close func() error
+}
+
+// StartHTTPServer starts an HTTP server on the given address and returns immediately.
+// Use ":0" to let the OS assign a random port.
+// The returned HTTPServerResult contains the actual address and a Close function.
+func StartHTTPServer(ctx context.Context, tracker task.Tracker, addr string) (*HTTPServerResult, error) {
+	if tracker == nil {
+		return nil, fmt.Errorf("tracker is required")
+	}
+	if strings.TrimSpace(addr) == "" {
+		return nil, fmt.Errorf("address is required")
+	}
+
+	getServer := func(_ *http.Request) *mcp.Server {
+		server, err := NewServer(tracker)
+		if err != nil {
+			return nil
+		}
+		return server
+	}
+
+	handler := mcp.NewStreamableHTTPHandler(getServer, &mcp.StreamableHTTPOptions{})
+
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return nil, fmt.Errorf("listen on %q: %w", addr, err)
+	}
+
+	actualAddr := listener.Addr().String()
+	httpServer := &http.Server{Handler: handler}
+
+	go func() {
+		<-ctx.Done()
+		_ = httpServer.Close()
+	}()
+
+	go func() {
+		_ = httpServer.Serve(listener)
+	}()
+
+	return &HTTPServerResult{
+		Addr: actualAddr,
+		Close: func() error {
+			return httpServer.Close()
+		},
+	}, nil
 }
 
 // NewServer builds the tasks MCP server with tracker-parity tools.

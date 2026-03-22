@@ -1,8 +1,6 @@
 package plancmd
 
 import (
-	"errors"
-	"path/filepath"
 	"testing"
 
 	"github.com/metalagman/norma/internal/adk/agentconfig"
@@ -10,10 +8,6 @@ import (
 )
 
 func TestPlannerMCPServersAddsTasksServerAndMergesConfigured(t *testing.T) {
-	prev := resolvePlannerExecutablePath
-	resolvePlannerExecutablePath = func() (string, error) { return "/tmp/norma", nil }
-	t.Cleanup(func() { resolvePlannerExecutablePath = prev })
-
 	configured := map[string]config.MCPServerConfig{
 		"existing": {
 			Type: agentconfig.MCPServerTypeStdio,
@@ -21,7 +15,7 @@ func TestPlannerMCPServersAddsTasksServerAndMergesConfigured(t *testing.T) {
 		},
 	}
 
-	servers, err := plannerMCPServers("./repo", configured)
+	servers, err := plannerMCPServers("./repo", configured, "127.0.0.1:12345")
 	if err != nil {
 		t.Fatalf("plannerMCPServers() error = %v", err)
 	}
@@ -44,34 +38,28 @@ func TestPlannerMCPServersAddsTasksServerAndMergesConfigured(t *testing.T) {
 	if !ok {
 		t.Fatalf("servers missing planner tasks MCP entry %q", plannerTasksMCPName)
 	}
-	if tasksCfg.Type != agentconfig.MCPServerTypeStdio {
-		t.Fatalf("tasksCfg.Type = %q, want %q", tasksCfg.Type, agentconfig.MCPServerTypeStdio)
+	if tasksCfg.Type != agentconfig.MCPServerTypeHTTP {
+		t.Fatalf("tasksCfg.Type = %q, want %q", tasksCfg.Type, agentconfig.MCPServerTypeHTTP)
 	}
-	if len(tasksCfg.Cmd) != 5 {
-		t.Fatalf("len(tasksCfg.Cmd) = %d, want 5", len(tasksCfg.Cmd))
-	}
-	if tasksCfg.Cmd[0] != "/tmp/norma" || tasksCfg.Cmd[1] != "mcp" || tasksCfg.Cmd[2] != "tasks" || tasksCfg.Cmd[3] != "--repo-root" {
-		t.Fatalf("tasksCfg.Cmd = %v, want executable + mcp tasks --repo-root", tasksCfg.Cmd)
-	}
-	if !filepath.IsAbs(tasksCfg.Cmd[4]) {
-		t.Fatalf("tasksCfg.Cmd[4] = %q, want absolute repo root", tasksCfg.Cmd[4])
+	if tasksCfg.URL != "http://127.0.0.1:12345" {
+		t.Fatalf("tasksCfg.URL = %q, want %q", tasksCfg.URL, "http://127.0.0.1:12345")
 	}
 }
 
-func TestPlannerMCPServersRequiresRepoRoot(t *testing.T) {
-	_, err := plannerMCPServers("   ", nil)
-	if err == nil {
-		t.Fatal("plannerMCPServers() error = nil, want non-nil")
+func TestPlannerMCPServersUsesHTTPTransport(t *testing.T) {
+	servers, err := plannerMCPServers(".", nil, "localhost:8080")
+	if err != nil {
+		t.Fatalf("plannerMCPServers() error = %v", err)
 	}
-}
 
-func TestPlannerMCPServersExecutableError(t *testing.T) {
-	prev := resolvePlannerExecutablePath
-	resolvePlannerExecutablePath = func() (string, error) { return "", errors.New("boom") }
-	t.Cleanup(func() { resolvePlannerExecutablePath = prev })
-
-	_, err := plannerMCPServers(".", nil)
-	if err == nil {
-		t.Fatal("plannerMCPServers() error = nil, want non-nil")
+	tasksCfg, ok := servers[plannerTasksMCPName]
+	if !ok {
+		t.Fatalf("servers missing planner tasks MCP entry %q", plannerTasksMCPName)
+	}
+	if tasksCfg.Type != agentconfig.MCPServerTypeHTTP {
+		t.Fatalf("tasksCfg.Type = %q, want %q", tasksCfg.Type, agentconfig.MCPServerTypeHTTP)
+	}
+	if tasksCfg.URL != "http://localhost:8080" {
+		t.Fatalf("tasksCfg.URL = %q, want %q", tasksCfg.URL, "http://localhost:8080")
 	}
 }

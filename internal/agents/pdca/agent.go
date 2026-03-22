@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/metalagman/norma/internal/adk/agentconfig"
 	"github.com/metalagman/norma/internal/agents/pdca/contracts"
 	"github.com/metalagman/norma/internal/agents/pdca/roles/act"
 	"github.com/metalagman/norma/internal/agents/pdca/roles/check"
@@ -29,37 +30,49 @@ import (
 
 // runtime holds PDCA step execution state used by role subagents.
 type runtime struct {
-	cfg        config.Config
-	store      *db.Store
-	tracker    task.Tracker
-	runInput   AgentInput
-	baseBranch string
+	cfg         config.Config
+	store       *db.Store
+	tracker     task.Tracker
+	runInput    AgentInput
+	baseBranch  string
+	embeddedMCP *embeddedMCPServers
 }
 
 // NewLoopAgent creates and configures the PDCA loop agent with role subagents.
 func NewLoopAgent(ctx context.Context, cfg config.Config, store *db.Store, tracker task.Tracker, runInput AgentInput, baseBranch string, maxIterations int) (agent.Agent, error) {
-	rt := &runtime{
-		cfg:        cfg,
-		store:      store,
-		tracker:    tracker,
-		runInput:   runInput,
-		baseBranch: baseBranch,
+	// Start embedded MCP servers for inter-process state sharing
+	embeddedMCP, mcpServers, err := startEmbeddedMCPServers(ctx, runInput.WorkingDir)
+	if err != nil {
+		return nil, fmt.Errorf("start embedded MCP servers: %w", err)
 	}
 
-	planAgent, err := rt.createSubAgent(ctx, RolePlan)
+	rt := &runtime{
+		cfg:         cfg,
+		store:       store,
+		tracker:     tracker,
+		runInput:    runInput,
+		baseBranch:  baseBranch,
+		embeddedMCP: embeddedMCP,
+	}
+
+	planAgent, err := rt.createSubAgent(ctx, RolePlan, mcpServers)
 	if err != nil {
+		_ = embeddedMCP.close()
 		return nil, fmt.Errorf("create %s subagent: %w", RolePlan, err)
 	}
-	doAgent, err := rt.createSubAgent(ctx, RoleDo)
+	doAgent, err := rt.createSubAgent(ctx, RoleDo, mcpServers)
 	if err != nil {
+		_ = embeddedMCP.close()
 		return nil, fmt.Errorf("create %s subagent: %w", RoleDo, err)
 	}
-	checkAgent, err := rt.createSubAgent(ctx, RoleCheck)
+	checkAgent, err := rt.createSubAgent(ctx, RoleCheck, mcpServers)
 	if err != nil {
+		_ = embeddedMCP.close()
 		return nil, fmt.Errorf("create %s subagent: %w", RoleCheck, err)
 	}
-	actAgent, err := rt.createSubAgent(ctx, RoleAct)
+	actAgent, err := rt.createSubAgent(ctx, RoleAct, mcpServers)
 	if err != nil {
+		_ = embeddedMCP.close()
 		return nil, fmt.Errorf("create %s subagent: %w", RoleAct, err)
 	}
 
@@ -72,12 +85,13 @@ func NewLoopAgent(ctx context.Context, cfg config.Config, store *db.Store, track
 		},
 	})
 	if err != nil {
+		_ = embeddedMCP.close()
 		return nil, err
 	}
 	return ag, nil
 }
 
-func (a *runtime) createSubAgent(ctx context.Context, roleName string) (agent.Agent, error) {
+func (a *runtime) createSubAgent(ctx context.Context, roleName string, mcpServers map[string]agentconfig.MCPServerConfig) (agent.Agent, error) {
 	pascalName := ""
 	switch roleName {
 	case RolePlan:
@@ -97,7 +111,7 @@ func (a *runtime) createSubAgent(ctx context.Context, roleName string) (agent.Ag
 	ag, err := agent.New(agent.Config{
 		Name:        pascalName,
 		Description: fmt.Sprintf("Norma %s agent", pascalName),
-		Run:         a.runRoleLoop(ctx, roleName),
+		Run:         a.runRoleLoop(ctx, roleName, mcpServers),
 	})
 	if err != nil {
 		return nil, err
@@ -105,7 +119,7 @@ func (a *runtime) createSubAgent(ctx context.Context, roleName string) (agent.Ag
 	return ag, nil
 }
 
-func (a *runtime) runRoleLoop(ctx context.Context, roleName string) func(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
+func (a *runtime) runRoleLoop(ctx context.Context, roleName string, mcpServers map[string]agentconfig.MCPServerConfig) func(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
 	return func(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
 		l := log.With().
 			Str("component", "pdca").
@@ -125,7 +139,7 @@ func (a *runtime) runRoleLoop(ctx context.Context, roleName string) func(ctx age
 			}
 
 			l.Info().Int("iteration", itNum).Msg("starting step")
-			resp, err := a.runStep(ctx, itNum, roleName)
+			resp, err := a.runStep(ctx, itNum, roleName, mcpServers)
 			if err != nil {
 				l.Error().Err(err).Msg("step failed")
 				yield(nil, err)
@@ -215,7 +229,7 @@ func (a *runtime) shouldStop(ctx agent.InvocationContext) bool {
 	return false
 }
 
-func (a *runtime) runStep(ctx agent.InvocationContext, iteration int, roleName string) (*contracts.RawAgentResponse, error) {
+func (a *runtime) runStep(ctx agent.InvocationContext, iteration int, roleName string, mcpServers map[string]agentconfig.MCPServerConfig) (*contracts.RawAgentResponse, error) {
 	if a.tracker != nil {
 		workflowState := ""
 		switch roleName {
@@ -411,11 +425,7 @@ func (a *runtime) runStep(ctx agent.InvocationContext, iteration int, roleName s
 	if err != nil {
 		return nil, err
 	}
-	mcpServersForRole, err := roleMCPServers(roleName, a.runInput.WorkingDir)
-	if err != nil {
-		return nil, fmt.Errorf("configure role MCP servers for %q: %w", roleName, err)
-	}
-	runner, err := NewRunner(agentCfg, role, mcpServersForRole)
+	runner, err := NewRunner(agentCfg, role, mcpServers)
 	if err != nil {
 		return nil, fmt.Errorf("create runner for role %q: %w", roleName, err)
 	}
