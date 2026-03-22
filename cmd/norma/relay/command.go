@@ -3,7 +3,9 @@ package relaycmd
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"github.com/metalagman/norma/internal/apps/relay"
@@ -34,6 +36,12 @@ func serveCommand() *cobra.Command {
 		Short: "Start Telegram relay bot",
 		Long:  "Start the Telegram relay bot server. A random owner token will be generated and displayed.",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Get norma directory
+			normaDir, err := getNormaDir()
+			if err != nil {
+				return fmt.Errorf("get norma dir: %w", err)
+			}
+
 			// Always generate a random owner token (one-time use)
 			ownerToken, err := auth.GenerateOwnerToken()
 			if err != nil {
@@ -67,7 +75,7 @@ func serveCommand() *cobra.Command {
 			}
 
 			// Create and run the relay app
-			app := relay.App(cfg)
+			app := relay.App(cfg, normaDir)
 
 			// Setup signal context for graceful shutdown
 			ctx, cancel := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
@@ -95,4 +103,12 @@ func serveCommand() *cobra.Command {
 	cmd.Flags().StringVar(&token, "token", "", "Telegram bot token (or set NORMA_RELAY_TELEGRAM_TOKEN env var)")
 
 	return cmd
+}
+
+func getNormaDir() (string, error) {
+	wd, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(wd, ".norma"), nil
 }
