@@ -17,6 +17,7 @@ type Config struct {
 	RoleIDs    map[string]string                      `json:"-"                  mapstructure:"-"`
 	Budgets    Budgets                                `json:"budgets"             mapstructure:"budgets"`
 	Retention  RetentionPolicy                        `json:"retention"          mapstructure:"retention"`
+	Relay      RelayConfig                            `json:"relay,omitempty"    mapstructure:"relay"`
 }
 
 // AgentConfig describes how to run an agent.
@@ -48,6 +49,32 @@ type Budgets struct {
 type RetentionPolicy struct {
 	KeepLast int `json:"keep_last,omitempty" mapstructure:"keep_last"`
 	KeepDays int `json:"keep_days,omitempty" mapstructure:"keep_days"`
+}
+
+// RelayConfig holds the configuration for the relay bot.
+type RelayConfig struct {
+	Telegram RelayTelegramConfig `mapstructure:"telegram"`
+	Auth     RelayAuthConfig     `mapstructure:"auth"`
+	Logger   RelayLoggerConfig   `mapstructure:"logger"`
+}
+
+// RelayTelegramConfig holds the Telegram bot configuration.
+type RelayTelegramConfig struct {
+	Token        string `mapstructure:"token"`
+	WebhookToken string `mapstructure:"webhook_token"`
+	WebhookURL   string `mapstructure:"webhook_url"`
+}
+
+// RelayAuthConfig holds the authentication configuration.
+type RelayAuthConfig struct {
+	OwnerToken string `mapstructure:"owner_token"`
+	OwnerID    int64  `mapstructure:"owner_id"`
+}
+
+// RelayLoggerConfig holds the logger configuration.
+type RelayLoggerConfig struct {
+	Level  string `mapstructure:"level"`
+	Pretty bool   `mapstructure:"pretty"`
 }
 
 const defaultProfile = "default"

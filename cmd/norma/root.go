@@ -18,6 +18,7 @@ import (
 	plancmd "github.com/metalagman/norma/cmd/norma/plan"
 	playgroundcmd "github.com/metalagman/norma/cmd/norma/playground"
 	prunecmd "github.com/metalagman/norma/cmd/norma/prune"
+	relaycmd "github.com/metalagman/norma/cmd/norma/relay"
 	runcmd "github.com/metalagman/norma/cmd/norma/run"
 	runscmd "github.com/metalagman/norma/cmd/norma/runs"
 	toolcmd "github.com/metalagman/norma/cmd/norma/tool"
@@ -88,6 +89,7 @@ func Execute() error {
 	rootCmd.AddCommand(playgroundcmd.Command())
 	rootCmd.AddCommand(initcmd.Command())
 	rootCmd.AddCommand(prunecmd.Command())
+	rootCmd.AddCommand(relaycmd.Command())
 	return rootCmd.Execute()
 }
 
