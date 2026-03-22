@@ -48,12 +48,15 @@ func serveCommand() *cobra.Command {
 				return fmt.Errorf("init config: %w", err)
 			}
 
-			// Build config from viper
-			cfg := buildConfig()
+			// Unmarshal config from viper
+			var cfg relay.Config
+			if err := viper.Unmarshal(&cfg); err != nil {
+				return fmt.Errorf("unmarshal config: %w", err)
+			}
 
 			// Validate required fields
 			if cfg.Telegram.Token == "" {
-				return fmt.Errorf("telegram token is required\nSet it via:\n  - Environment: NORMA_RELAY_TELEGRAM_TOKEN=<token>\n  - Config file: relay.telegram.token in .norma/config.yaml")
+				return fmt.Errorf("telegram token is required\nSet it via:\n  - Environment: NORMA_TELEGRAM_TOKEN=<token>\n  - Config file: telegram.token in .norma/config.yaml")
 			}
 
 			// Get norma directory
@@ -128,24 +131,6 @@ func initConfig() error {
 	viper.AutomaticEnv()
 
 	return nil
-}
-
-func buildConfig() relay.Config {
-	return relay.Config{
-		Telegram: relay.TelegramConfig{
-			Token:        viper.GetString("relay.telegram.token"),
-			WebhookToken: viper.GetString("relay.telegram.webhook_token"),
-			WebhookURL:   viper.GetString("relay.telegram.webhook_url"),
-		},
-		Auth: relay.AuthConfig{
-			OwnerToken: viper.GetString("relay.auth.owner_token"),
-			OwnerID:    viper.GetInt64("relay.auth.owner_id"),
-		},
-		Logger: relay.LoggerConfig{
-			Level:  viper.GetString("relay.logger.level"),
-			Pretty: viper.GetBool("relay.logger.pretty"),
-		},
-	}
 }
 
 func getNormaDir() (string, error) {
