@@ -3,22 +3,21 @@ package tgbotkit
 import (
 	"context"
 
+	"github.com/metalagman/appkit/lifecycle"
 	"github.com/rs/zerolog"
 	"github.com/tgbotkit/client"
 	"github.com/tgbotkit/runtime"
 	"github.com/tgbotkit/runtime/handlers"
 	"github.com/tgbotkit/runtime/logger"
+	"github.com/tgbotkit/runtime/updatepoller"
+	"github.com/tgbotkit/runtime/updatepoller/offsetstore"
 	"github.com/tgbotkit/runtime/webhook"
 	"go.uber.org/fx"
 )
 
 var Module = fx.Module("relay_tgbotkit",
 	fx.Provide(
-		fx.Annotate(
-			NewUpdateSource,
-			fx.As(new(runtime.UpdateSource)),
-			fx.As(fx.Self()),
-		),
+		NewUpdateSource,
 		NewBot,
 		NewClient,
 	),
@@ -76,27 +75,31 @@ func NewBot(
 }
 
 // NewUpdateSource creates a new update source (webhook or polling).
-// For norma relay, we use webhook for simplicity (can be configured for polling later).
-func NewUpdateSource(cfg Config, client client.ClientWithResponsesInterface, logger zerolog.Logger) (*webhook.Webhook, error) {
-	// If no webhook URL is configured, return nil (will use default polling)
-	if cfg.WebhookURL == "" {
-		// Return a dummy webhook that will trigger default polling behavior
-		// The runtime will handle this appropriately
-		return nil, nil
+func NewUpdateSource(cfg Config, client client.ClientWithResponsesInterface, l zerolog.Logger) (runtime.UpdateSource, error) {
+	// Use webhook if configured
+	if cfg.WebhookURL != "" {
+		w, err := webhook.New(
+			webhook.NewOptions(
+				webhook.WithToken(cfg.WebhookToken),
+				webhook.WithUrl(cfg.WebhookURL),
+				webhook.WithClient(client),
+			),
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		return w, nil
 	}
 
-	w, err := webhook.New(
-		webhook.NewOptions(
-			webhook.WithToken(cfg.WebhookToken),
-			webhook.WithUrl(cfg.WebhookURL),
-			webhook.WithClient(client),
-		),
+	// Use long polling as default
+	opts := updatepoller.NewOptions(
+		client,
+		updatepoller.WithOffsetStore(offsetstore.NewInMemoryOffsetStore(0)),
+		updatepoller.WithLogger(logger.NewZerolog(l)),
 	)
-	if err != nil {
-		return nil, err
-	}
 
-	return w, nil
+	return updatepoller.NewPoller(opts)
 }
 
 // Handler is a local interface for bot handlers.
@@ -117,3 +120,6 @@ func RegisterHandlers(params handlerParams) {
 		handler.Register(params.Bot.Handlers())
 	}
 }
+
+// lifecycleCheck ensures UpdateSource implements lifecycle.Lifecycle.
+var _ lifecycle.Lifecycle = (runtime.UpdateSource)(nil)
