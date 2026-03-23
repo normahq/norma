@@ -249,6 +249,10 @@ func (h *RelayHandler) runAgent(ctx context.Context, factory *agentfactory.Facto
 		// Accumulate text from all content events (including partial)
 		if ev.Content != nil {
 			for _, part := range ev.Content.Parts {
+				// Skip thought/reasoning parts
+				if part.Thought {
+					continue
+				}
 				if part.Text != "" {
 					result.WriteString(part.Text)
 				}
