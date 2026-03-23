@@ -2,8 +2,10 @@ package middleware
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/metalagman/norma/internal/apps/relay/auth"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/tgbotkit/client"
 	"github.com/tgbotkit/runtime/eventemitter"
@@ -21,12 +23,14 @@ func OwnerOnly(ownerStore *auth.OwnerStore, tgClient client.ClientWithResponsesI
 	return &ownerOnlyMiddleware{
 		ownerStore: ownerStore,
 		tgClient:   tgClient,
+		logger:     log.With().Str("middleware", "auth").Logger(),
 	}
 }
 
 type ownerOnlyMiddleware struct {
 	ownerStore *auth.OwnerStore
 	tgClient   client.ClientWithResponsesInterface
+	logger     zerolog.Logger
 }
 
 func (m *ownerOnlyMiddleware) Handle(next eventemitter.Listener) eventemitter.Listener {
@@ -65,15 +69,19 @@ func (m *ownerOnlyMiddleware) Handle(next eventemitter.Listener) eventemitter.Li
 
 		// Check if owner is registered
 		if !m.ownerStore.HasOwner() {
-			log.Warn().Int64("user_id", userID).Msg("No owner registered, rejecting command")
-			m.sendUnauthorizedMessage(chatID, "No owner registered. Please start the bot with /start first.")
+			m.logger.Warn().Int64("user_id", userID).Msg("No owner registered, rejecting command")
+			if err := m.sendUnauthorizedMessage(ctx, chatID, "No owner registered. Please start the bot with /start first."); err != nil {
+				m.logger.Error().Err(err).Msg("Failed to send unauthorized message")
+			}
 			return nil
 		}
 
 		// Check if user is the owner
 		if !m.ownerStore.IsOwner(userID) {
-			log.Warn().Int64("user_id", userID).Msg("User is not the owner, rejecting command")
-			m.sendUnauthorizedMessage(chatID, "Unauthorized. Only the bot owner can use this command.")
+			m.logger.Warn().Int64("user_id", userID).Msg("User is not the owner, rejecting command")
+			if err := m.sendUnauthorizedMessage(ctx, chatID, "Unauthorized. Only the bot owner can use this command."); err != nil {
+				m.logger.Error().Err(err).Msg("Failed to send unauthorized message")
+			}
 			return nil
 		}
 
@@ -95,18 +103,17 @@ type OwnerInfo struct {
 
 // GetOwnerInfo extracts owner information from the context.
 func GetOwnerInfo(ctx context.Context) *OwnerInfo {
-	if info, ok := ctx.Value(ownerKey).(*OwnerInfo); ok {
-		return info
-	}
-	return nil
+	info, _ := ctx.Value(ownerKey).(*OwnerInfo)
+	return info
 }
 
-func (m *ownerOnlyMiddleware) sendUnauthorizedMessage(chatID int64, text string) {
-	_, err := m.tgClient.SendMessageWithResponse(context.Background(), client.SendMessageJSONRequestBody{
+func (m *ownerOnlyMiddleware) sendUnauthorizedMessage(ctx context.Context, chatID int64, text string) error {
+	_, err := m.tgClient.SendMessageWithResponse(ctx, client.SendMessageJSONRequestBody{
 		ChatId: chatID,
 		Text:   text,
 	})
 	if err != nil {
-		log.Error().Err(err).Int64("chat_id", chatID).Msg("Failed to send unauthorized message")
+		return fmt.Errorf("send unauthorized message to chat %d: %w", chatID, err)
 	}
+	return nil
 }

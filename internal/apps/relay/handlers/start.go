@@ -2,9 +2,11 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/metalagman/norma/internal/apps/relay/auth"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/tgbotkit/client"
 	"github.com/tgbotkit/runtime/events"
@@ -17,6 +19,7 @@ type StartHandler struct {
 	tgClient     client.ClientWithResponsesInterface
 	authToken    string
 	relayHandler *RelayHandler
+	logger       zerolog.Logger
 }
 
 // NewStartHandler creates a new start handler.
@@ -25,6 +28,7 @@ func NewStartHandler(params StartHandlerParams) *StartHandler {
 		ownerStore: params.OwnerStore,
 		tgClient:   params.TgClient,
 		authToken:  params.Auth.AuthToken,
+		logger:     log.With().Str("handler", "start").Logger(),
 	}
 }
 
@@ -45,79 +49,93 @@ func (h *StartHandler) onCommand(ctx context.Context, event *events.CommandEvent
 
 	chatID := event.Message.Chat.Id
 	userID := event.Message.From.Id
-	firstName := event.Message.From.FirstName
-	lastName := ""
-	if event.Message.From.LastName != nil {
-		lastName = *event.Message.From.LastName
-	}
-	username := ""
-	if event.Message.From.Username != nil {
-		username = *event.Message.From.Username
-	}
 
-	// Parse auth token from args (e.g., /start auth=xxx)
-	args := event.Args
-	authToken := ""
-	if args != "" {
-		parts := strings.Fields(args)
-		for _, part := range parts {
-			if strings.HasPrefix(part, "auth=") {
-				authToken = strings.TrimPrefix(part, "auth=")
-				break
-			}
-		}
-	}
+	authToken := parseAuthToken(event.Args)
 
 	// Check if owner is already registered
 	if h.ownerStore.HasOwner() {
 		if h.ownerStore.IsOwner(userID) {
-			return h.sendMessage(chatID, "You are already registered as the bot owner.")
+			return h.sendMessage(ctx, chatID, "You are already registered as the bot owner.")
 		}
-		return h.sendMessage(chatID, "Bot owner is already registered. Only the owner can use this bot.")
+		return h.sendMessage(ctx, chatID, "Bot owner is already registered. Only the owner can use this bot.")
 	}
 
 	// If no auth token provided, show welcome message
 	if authToken == "" {
-		return h.sendWelcomeMessage(chatID)
+		return h.sendWelcomeMessage(ctx, chatID)
 	}
 
 	// Validate auth token
 	if authToken != h.authToken {
-		log.Warn().Str("provided_token", authToken).Msg("Invalid auth token provided")
-		return h.sendMessage(chatID, "Invalid authentication token. Please try again.")
+		h.logger.Warn().Str("provided_token", authToken).Msg("Invalid auth token provided")
+		return h.sendMessage(ctx, chatID, "Invalid authentication token. Please try again.")
 	}
 
+	// Extract user info
+	userInfo := extractUserInfo(event.Message.From)
+
 	// Register user as owner
-	registered, err := h.ownerStore.RegisterOwner(userID, username, firstName, lastName)
+	registered, err := h.ownerStore.RegisterOwner(userID, userInfo.username, userInfo.firstName, userInfo.lastName)
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to register owner")
-		return h.sendMessage(chatID, "Failed to register owner. Please try again.")
+		h.logger.Error().Err(err).Int64("user_id", userID).Msg("Failed to register owner")
+		return h.sendMessage(ctx, chatID, "Failed to register owner. Please try again.")
 	}
 
 	if !registered {
-		return h.sendMessage(chatID, "Owner is already registered.")
+		return h.sendMessage(ctx, chatID, "Owner is already registered.")
 	}
 
-	log.Info().
+	h.logger.Info().
 		Int64("user_id", userID).
-		Str("username", username).
-		Str("first_name", firstName).
+		Str("username", userInfo.username).
+		Str("first_name", userInfo.firstName).
 		Msg("Owner registered successfully")
 
-	return h.sendOwnerRegisteredMessage(userID, chatID, firstName)
+	return h.sendOwnerRegisteredMessage(ctx, userID, chatID, userInfo.firstName)
 }
 
-func (h *StartHandler) sendWelcomeMessage(chatID int64) error {
+func parseAuthToken(args string) string {
+	if args == "" {
+		return ""
+	}
+	for _, part := range strings.Fields(args) {
+		if strings.HasPrefix(part, "auth=") {
+			return strings.TrimPrefix(part, "auth=")
+		}
+	}
+	return ""
+}
+
+type userInfo struct {
+	username  string
+	firstName string
+	lastName  string
+}
+
+func extractUserInfo(from *client.User) userInfo {
+	info := userInfo{
+		firstName: from.FirstName,
+	}
+	if from.Username != nil {
+		info.username = *from.Username
+	}
+	if from.LastName != nil {
+		info.lastName = *from.LastName
+	}
+	return info
+}
+
+func (h *StartHandler) sendWelcomeMessage(ctx context.Context, chatID int64) error {
 	text := `Welcome to Norma Relay Bot!
 
 This bot allows you to interact with norma agent workflows via Telegram.
 
 To authenticate as the bot owner, use:
 /start auth=<your_owner_token>`
-	return h.sendMessage(chatID, text)
+	return h.sendMessage(ctx, chatID, text)
 }
 
-func (h *StartHandler) sendOwnerRegisteredMessage(ownerID, chatID int64, firstName string) error {
+func (h *StartHandler) sendOwnerRegisteredMessage(ctx context.Context, ownerID, chatID int64, firstName string) error {
 	name := firstName
 	if name == "" {
 		name = "Owner"
@@ -125,19 +143,21 @@ func (h *StartHandler) sendOwnerRegisteredMessage(ownerID, chatID int64, firstNa
 
 	// Activate relay mode
 	if h.relayHandler != nil {
-		h.relayHandler.SetOwner(ownerID, chatID)
+		h.relayHandler.SetOwner(ctx, ownerID, chatID)
 	}
 
-	text := "Congratulations, " + name + "! You are now registered as the bot owner.\n\n"
-	text += "Relay mode is active. Send me messages and I will forward them to the agent."
+	text := fmt.Sprintf("Congratulations, %s! You are now registered as the bot owner.\n\nRelay mode is active. Send me messages and I will forward them to the agent.", name)
 
-	return h.sendMessage(chatID, text)
+	return h.sendMessage(ctx, chatID, text)
 }
 
-func (h *StartHandler) sendMessage(chatID int64, text string) error {
-	_, err := h.tgClient.SendMessageWithResponse(context.Background(), client.SendMessageJSONRequestBody{
+func (h *StartHandler) sendMessage(ctx context.Context, chatID int64, text string) error {
+	_, err := h.tgClient.SendMessageWithResponse(ctx, client.SendMessageJSONRequestBody{
 		ChatId: chatID,
 		Text:   text,
 	})
-	return err
+	if err != nil {
+		return fmt.Errorf("send message to chat %d: %w", chatID, err)
+	}
+	return nil
 }

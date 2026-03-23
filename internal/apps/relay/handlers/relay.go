@@ -6,22 +6,33 @@ import (
 	"sync"
 
 	"github.com/metalagman/norma/internal/apps/relay/auth"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/tgbotkit/client"
 	"github.com/tgbotkit/runtime/events"
 	"github.com/tgbotkit/runtime/handlers"
 )
 
+const (
+	// defaultChannelSize is the default buffer size for agent channels.
+	defaultChannelSize = 100
+
+	// agentResponsePrefix is the prefix for agent responses.
+	agentResponsePrefix = "🤖 Agent: "
+)
+
 // RelayHandler handles bidirectional message relay between owner and agent.
 type RelayHandler struct {
 	ownerStore *auth.OwnerStore
 	tgClient   client.ClientWithResponsesInterface
+	logger     zerolog.Logger
 
 	mu       sync.RWMutex
 	ownerID  int64
 	chatID   int64
 	agentIn  chan string
 	agentOut chan string
+	quit     chan struct{}
 }
 
 // NewRelayHandler creates a new relay handler.
@@ -29,8 +40,10 @@ func NewRelayHandler(ownerStore *auth.OwnerStore, tgClient client.ClientWithResp
 	return &RelayHandler{
 		ownerStore: ownerStore,
 		tgClient:   tgClient,
-		agentIn:    make(chan string, 100),
-		agentOut:   make(chan string, 100),
+		logger:     log.With().Str("handler", "relay").Logger(),
+		agentIn:    make(chan string, defaultChannelSize),
+		agentOut:   make(chan string, defaultChannelSize),
+		quit:       make(chan struct{}),
 	}
 }
 
@@ -40,9 +53,7 @@ func (h *RelayHandler) Register(registry handlers.RegistryInterface) {
 }
 
 func (h *RelayHandler) onMessage(ctx context.Context, event *events.MessageEvent) error {
-	h.mu.RLock()
-	ownerID := h.ownerID
-	h.mu.RUnlock()
+	ownerID := h.getOwnerID()
 
 	if ownerID == 0 {
 		return nil
@@ -52,47 +63,63 @@ func (h *RelayHandler) onMessage(ctx context.Context, event *events.MessageEvent
 		return nil
 	}
 
-	text := ""
-	if event.Message.Text != nil {
-		text = *event.Message.Text
+	if event.Message.Text == nil {
+		return nil
 	}
 
+	text := *event.Message.Text
 	if text == "" {
 		return nil
 	}
 
-	log.Debug().
+	h.logger.Debug().
 		Int64("user_id", ownerID).
 		Str("text", text).
 		Msg("Relaying message to agent")
 
 	select {
 	case h.agentIn <- text:
+		return nil
 	default:
-		log.Warn().Msg("Agent input channel full, dropping message")
+		h.logger.Warn().Msg("Agent input channel full, dropping message")
+		return nil
 	}
-
-	return nil
 }
 
 // SetOwner sets the owner and starts the response forwarder.
-func (h *RelayHandler) SetOwner(ownerID, chatID int64) {
+// It is safe to call multiple times; subsequent calls update the owner info.
+func (h *RelayHandler) SetOwner(ctx context.Context, ownerID, chatID int64) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+
 	h.ownerID = ownerID
 	h.chatID = chatID
 
-	go h.forwardAgentResponses()
+	// Signal existing forwarder to stop
+	close(h.quit)
+
+	// Start new forwarder with fresh context
+	h.quit = make(chan struct{})
+	go h.forwardAgentResponses(ctx)
 }
 
-func (h *RelayHandler) forwardAgentResponses() {
-	for msg := range h.agentOut {
-		h.mu.RLock()
-		chatID := h.chatID
-		h.mu.RUnlock()
-
-		if err := h.sendMessage(chatID, fmt.Sprintf("🤖 Agent: %s", msg)); err != nil {
-			log.Error().Err(err).Msg("Failed to send agent response")
+func (h *RelayHandler) forwardAgentResponses(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			h.logger.Debug().Msg("Agent response forwarder stopped by context")
+			return
+		case <-h.quit:
+			h.logger.Debug().Msg("Agent response forwarder stopped by quit signal")
+			return
+		case msg, ok := <-h.agentOut:
+			if !ok {
+				return
+			}
+			chatID := h.getChatID()
+			if err := h.sendMessage(ctx, chatID, agentResponsePrefix+msg); err != nil {
+				h.logger.Error().Err(err).Msg("Failed to send agent response")
+			}
 		}
 	}
 }
@@ -103,11 +130,8 @@ func (h *RelayHandler) GetInputChannel() <-chan string {
 }
 
 // SendToOwner sends a message from the agent to the owner.
-func (h *RelayHandler) SendToOwner(msg string) error {
-	h.mu.RLock()
-	chatID := h.chatID
-	h.mu.RUnlock()
-
+func (h *RelayHandler) SendToOwner(ctx context.Context, msg string) error {
+	chatID := h.getChatID()
 	if chatID == 0 {
 		return fmt.Errorf("owner not set")
 	}
@@ -120,10 +144,25 @@ func (h *RelayHandler) SendToOwner(msg string) error {
 	}
 }
 
-func (h *RelayHandler) sendMessage(chatID int64, text string) error {
-	_, err := h.tgClient.SendMessageWithResponse(context.Background(), client.SendMessageJSONRequestBody{
+func (h *RelayHandler) getOwnerID() int64 {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.ownerID
+}
+
+func (h *RelayHandler) getChatID() int64 {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.chatID
+}
+
+func (h *RelayHandler) sendMessage(ctx context.Context, chatID int64, text string) error {
+	_, err := h.tgClient.SendMessageWithResponse(ctx, client.SendMessageJSONRequestBody{
 		ChatId: chatID,
 		Text:   text,
 	})
-	return err
+	if err != nil {
+		return fmt.Errorf("send message to chat %d: %w", chatID, err)
+	}
+	return nil
 }
