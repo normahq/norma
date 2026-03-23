@@ -1,8 +1,11 @@
 package handlers
 
 import (
+	"context"
+
 	"github.com/metalagman/norma/internal/apps/relay/auth"
 	"github.com/metalagman/norma/internal/apps/relay/tgbotkit"
+	"github.com/rs/zerolog/log"
 	"github.com/tgbotkit/client"
 	"go.uber.org/fx"
 )
@@ -24,6 +27,7 @@ var Module = fx.Module("relay_handlers",
 		),
 	),
 	fx.Invoke(WireHandlers),
+	fx.Invoke(InitExistingOwner),
 )
 
 // StartHandlerParams contains the parameters for NewStartHandler.
@@ -53,6 +57,23 @@ type WireHandlersParams struct {
 // WireHandlers connects the start handler to the relay handler.
 func WireHandlers(params WireHandlersParams) {
 	params.StartHandler.SetRelayHandler(params.RelayHandler)
+}
+
+type InitExistingOwnerParams struct {
+	fx.In
+
+	OwnerStore   *auth.OwnerStore
+	RelayHandler *RelayHandler
+}
+
+// InitExistingOwner initializes the relay handler with existing owner if any.
+func InitExistingOwner(params InitExistingOwnerParams) {
+	if params.OwnerStore.HasOwner() {
+		owner := params.OwnerStore.GetOwner()
+		// Initialize with owner ID only, chatID will be set when first message arrives
+		params.RelayHandler.InitOwner(context.Background(), owner.UserID)
+		log.Info().Int64("owner_id", owner.UserID).Msg("Initialized relay with existing owner")
+	}
 }
 
 // registerStartHandler wraps StartHandler for bot registration.

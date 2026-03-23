@@ -73,6 +73,12 @@ func (h *RelayHandler) onMessage(ctx context.Context, event *events.MessageEvent
 		return nil
 	}
 
+	// Update chatID if it's not set (e.g., after restart with existing owner)
+	if chatID == 0 {
+		h.setChatID(event.Message.Chat.Id)
+		log.Info().Int64("chat_id", event.Message.Chat.Id).Msg("Chat ID set from message")
+	}
+
 	if event.Message.Text == nil {
 		log.Debug().Msg("Message has no text, ignoring")
 		return nil
@@ -117,6 +123,22 @@ func (h *RelayHandler) SetOwner(ctx context.Context, ownerID, chatID int64) {
 	close(h.quit)
 
 	// Start new forwarder with background context (not the command context)
+	h.quit = make(chan struct{})
+	go h.forwardAgentResponses(context.Background())
+}
+
+// InitOwner sets only the owner ID (without chatID) and starts the forwarder.
+// Used when loading an existing owner on startup.
+func (h *RelayHandler) InitOwner(ctx context.Context, ownerID int64) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	log.Info().Int64("owner_id", ownerID).Msg("Initializing relay with owner")
+
+	h.ownerID = ownerID
+	// chatID will be set when first message arrives
+
+	// Start forwarder goroutine
 	h.quit = make(chan struct{})
 	go h.forwardAgentResponses(context.Background())
 }
@@ -184,6 +206,12 @@ func (h *RelayHandler) getChatID() int64 {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	return h.chatID
+}
+
+func (h *RelayHandler) setChatID(chatID int64) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.chatID = chatID
 }
 
 func (h *RelayHandler) sendMessage(ctx context.Context, chatID int64, text string) error {

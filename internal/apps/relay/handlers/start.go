@@ -58,7 +58,12 @@ func (h *StartHandler) onCommand(ctx context.Context, event *events.CommandEvent
 	// Check if owner is already registered
 	if h.ownerStore.HasOwner() {
 		if h.ownerStore.IsOwner(userID) {
-			return h.sendMessage(ctx, chatID, "You are already registered as the bot owner.")
+			// Re-activate relay for existing owner
+			if h.relayHandler != nil {
+				h.relayHandler.SetOwner(ctx, userID, chatID)
+				log.Info().Int64("user_id", userID).Msg("Relay re-activated for existing owner")
+			}
+			return h.sendMessage(ctx, chatID, "You are already registered as the bot owner. Relay mode is active.")
 		}
 		return h.sendMessage(ctx, chatID, "Bot owner is already registered. Only the owner can use this bot.")
 	}
