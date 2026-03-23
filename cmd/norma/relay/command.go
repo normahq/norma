@@ -74,6 +74,16 @@ func serveCommand() *cobra.Command {
 				return fmt.Errorf("load norma config: %w", err)
 			}
 
+			// Normalize agent aliases (opencode_acp -> generic_acp with cmd)
+			executablePath, err := os.Executable()
+			if err != nil {
+				return fmt.Errorf("resolve executable path: %w", err)
+			}
+			normaCfg, err = config.NormalizeAgentAliases(normaCfg, executablePath)
+			if err != nil {
+				return fmt.Errorf("normalize agent aliases: %w", err)
+			}
+
 			// Get norma directory
 			normaDir, err := getNormaDir(repoRoot)
 			if err != nil {
