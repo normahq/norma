@@ -2,6 +2,11 @@ package relay
 
 // Config holds the configuration for the relay bot.
 type Config struct {
+	Relay RelayConfig `mapstructure:"relay"`
+}
+
+// RelayConfig holds the relay-specific configuration.
+type RelayConfig struct {
 	Telegram TelegramConfig `mapstructure:"telegram"`
 	Auth     AuthConfig     `mapstructure:"auth"`
 	Logger   LoggerConfig   `mapstructure:"logger"`

@@ -28,9 +28,9 @@ func App(cfg Config, normaDir string, normaCfg config.Config) *fx.App {
 func Module(cfg Config, normaDir string, normaCfg config.Config) fx.Option {
 	// Convert relay config to tgbotkit config
 	tgbotkitCfg := tgbotkit.Config{
-		Token:        cfg.Telegram.Token,
-		WebhookToken: cfg.Telegram.WebhookToken,
-		WebhookURL:   cfg.Telegram.WebhookURL,
+		Token:        cfg.Relay.Telegram.Token,
+		WebhookToken: cfg.Relay.Telegram.WebhookToken,
+		WebhookURL:   cfg.Relay.Telegram.WebhookURL,
 	}
 
 	// Create logger
@@ -45,7 +45,7 @@ func Module(cfg Config, normaDir string, normaCfg config.Config) fx.Option {
 		// Provide auth token with named injection
 		fx.Provide(
 			fx.Annotate(
-				func() string { return cfg.Auth.OwnerToken },
+				func() string { return cfg.Relay.Auth.OwnerToken },
 				fx.ResultTags(`name:"relay_auth_token"`),
 			),
 		),
