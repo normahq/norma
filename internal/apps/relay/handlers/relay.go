@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -237,7 +238,7 @@ func (h *RelayHandler) runAgent(ctx context.Context, factory *agentfactory.Facto
 	defer cancelTyping()
 	go h.keepTyping(typingCtx, chatIDFromSessionID(sessionID))
 
-	var result string
+	var result strings.Builder
 	for ev, err := range r.Run(ctx, sessionID, sess.Session.ID(), userContent, agent.RunConfig{}) {
 		if err != nil {
 			return "", fmt.Errorf("agent run error: %w", err)
@@ -245,11 +246,11 @@ func (h *RelayHandler) runAgent(ctx context.Context, factory *agentfactory.Facto
 		if ev == nil {
 			continue
 		}
-		// Collect text from all events with content
+		// Accumulate text from all content events (including partial)
 		if ev.Content != nil {
 			for _, part := range ev.Content.Parts {
 				if part.Text != "" {
-					result += part.Text
+					result.WriteString(part.Text)
 				}
 			}
 		}
@@ -258,7 +259,7 @@ func (h *RelayHandler) runAgent(ctx context.Context, factory *agentfactory.Facto
 		}
 	}
 
-	return result, nil
+	return result.String(), nil
 }
 
 // keepTyping sends typing action every 4 seconds until context is canceled.
