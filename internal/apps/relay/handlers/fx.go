@@ -10,14 +10,8 @@ import (
 // Module provides handlers for the relay bot.
 var Module = fx.Module("relay_handlers",
 	fx.Provide(
-		// Provide concrete types (for WireHandlers)
 		NewStartHandler,
 		NewRelayHandler,
-	),
-	fx.Invoke(
-		// Wire handlers together first
-		WireHandlers,
-		// Then register with bot as tgbotkit.Handler interface
 		fx.Annotate(
 			registerStartHandler,
 			fx.As(new(tgbotkit.Handler)),
@@ -29,6 +23,7 @@ var Module = fx.Module("relay_handlers",
 			fx.ResultTags(`group:"bot_handlers"`),
 		),
 	),
+	fx.Invoke(WireHandlers),
 )
 
 // StartHandlerParams contains the parameters for NewStartHandler.

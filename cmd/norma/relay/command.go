@@ -59,7 +59,6 @@ func serveCommand() *cobra.Command {
 			}
 
 			// Validate required fields
-			log.Debug().Str("token_prefix", cfg.Relay.Telegram.Token[:min(10, len(cfg.Relay.Telegram.Token))]).Msg("Telegram token from config")
 			if cfg.Relay.Telegram.Token == "" {
 				return fmt.Errorf("telegram token is required\nSet it via:\n  - Environment: NORMA_RELAY_TELEGRAM_TOKEN=<token>\n  - Config file: relay.telegram.token in .norma/config.yaml")
 			}
@@ -183,11 +182,4 @@ func resolveConfigPath(repoRoot, configuredPath string) string {
 
 func getNormaDir(repoRoot string) (string, error) {
 	return filepath.Join(repoRoot, ".norma"), nil
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
