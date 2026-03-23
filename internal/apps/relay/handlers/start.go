@@ -13,23 +13,29 @@ import (
 
 // StartHandler handles /start command for owner authentication.
 type StartHandler struct {
-	ownerStore *auth.OwnerStore
-	tgClient   client.ClientWithResponsesInterface
-	authToken  string
+	ownerStore   *auth.OwnerStore
+	tgClient     client.ClientWithResponsesInterface
+	authToken    string
+	relayHandler *RelayHandler
 }
 
 // NewStartHandler creates a new start handler.
-func NewStartHandler(ownerStore *auth.OwnerStore, tgClient client.ClientWithResponsesInterface, authToken string) *StartHandler {
+func NewStartHandler(params StartHandlerParams) *StartHandler {
 	return &StartHandler{
-		ownerStore: ownerStore,
-		tgClient:   tgClient,
-		authToken:  authToken,
+		ownerStore: params.OwnerStore,
+		tgClient:   params.TgClient,
+		authToken:  params.Auth.AuthToken,
 	}
 }
 
 // Register registers the handler with the registry.
 func (h *StartHandler) Register(registry handlers.RegistryInterface) {
 	registry.OnCommand(h.onCommand)
+}
+
+// SetRelayHandler sets the relay handler for owner activation.
+func (h *StartHandler) SetRelayHandler(relayHandler *RelayHandler) {
+	h.relayHandler = relayHandler
 }
 
 func (h *StartHandler) onCommand(ctx context.Context, event *events.CommandEvent) error {
@@ -98,7 +104,7 @@ func (h *StartHandler) onCommand(ctx context.Context, event *events.CommandEvent
 		Str("first_name", firstName).
 		Msg("Owner registered successfully")
 
-	return h.sendOwnerRegisteredMessage(chatID, firstName)
+	return h.sendOwnerRegisteredMessage(userID, chatID, firstName)
 }
 
 func (h *StartHandler) sendWelcomeMessage(chatID int64) error {
@@ -107,25 +113,23 @@ func (h *StartHandler) sendWelcomeMessage(chatID int64) error {
 This bot allows you to interact with norma agent workflows via Telegram.
 
 To authenticate as the bot owner, use:
-/start auth=<your_owner_token>
-
-Type /help to see available commands.`
+/start auth=<your_owner_token>`
 	return h.sendMessage(chatID, text)
 }
 
-func (h *StartHandler) sendOwnerRegisteredMessage(chatID int64, firstName string) error {
+func (h *StartHandler) sendOwnerRegisteredMessage(ownerID, chatID int64, firstName string) error {
 	name := firstName
 	if name == "" {
 		name = "Owner"
 	}
 
+	// Activate relay mode
+	if h.relayHandler != nil {
+		h.relayHandler.SetOwner(ownerID, chatID)
+	}
+
 	text := "Congratulations, " + name + "! You are now registered as the bot owner.\n\n"
-	text += "Available commands:\n"
-	text += "/help - Show available commands\n"
-	text += "/status - Show current norma runs\n"
-	text += "/run <task-id> - Start a norma run\n"
-	text += "/stop <run-id> - Stop a running norma run\n"
-	text += "/logs <run-id> [step] - View run logs"
+	text += "Relay mode is active. Send me messages and I will forward them to the agent."
 
 	return h.sendMessage(chatID, text)
 }

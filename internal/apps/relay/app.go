@@ -38,10 +38,15 @@ func Module(cfg Config, normaDir string) fx.Option {
 	return fx.Module("relay",
 		fx.Supply(
 			tgbotkitCfg,
-			cfg.Auth.OwnerToken,
+			logger,
 		),
-		// Provide zerolog.Logger
-		fx.Supply(logger),
+		// Provide auth token with named injection
+		fx.Provide(
+			fx.Annotate(
+				func() string { return cfg.Auth.OwnerToken },
+				fx.ResultTags(`name:"relay_auth_token"`),
+			),
+		),
 		// Provide owner store
 		fx.Provide(func() (*auth.OwnerStore, error) {
 			// Ensure norma directory exists
