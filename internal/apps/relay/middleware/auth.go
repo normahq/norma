@@ -112,7 +112,7 @@ func (m *ownerOnlyMiddleware) sendUnauthorizedMessage(ctx context.Context, chatI
 		Text:   text,
 	})
 	if err != nil {
-		return fmt.Errorf("send unauthorized message to chat %d: %w", chatID, err)
+		return fmt.Errorf("sending unauthorized message to chat %d: %w", chatID, err)
 	}
 	return nil
 }

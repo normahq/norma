@@ -82,8 +82,14 @@ func (h *StartHandler) onCommand(ctx context.Context, event *events.CommandEvent
 	// Extract user info
 	userInfo := extractUserInfo(event.Message.From)
 
-	// Register user as owner
-	registered, err := h.ownerStore.RegisterOwner(userID, userInfo.username, userInfo.firstName, userInfo.lastName)
+	// Check if the chat supports topics (forum supergroup).
+	var hasTopicsEnabled bool
+	if event.Message.Chat.IsForum != nil {
+		hasTopicsEnabled = *event.Message.Chat.IsForum
+	}
+
+	// Register user as owner.
+	registered, err := h.ownerStore.RegisterOwner(userID, userInfo.username, userInfo.firstName, userInfo.lastName, hasTopicsEnabled)
 	if err != nil {
 		log.Error().Err(err).Int64("user_id", userID).Msg("Failed to register owner")
 		return h.sendMessage(ctx, chatID, "Failed to register owner. Please try again.")
@@ -103,7 +109,7 @@ func (h *StartHandler) onCommand(ctx context.Context, event *events.CommandEvent
 }
 
 func parseAuthToken(args string) string {
-	// Deep link format: /start <payload> - args is the payload directly
+	// Deep link format: /start <payload> - args is the payload directly.
 	return strings.TrimSpace(args)
 }
 
@@ -149,7 +155,7 @@ func (h *StartHandler) sendOwnerRegisteredMessage(ctx context.Context, ownerID, 
 		Int64("chat_id", chatID).
 		Msg("Setting owner on relay handler")
 
-	// Activate relay mode
+	// Activate relay mode.
 	if h.relayHandler != nil {
 		h.relayHandler.SetOwner(ctx, ownerID, chatID)
 		log.Info().Msg("Relay handler SetOwner called successfully")
@@ -168,7 +174,7 @@ func (h *StartHandler) sendMessage(ctx context.Context, chatID int64, text strin
 		Text:   text,
 	})
 	if err != nil {
-		return fmt.Errorf("send message to chat %d: %w", chatID, err)
+		return fmt.Errorf("sending message to chat %d: %w", chatID, err)
 	}
 	return nil
 }

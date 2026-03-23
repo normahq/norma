@@ -59,9 +59,11 @@ func WireHandlers(params WireHandlersParams) {
 	params.StartHandler.SetRelayHandler(params.RelayHandler)
 }
 
+// InitExistingOwnerParams contains the parameters for InitExistingOwner.
 type InitExistingOwnerParams struct {
 	fx.In
 
+	LC           fx.Lifecycle
 	OwnerStore   *auth.OwnerStore
 	RelayHandler *RelayHandler
 }
@@ -70,10 +72,17 @@ type InitExistingOwnerParams struct {
 func InitExistingOwner(params InitExistingOwnerParams) {
 	if params.OwnerStore.HasOwner() {
 		owner := params.OwnerStore.GetOwner()
-		// Initialize with owner ID only, chatID will be set when first message arrives
+		// Initialize with owner ID only, chatID will be set when first message arrives.
 		params.RelayHandler.InitOwner(context.Background(), owner.UserID)
 		log.Info().Int64("owner_id", owner.UserID).Msg("Initialized relay with existing owner")
 	}
+
+	params.LC.Append(fx.Hook{
+		OnStop: func(ctx context.Context) error {
+			params.RelayHandler.Stop()
+			return nil
+		},
+	})
 }
 
 // registerStartHandler wraps StartHandler for bot registration.

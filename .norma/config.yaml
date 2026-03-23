@@ -51,6 +51,7 @@ profiles:
       check: opencode
       act: opencode
     planner: codex
+    relay: opencode
   codex:
     pdca:
       plan: codex_acp
@@ -58,13 +59,15 @@ profiles:
       check: codex_acp
       act: codex_acp
     planner: codex_acp
+    relay: opencode
   opencode:
     pdca:
       plan: opencode_plan
       do: opencode
-      check: opencode_plan
+      check: opencode
       act: opencode_plan
     planner: opencode_plan
+    relay: opencode
   minimax:
     pdca:
       plan: opencode_minimax_plan
@@ -72,6 +75,7 @@ profiles:
       check: opencode_minimax_plan
       act: opencode_minimax_plan
     planner: opencode_minimax_plan
+    relay: opencode
   gemini:
     pdca:
       plan: gemini_plan
@@ -79,6 +83,7 @@ profiles:
       check: gemini_plan
       act: gemini_plan
     planner: gemini_plan
+    relay: opencode
   copilot:
     pdca:
       plan: copilot_plan
@@ -86,6 +91,8 @@ profiles:
       check: copilot_plan
       act: copilot_plan
     planner: copilot_plan
+    relay: opencode
+
 
 budgets:
   max_iterations: 5

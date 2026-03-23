@@ -3,6 +3,7 @@ package acpagent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"iter"
@@ -30,8 +31,8 @@ type Config struct {
 	Model string
 	// Mode is the ACP session mode identifier to use.
 	Mode string
-	// SystemPrompt is an optional system-level instruction for the agent.
-	SystemPrompt string
+	// SystemInstructions is an optional system-level instruction for the agent.
+	SystemInstructions string
 	// ClientName is the name reported to the ACP server during initialization.
 	ClientName string
 	// ClientVersion is the version reported to the ACP server during initialization.
@@ -55,13 +56,13 @@ type Config struct {
 type Agent struct {
 	adkagent.Agent
 
-	client       *Client
-	workingDir   string
-	sessionModel string
-	sessionMode  string
-	systemPrompt string
-	logger       zerolog.Logger
-	sessionMu    sync.Mutex
+	client             *Client
+	workingDir         string
+	sessionModel       string
+	sessionMode        string
+	systemInstructions string
+	logger             zerolog.Logger
+	sessionMu          sync.Mutex
 	remoteByADK  map[string]string
 	mcpServers   []acp.McpServer
 }
@@ -126,14 +127,14 @@ func New(cfg Config) (*Agent, error) {
 	}
 
 	a := &Agent{
-		client:       client,
-		workingDir:   cfg.WorkingDir,
-		sessionModel: strings.TrimSpace(cfg.Model),
-		sessionMode:  strings.TrimSpace(cfg.Mode),
-		systemPrompt: strings.TrimSpace(cfg.SystemPrompt),
-		logger:       l,
-		remoteByADK:  make(map[string]string),
-		mcpServers:   mcpServers,
+		client:             client,
+		workingDir:         cfg.WorkingDir,
+		sessionModel:       strings.TrimSpace(cfg.Model),
+		sessionMode:        strings.TrimSpace(cfg.Mode),
+		systemInstructions: strings.TrimSpace(cfg.SystemInstructions),
+		logger:             l,
+		remoteByADK:        make(map[string]string),
+		mcpServers:         mcpServers,
 	}
 	base, err := adkagent.New(adkagent.Config{
 		Name:        cfg.Name,
@@ -169,12 +170,12 @@ func (a *Agent) run(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, er
 		}
 
 		prompt := extractPromptText(ctx.UserContent())
-		if a.systemPrompt != "" {
-			prompt = a.systemPrompt + "\n\n" + prompt
+		if a.systemInstructions != "" {
+			prompt = a.systemInstructions + "\n\n" + prompt
 		}
 
 		if strings.TrimSpace(prompt) == "" {
-			yield(nil, fmt.Errorf("prompt is empty"))
+			yield(nil, errors.New("prompt is empty"))
 			return
 		}
 

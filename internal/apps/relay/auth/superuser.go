@@ -10,11 +10,12 @@ import (
 
 // Owner represents the authenticated admin user.
 type Owner struct {
-	UserID       int64     `json:"user_id"`
-	Username     string    `json:"username,omitempty"`
-	FirstName    string    `json:"first_name,omitempty"`
-	LastName     string    `json:"last_name,omitempty"`
-	RegisteredAt time.Time `json:"registered_at"`
+	UserID           int64     `json:"user_id"`
+	Username         string    `json:"username,omitempty"`
+	FirstName        string    `json:"first_name,omitempty"`
+	LastName         string    `json:"last_name,omitempty"`
+	HasTopicsEnabled bool      `json:"has_topics_enabled"`
+	RegisteredAt     time.Time `json:"registered_at"`
 }
 
 // OwnerStore manages owner persistence.
@@ -31,9 +32,9 @@ func NewOwnerStore(normaDir string) (*OwnerStore, error) {
 		storePath: storePath,
 	}
 
-	// Try to load existing owner
+	// Try to load existing owner.
 	if err := store.load(); err != nil && !os.IsNotExist(err) {
-		return nil, fmt.Errorf("load owner: %w", err)
+		return nil, fmt.Errorf("loading owner: %w", err)
 	}
 
 	return store, nil
@@ -41,21 +42,22 @@ func NewOwnerStore(normaDir string) (*OwnerStore, error) {
 
 // RegisterOwner registers a new owner if none exists.
 // Returns true if registered, false if already exists.
-func (s *OwnerStore) RegisterOwner(userID int64, username, firstName, lastName string) (bool, error) {
+func (s *OwnerStore) RegisterOwner(userID int64, username, firstName, lastName string, hasTopicsEnabled bool) (bool, error) {
 	if s.owner != nil {
 		return false, nil
 	}
 
 	s.owner = &Owner{
-		UserID:       userID,
-		Username:     username,
-		FirstName:    firstName,
-		LastName:     lastName,
-		RegisteredAt: time.Now(),
+		UserID:           userID,
+		Username:         username,
+		FirstName:        firstName,
+		LastName:         lastName,
+		HasTopicsEnabled: hasTopicsEnabled,
+		RegisteredAt:     time.Now(),
 	}
 
 	if err := s.save(); err != nil {
-		return false, fmt.Errorf("save owner: %w", err)
+		return false, fmt.Errorf("saving owner: %w", err)
 	}
 
 	return true, nil
@@ -87,7 +89,7 @@ func (s *OwnerStore) load() error {
 
 	var owner Owner
 	if err := json.Unmarshal(data, &owner); err != nil {
-		return fmt.Errorf("unmarshal owner: %w", err)
+		return fmt.Errorf("unmarshalling owner: %w", err)
 	}
 
 	s.owner = &owner
@@ -95,19 +97,19 @@ func (s *OwnerStore) load() error {
 }
 
 func (s *OwnerStore) save() error {
-	// Ensure directory exists
+	// Ensure directory exists.
 	dir := filepath.Dir(s.storePath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("create directory: %w", err)
+		return fmt.Errorf("creating directory: %w", err)
 	}
 
 	data, err := json.MarshalIndent(s.owner, "", "  ")
 	if err != nil {
-		return fmt.Errorf("marshal owner: %w", err)
+		return fmt.Errorf("marshalling owner: %w", err)
 	}
 
 	if err := os.WriteFile(s.storePath, data, 0644); err != nil {
-		return fmt.Errorf("write file: %w", err)
+		return fmt.Errorf("writing file: %w", err)
 	}
 
 	return nil

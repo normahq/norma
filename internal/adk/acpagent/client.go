@@ -74,6 +74,7 @@ type ExtendedSessionNotification struct {
 // communication over standard input/output. It implements the acp.Client interface
 // to handle protocol-level callbacks and manages multiple concurrent prompt sessions.
 type Client struct {
+	ctx               context.Context
 	cmd               *exec.Cmd
 	stdin             io.WriteCloser
 	conn              *acp.ClientSideConnection
@@ -122,7 +123,7 @@ var _ acp.Client = (*Client)(nil)
 // NewClient starts an ACP subprocess and returns a protocol client over stdio.
 func NewClient(ctx context.Context, cfg ClientConfig) (*Client, error) {
 	if len(cfg.Command) == 0 {
-		return nil, fmt.Errorf("acp command is required")
+		return nil, errors.New("acp command is required")
 	}
 
 	l := zerolog.Nop()
@@ -170,6 +171,7 @@ func NewClient(ctx context.Context, cfg ClientConfig) (*Client, error) {
 	}
 
 	c := &Client{
+		ctx:               ctx,
 		cmd:               cmd,
 		stdin:             stdin,
 		permissionHandler: cfg.PermissionHandler,
@@ -454,6 +456,12 @@ func (c *Client) waitLoop() {
 		if c.closing.Load() {
 			c.logger.Debug().Err(err).Msg("acp process exited during close")
 			c.failAll(io.EOF)
+			return
+		}
+		// If the context was cancelled, this is an expected termination.
+		if c.ctx.Err() != nil {
+			c.logger.Debug().Err(err).Msg("acp process exited due to context cancellation")
+			c.failAll(c.ctx.Err())
 			return
 		}
 		c.logger.Warn().Err(err).Msg("acp process exited with error")

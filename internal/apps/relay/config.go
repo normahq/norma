@@ -10,6 +10,7 @@ type RelayConfig struct {
 	Telegram TelegramConfig `mapstructure:"telegram"`
 	Auth     AuthConfig     `mapstructure:"auth"`
 	Logger   LoggerConfig   `mapstructure:"logger"`
+	WorkingDir string       `mapstructure:"working_dir"`
 }
 
 // TelegramConfig holds the Telegram bot configuration.

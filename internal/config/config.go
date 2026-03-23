@@ -10,14 +10,13 @@ import (
 
 // Config is the root configuration.
 type Config struct {
-	Agents     map[string]agentconfig.Config          `json:"agents,omitempty"     mapstructure:"agents"`
-	MCPServers map[string]agentconfig.MCPServerConfig `json:"mcp_servers,omitempty" mapstructure:"mcp_servers"`
-	Profiles   map[string]ProfileConfig               `json:"profiles,omitempty"  mapstructure:"profiles"`
+	Agents     map[string]agentconfig.Config          `json:"agents,omitempty"     mapstructure:"agents"      validate:"required,gt=0,dive,required"`
+	MCPServers map[string]agentconfig.MCPServerConfig `json:"mcp_servers,omitempty" mapstructure:"mcp_servers" validate:"omitempty,gt=0,dive,required"`
+	Profiles   map[string]ProfileConfig               `json:"profiles,omitempty"  mapstructure:"profiles"     validate:"required,gt=0,dive,required"`
 	Profile    string                                 `json:"profile,omitempty"   mapstructure:"profile"`
 	RoleIDs    map[string]string                      `json:"-"                  mapstructure:"-"`
-	Budgets    Budgets                                `json:"budgets"             mapstructure:"budgets"`
+	Budgets    Budgets                                `json:"budgets"             mapstructure:"budgets"      validate:"required"`
 	Retention  RetentionPolicy                        `json:"retention"          mapstructure:"retention"`
-	Relay      RelayConfig                            `json:"relay,omitempty"    mapstructure:"relay"`
 }
 
 // AgentConfig describes how to run an agent.
@@ -28,53 +27,28 @@ type MCPServerConfig = agentconfig.MCPServerConfig
 
 // ProfileConfig describes an agent profile.
 type ProfileConfig struct {
-	PDCA    PDCAAgentRefs `json:"pdca,omitempty"    mapstructure:"pdca"`
-	Planner string        `json:"planner,omitempty" mapstructure:"planner"`
+	PDCA    PDCAAgentRefs `json:"pdca,omitempty"    mapstructure:"pdca"    validate:"required"`
+	Planner string        `json:"planner,omitempty" mapstructure:"planner" validate:"omitempty,min=1"`
+	Relay   string        `json:"relay,omitempty"   mapstructure:"relay"   validate:"omitempty,min=1"`
 }
 
 // PDCAAgentRefs maps fixed PDCA roles to global agent names.
 type PDCAAgentRefs struct {
-	Plan  string `json:"plan,omitempty"  mapstructure:"plan"`
-	Do    string `json:"do,omitempty"    mapstructure:"do"`
-	Check string `json:"check,omitempty" mapstructure:"check"`
-	Act   string `json:"act,omitempty"   mapstructure:"act"`
+	Plan  string `json:"plan,omitempty"  mapstructure:"plan"  validate:"required,min=1"`
+	Do    string `json:"do,omitempty"    mapstructure:"do"    validate:"required,min=1"`
+	Check string `json:"check,omitempty" mapstructure:"check" validate:"required,min=1"`
+	Act   string `json:"act,omitempty"   mapstructure:"act"   validate:"required,min=1"`
 }
 
 // Budgets defines run limits.
 type Budgets struct {
-	MaxIterations int `json:"max_iterations" mapstructure:"max_iterations"`
+	MaxIterations int `json:"max_iterations" mapstructure:"max_iterations" validate:"required,min=1"`
 }
 
 // RetentionPolicy defines how many old runs to keep.
 type RetentionPolicy struct {
-	KeepLast int `json:"keep_last,omitempty" mapstructure:"keep_last"`
-	KeepDays int `json:"keep_days,omitempty" mapstructure:"keep_days"`
-}
-
-// RelayConfig holds the configuration for the relay bot.
-type RelayConfig struct {
-	Telegram RelayTelegramConfig `mapstructure:"telegram"`
-	Auth     RelayAuthConfig     `mapstructure:"auth"`
-	Logger   RelayLoggerConfig   `mapstructure:"logger"`
-}
-
-// RelayTelegramConfig holds the Telegram bot configuration.
-type RelayTelegramConfig struct {
-	Token        string `mapstructure:"token"`
-	WebhookToken string `mapstructure:"webhook_token"`
-	WebhookURL   string `mapstructure:"webhook_url"`
-}
-
-// RelayAuthConfig holds the authentication configuration.
-type RelayAuthConfig struct {
-	OwnerToken string `mapstructure:"owner_token"`
-	OwnerID    int64  `mapstructure:"owner_id"`
-}
-
-// RelayLoggerConfig holds the logger configuration.
-type RelayLoggerConfig struct {
-	Level  string `mapstructure:"level"`
-	Pretty bool   `mapstructure:"pretty"`
+	KeepLast int `json:"keep_last,omitempty" mapstructure:"keep_last" validate:"omitempty,min=1"`
+	KeepDays int `json:"keep_days,omitempty" mapstructure:"keep_days" validate:"omitempty,min=1"`
 }
 
 const defaultProfile = "default"

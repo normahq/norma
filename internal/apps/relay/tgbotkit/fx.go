@@ -59,14 +59,20 @@ func NewBot(
 		return nil, err
 	}
 
+	runCtx, cancel := context.WithCancel(context.Background())
+
 	lc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
 			go func() {
-				if err := bot.Run(context.Background()); err != nil {
+				if err := bot.Run(runCtx); err != nil {
+					// Using bot logger which is already configured
 					bot.Logger().Errorf("bot run failed: %v", err)
 				}
 			}()
-
+			return nil
+		},
+		OnStop: func(ctx context.Context) error {
+			cancel()
 			return nil
 		},
 	})
