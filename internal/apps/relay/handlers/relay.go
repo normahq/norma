@@ -7,7 +7,6 @@ import (
 
 	"github.com/metalagman/norma/internal/apps/relay/auth"
 	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 	"github.com/tgbotkit/client"
 	"github.com/tgbotkit/runtime/events"
 	"github.com/tgbotkit/runtime/handlers"
@@ -25,7 +24,6 @@ const (
 type RelayHandler struct {
 	ownerStore *auth.OwnerStore
 	tgClient   client.ClientWithResponsesInterface
-	logger     zerolog.Logger
 
 	mu       sync.RWMutex
 	ownerID  int64
@@ -40,7 +38,6 @@ func NewRelayHandler(ownerStore *auth.OwnerStore, tgClient client.ClientWithResp
 	return &RelayHandler{
 		ownerStore: ownerStore,
 		tgClient:   tgClient,
-		logger:     log.With().Str("handler", "relay").Logger(),
 		agentIn:    make(chan string, defaultChannelSize),
 		agentOut:   make(chan string, defaultChannelSize),
 		quit:       make(chan struct{}),
@@ -53,8 +50,9 @@ func (h *RelayHandler) Register(registry handlers.RegistryInterface) {
 }
 
 func (h *RelayHandler) onMessage(ctx context.Context, event *events.MessageEvent) error {
-	ownerID := h.getOwnerID()
+	logger := zerolog.Ctx(ctx)
 
+	ownerID := h.getOwnerID()
 	if ownerID == 0 {
 		return nil
 	}
@@ -72,7 +70,7 @@ func (h *RelayHandler) onMessage(ctx context.Context, event *events.MessageEvent
 		return nil
 	}
 
-	h.logger.Debug().
+	logger.Debug().
 		Int64("user_id", ownerID).
 		Str("text", text).
 		Msg("Relaying message to agent")
@@ -81,7 +79,7 @@ func (h *RelayHandler) onMessage(ctx context.Context, event *events.MessageEvent
 	case h.agentIn <- text:
 		return nil
 	default:
-		h.logger.Warn().Msg("Agent input channel full, dropping message")
+		logger.Warn().Msg("Agent input channel full, dropping message")
 		return nil
 	}
 }
@@ -104,13 +102,15 @@ func (h *RelayHandler) SetOwner(ctx context.Context, ownerID, chatID int64) {
 }
 
 func (h *RelayHandler) forwardAgentResponses(ctx context.Context) {
+	logger := zerolog.Ctx(ctx)
+
 	for {
 		select {
 		case <-ctx.Done():
-			h.logger.Debug().Msg("Agent response forwarder stopped by context")
+			logger.Debug().Msg("Agent response forwarder stopped by context")
 			return
 		case <-h.quit:
-			h.logger.Debug().Msg("Agent response forwarder stopped by quit signal")
+			logger.Debug().Msg("Agent response forwarder stopped by quit signal")
 			return
 		case msg, ok := <-h.agentOut:
 			if !ok {
@@ -118,7 +118,7 @@ func (h *RelayHandler) forwardAgentResponses(ctx context.Context) {
 			}
 			chatID := h.getChatID()
 			if err := h.sendMessage(ctx, chatID, agentResponsePrefix+msg); err != nil {
-				h.logger.Error().Err(err).Msg("Failed to send agent response")
+				logger.Error().Err(err).Msg("Failed to send agent response")
 			}
 		}
 	}

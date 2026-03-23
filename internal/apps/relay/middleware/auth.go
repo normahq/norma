@@ -6,7 +6,6 @@ import (
 
 	"github.com/metalagman/norma/internal/apps/relay/auth"
 	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 	"github.com/tgbotkit/client"
 	"github.com/tgbotkit/runtime/eventemitter"
 	"github.com/tgbotkit/runtime/events"
@@ -23,18 +22,18 @@ func OwnerOnly(ownerStore *auth.OwnerStore, tgClient client.ClientWithResponsesI
 	return &ownerOnlyMiddleware{
 		ownerStore: ownerStore,
 		tgClient:   tgClient,
-		logger:     log.With().Str("middleware", "auth").Logger(),
 	}
 }
 
 type ownerOnlyMiddleware struct {
 	ownerStore *auth.OwnerStore
 	tgClient   client.ClientWithResponsesInterface
-	logger     zerolog.Logger
 }
 
 func (m *ownerOnlyMiddleware) Handle(next eventemitter.Listener) eventemitter.Listener {
 	return eventemitter.ListenerFunc(func(ctx context.Context, payload any) error {
+		logger := zerolog.Ctx(ctx)
+
 		var userID int64
 		var chatID int64
 		var isCommand bool
@@ -69,18 +68,18 @@ func (m *ownerOnlyMiddleware) Handle(next eventemitter.Listener) eventemitter.Li
 
 		// Check if owner is registered
 		if !m.ownerStore.HasOwner() {
-			m.logger.Warn().Int64("user_id", userID).Msg("No owner registered, rejecting command")
+			logger.Warn().Int64("user_id", userID).Msg("No owner registered, rejecting command")
 			if err := m.sendUnauthorizedMessage(ctx, chatID, "No owner registered. Please start the bot with /start first."); err != nil {
-				m.logger.Error().Err(err).Msg("Failed to send unauthorized message")
+				logger.Error().Err(err).Msg("Failed to send unauthorized message")
 			}
 			return nil
 		}
 
 		// Check if user is the owner
 		if !m.ownerStore.IsOwner(userID) {
-			m.logger.Warn().Int64("user_id", userID).Msg("User is not the owner, rejecting command")
+			logger.Warn().Int64("user_id", userID).Msg("User is not the owner, rejecting command")
 			if err := m.sendUnauthorizedMessage(ctx, chatID, "Unauthorized. Only the bot owner can use this command."); err != nil {
-				m.logger.Error().Err(err).Msg("Failed to send unauthorized message")
+				logger.Error().Err(err).Msg("Failed to send unauthorized message")
 			}
 			return nil
 		}

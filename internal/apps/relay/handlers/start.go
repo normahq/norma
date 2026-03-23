@@ -7,7 +7,6 @@ import (
 
 	"github.com/metalagman/norma/internal/apps/relay/auth"
 	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 	"github.com/tgbotkit/client"
 	"github.com/tgbotkit/runtime/events"
 	"github.com/tgbotkit/runtime/handlers"
@@ -19,7 +18,6 @@ type StartHandler struct {
 	tgClient     client.ClientWithResponsesInterface
 	authToken    string
 	relayHandler *RelayHandler
-	logger       zerolog.Logger
 }
 
 // NewStartHandler creates a new start handler.
@@ -28,7 +26,6 @@ func NewStartHandler(params StartHandlerParams) *StartHandler {
 		ownerStore: params.OwnerStore,
 		tgClient:   params.TgClient,
 		authToken:  params.Auth.AuthToken,
-		logger:     log.With().Str("handler", "start").Logger(),
 	}
 }
 
@@ -43,6 +40,8 @@ func (h *StartHandler) SetRelayHandler(relayHandler *RelayHandler) {
 }
 
 func (h *StartHandler) onCommand(ctx context.Context, event *events.CommandEvent) error {
+	logger := zerolog.Ctx(ctx)
+
 	if event.Command != "start" {
 		return nil
 	}
@@ -67,7 +66,7 @@ func (h *StartHandler) onCommand(ctx context.Context, event *events.CommandEvent
 
 	// Validate auth token
 	if authToken != h.authToken {
-		h.logger.Warn().Str("provided_token", authToken).Msg("Invalid auth token provided")
+		logger.Warn().Str("provided_token", authToken).Msg("Invalid auth token provided")
 		return h.sendMessage(ctx, chatID, "Invalid authentication token. Please try again.")
 	}
 
@@ -77,7 +76,7 @@ func (h *StartHandler) onCommand(ctx context.Context, event *events.CommandEvent
 	// Register user as owner
 	registered, err := h.ownerStore.RegisterOwner(userID, userInfo.username, userInfo.firstName, userInfo.lastName)
 	if err != nil {
-		h.logger.Error().Err(err).Int64("user_id", userID).Msg("Failed to register owner")
+		logger.Error().Err(err).Int64("user_id", userID).Msg("Failed to register owner")
 		return h.sendMessage(ctx, chatID, "Failed to register owner. Please try again.")
 	}
 
@@ -85,7 +84,7 @@ func (h *StartHandler) onCommand(ctx context.Context, event *events.CommandEvent
 		return h.sendMessage(ctx, chatID, "Owner is already registered.")
 	}
 
-	h.logger.Info().
+	logger.Info().
 		Int64("user_id", userID).
 		Str("username", userInfo.username).
 		Str("first_name", userInfo.firstName).
