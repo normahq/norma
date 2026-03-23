@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"time"
 
 	acp "github.com/coder/acp-go-sdk"
 	"github.com/metalagman/norma/internal/adk/agentfactory"
@@ -228,6 +229,14 @@ func (h *RelayHandler) runAgent(ctx context.Context, factory *agentfactory.Facto
 
 	userContent := genai.NewContentFromText(message, genai.RoleUser)
 
+	// Send typing action before starting
+	h.sendChatAction(ctx, chatIDFromSessionID(sessionID), "typing")
+
+	// Start a goroutine to keep sending typing action while agent runs
+	typingCtx, cancelTyping := context.WithCancel(ctx)
+	defer cancelTyping()
+	go h.keepTyping(typingCtx, chatIDFromSessionID(sessionID))
+
 	var result string
 	for ev, err := range r.Run(ctx, sessionID, sess.Session.ID(), userContent, agent.RunConfig{}) {
 		if err != nil {
@@ -236,7 +245,8 @@ func (h *RelayHandler) runAgent(ctx context.Context, factory *agentfactory.Facto
 		if ev == nil {
 			continue
 		}
-		if ev.Content != nil {
+		// Only collect final text, skip thought events
+		if ev.Content != nil && ev.TurnComplete {
 			for _, part := range ev.Content.Parts {
 				if part.Text != "" {
 					result += part.Text
@@ -249,6 +259,39 @@ func (h *RelayHandler) runAgent(ctx context.Context, factory *agentfactory.Facto
 	}
 
 	return result, nil
+}
+
+// keepTyping sends typing action every 4 seconds until context is canceled.
+func (h *RelayHandler) keepTyping(ctx context.Context, chatID int64) {
+	ticker := time.NewTicker(4 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			h.sendChatAction(ctx, chatID, "typing")
+		}
+	}
+}
+
+// sendChatAction sends a chat action (typing, etc.) to the user.
+func (h *RelayHandler) sendChatAction(ctx context.Context, chatID int64, action string) {
+	if chatID == 0 {
+		return
+	}
+	_, _ = h.tgClient.SendChatActionWithResponse(ctx, client.SendChatActionJSONRequestBody{
+		ChatId: chatID,
+		Action: action,
+	})
+}
+
+// chatIDFromSessionID extracts chatID from sessionID (format: "chat-<chatID>").
+func chatIDFromSessionID(sessionID string) int64 {
+	var chatID int64
+	_, _ = fmt.Sscanf(sessionID, "chat-%d", &chatID)
+	return chatID
 }
 
 func (h *RelayHandler) forwardAgentResponses(ctx context.Context) {
