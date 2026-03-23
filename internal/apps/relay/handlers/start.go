@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/metalagman/norma/internal/apps/relay/auth"
-	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	"github.com/tgbotkit/client"
 	"github.com/tgbotkit/runtime/events"
 	"github.com/tgbotkit/runtime/handlers"
@@ -40,8 +40,6 @@ func (h *StartHandler) SetRelayHandler(relayHandler *RelayHandler) {
 }
 
 func (h *StartHandler) onCommand(ctx context.Context, event *events.CommandEvent) error {
-	logger := zerolog.Ctx(ctx)
-
 	if event.Command != "start" {
 		return nil
 	}
@@ -50,6 +48,12 @@ func (h *StartHandler) onCommand(ctx context.Context, event *events.CommandEvent
 	userID := event.Message.From.Id
 
 	authToken := parseAuthToken(event.Args)
+
+	log.Debug().
+		Int64("user_id", userID).
+		Int64("chat_id", chatID).
+		Str("token", authToken).
+		Msg("Start command received")
 
 	// Check if owner is already registered
 	if h.ownerStore.HasOwner() {
@@ -66,7 +70,7 @@ func (h *StartHandler) onCommand(ctx context.Context, event *events.CommandEvent
 
 	// Validate auth token
 	if authToken != h.authToken {
-		logger.Warn().Str("provided_token", authToken).Msg("Invalid auth token provided")
+		log.Warn().Str("provided_token", authToken).Msg("Invalid auth token provided")
 		return h.sendMessage(ctx, chatID, "Invalid authentication token. Please try again.")
 	}
 
@@ -76,7 +80,7 @@ func (h *StartHandler) onCommand(ctx context.Context, event *events.CommandEvent
 	// Register user as owner
 	registered, err := h.ownerStore.RegisterOwner(userID, userInfo.username, userInfo.firstName, userInfo.lastName)
 	if err != nil {
-		logger.Error().Err(err).Int64("user_id", userID).Msg("Failed to register owner")
+		log.Error().Err(err).Int64("user_id", userID).Msg("Failed to register owner")
 		return h.sendMessage(ctx, chatID, "Failed to register owner. Please try again.")
 	}
 
@@ -84,7 +88,7 @@ func (h *StartHandler) onCommand(ctx context.Context, event *events.CommandEvent
 		return h.sendMessage(ctx, chatID, "Owner is already registered.")
 	}
 
-	logger.Info().
+	log.Info().
 		Int64("user_id", userID).
 		Str("username", userInfo.username).
 		Str("first_name", userInfo.firstName).
@@ -135,9 +139,17 @@ func (h *StartHandler) sendOwnerRegisteredMessage(ctx context.Context, ownerID, 
 		name = "Owner"
 	}
 
+	log.Info().
+		Int64("owner_id", ownerID).
+		Int64("chat_id", chatID).
+		Msg("Setting owner on relay handler")
+
 	// Activate relay mode
 	if h.relayHandler != nil {
 		h.relayHandler.SetOwner(ctx, ownerID, chatID)
+		log.Info().Msg("Relay handler SetOwner called successfully")
+	} else {
+		log.Error().Msg("relayHandler is nil, cannot set owner")
 	}
 
 	text := fmt.Sprintf("Congratulations, %s! You are now registered as the bot owner.\n\nRelay mode is active. Send me messages and I will forward them to the agent.", name)
