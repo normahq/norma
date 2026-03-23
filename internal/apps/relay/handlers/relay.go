@@ -6,7 +6,7 @@ import (
 	"sync"
 
 	"github.com/metalagman/norma/internal/apps/relay/auth"
-	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	"github.com/tgbotkit/client"
 	"github.com/tgbotkit/runtime/events"
 	"github.com/tgbotkit/runtime/handlers"
@@ -47,39 +47,54 @@ func NewRelayHandler(ownerStore *auth.OwnerStore, tgClient client.ClientWithResp
 // Register registers the handler with the registry.
 func (h *RelayHandler) Register(registry handlers.RegistryInterface) {
 	registry.OnMessage(h.onMessage)
+	log.Debug().Msg("RelayHandler registered for OnMessage events")
 }
 
 func (h *RelayHandler) onMessage(ctx context.Context, event *events.MessageEvent) error {
-	logger := zerolog.Ctx(ctx)
-
 	ownerID := h.getOwnerID()
+	chatID := h.getChatID()
+
+	log.Debug().
+		Int64("event_user_id", event.Message.From.Id).
+		Int64("owner_id", ownerID).
+		Int64("chat_id", chatID).
+		Msg("RelayHandler.onMessage called")
+
 	if ownerID == 0 {
+		log.Debug().Msg("No owner set, ignoring message")
 		return nil
 	}
 
 	if event.Message.From.Id != ownerID {
+		log.Debug().
+			Int64("from_id", event.Message.From.Id).
+			Int64("owner_id", ownerID).
+			Msg("Message not from owner, ignoring")
 		return nil
 	}
 
 	if event.Message.Text == nil {
+		log.Debug().Msg("Message has no text, ignoring")
 		return nil
 	}
 
 	text := *event.Message.Text
 	if text == "" {
+		log.Debug().Msg("Empty text message, ignoring")
 		return nil
 	}
 
-	logger.Debug().
+	log.Info().
 		Int64("user_id", ownerID).
 		Str("text", text).
 		Msg("Relaying message to agent")
 
 	select {
 	case h.agentIn <- text:
+		log.Debug().Msg("Message sent to agentIn channel")
 		return nil
 	default:
-		logger.Warn().Msg("Agent input channel full, dropping message")
+		log.Warn().Msg("Agent input channel full, dropping message")
 		return nil
 	}
 }
@@ -90,35 +105,45 @@ func (h *RelayHandler) SetOwner(ctx context.Context, ownerID, chatID int64) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
+	log.Info().
+		Int64("owner_id", ownerID).
+		Int64("chat_id", chatID).
+		Msg("Setting owner for relay")
+
 	h.ownerID = ownerID
 	h.chatID = chatID
 
 	// Signal existing forwarder to stop
 	close(h.quit)
 
-	// Start new forwarder with fresh context
+	// Start new forwarder with background context (not the command context)
 	h.quit = make(chan struct{})
-	go h.forwardAgentResponses(ctx)
+	go h.forwardAgentResponses(context.Background())
 }
 
 func (h *RelayHandler) forwardAgentResponses(ctx context.Context) {
-	logger := zerolog.Ctx(ctx)
+	log.Debug().Msg("Agent response forwarder started")
 
 	for {
 		select {
 		case <-ctx.Done():
-			logger.Debug().Msg("Agent response forwarder stopped by context")
+			log.Debug().Msg("Agent response forwarder stopped by context")
 			return
 		case <-h.quit:
-			logger.Debug().Msg("Agent response forwarder stopped by quit signal")
+			log.Debug().Msg("Agent response forwarder stopped by quit signal")
 			return
 		case msg, ok := <-h.agentOut:
 			if !ok {
+				log.Debug().Msg("Agent output channel closed")
 				return
 			}
 			chatID := h.getChatID()
+			log.Debug().
+				Int64("chat_id", chatID).
+				Str("message", msg).
+				Msg("Forwarding agent response to owner")
 			if err := h.sendMessage(ctx, chatID, agentResponsePrefix+msg); err != nil {
-				logger.Error().Err(err).Msg("Failed to send agent response")
+				log.Error().Err(err).Msg("Failed to send agent response")
 			}
 		}
 	}
@@ -135,6 +160,11 @@ func (h *RelayHandler) SendToOwner(ctx context.Context, msg string) error {
 	if chatID == 0 {
 		return fmt.Errorf("owner not set")
 	}
+
+	log.Debug().
+		Int64("chat_id", chatID).
+		Str("message", msg).
+		Msg("Sending message to owner via agentOut channel")
 
 	select {
 	case h.agentOut <- msg:
@@ -157,6 +187,9 @@ func (h *RelayHandler) getChatID() int64 {
 }
 
 func (h *RelayHandler) sendMessage(ctx context.Context, chatID int64, text string) error {
+	if chatID == 0 {
+		return fmt.Errorf("chatID is 0, cannot send message")
+	}
 	_, err := h.tgClient.SendMessageWithResponse(ctx, client.SendMessageJSONRequestBody{
 		ChatId: chatID,
 		Text:   text,
