@@ -13,6 +13,7 @@ import (
 
 	"github.com/metalagman/norma/internal/apps/relay"
 	"github.com/metalagman/norma/internal/apps/relay/auth"
+	"github.com/metalagman/norma/internal/config"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -21,7 +22,10 @@ import (
 //go:embed config.yaml
 var defaultConfig []byte
 
-const envPrefix = "NORMA"
+const (
+	envPrefix         = "NORMA"
+	defaultConfigPath = ".norma/config.yaml"
+)
 
 // Command builds the `norma relay` command.
 func Command() *cobra.Command {
@@ -56,11 +60,22 @@ func serveCommand() *cobra.Command {
 
 			// Validate required fields
 			if cfg.Telegram.Token == "" {
-				return fmt.Errorf("telegram token is required\nSet it via:\n  - Environment: NORMA_TELEGRAM_TOKEN=<token>\n  - Config file: telegram.token in .norma/config.yaml")
+				return fmt.Errorf("telegram token is required\nSet it via:\n  - Environment: NORMA_RELAY_TELEGRAM_TOKEN=<token>\n  - Config file: relay.telegram.token in .norma/config.yaml")
+			}
+
+			// Load norma config to get agent configuration
+			repoRoot, err := os.Getwd()
+			if err != nil {
+				return fmt.Errorf("get working directory: %w", err)
+			}
+
+			normaCfg, err := loadNormaConfig(repoRoot)
+			if err != nil {
+				return fmt.Errorf("load norma config: %w", err)
 			}
 
 			// Get norma directory
-			normaDir, err := getNormaDir()
+			normaDir, err := getNormaDir(repoRoot)
 			if err != nil {
 				return fmt.Errorf("get norma dir: %w", err)
 			}
@@ -70,24 +85,17 @@ func serveCommand() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("generate owner token: %w", err)
 			}
-			log.Info().Str("owner_token", ownerToken).Msg("Generated one-time owner token")
 
-			// Display owner token and auth URL instructions using logger
 			log.Info().
 				Str("owner_token", ownerToken).
-				Msg("=== Norma Relay Bot ===")
-			log.Info().
-				Str("owner_token", ownerToken).
-				Msg("To authenticate as owner, open this URL in your browser:")
-			log.Info().
-				Str("url", fmt.Sprintf("https://t.me/<bot_username>/start?auth=%s", ownerToken)).
-				Msg("Auth URL (replace <bot_username> with your bot username from @BotFather)")
+				Str("auth_url", fmt.Sprintf("https://t.me/<bot_username>/start?auth=%s", ownerToken)).
+				Msg("Relay bot owner token generated")
 
 			// Set owner token in config
 			cfg.Auth.OwnerToken = ownerToken
 
-			// Create and run the relay app
-			app := relay.App(cfg, normaDir)
+			// Create and run the relay app with norma config for agent info
+			app := relay.App(cfg, normaDir, normaCfg)
 
 			// Setup signal context for graceful shutdown
 			ctx, cancel := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
@@ -133,10 +141,45 @@ func initConfig() error {
 	return nil
 }
 
-func getNormaDir() (string, error) {
-	wd, err := os.Getwd()
+func loadNormaConfig(repoRoot string) (config.Config, error) {
+	path := resolveConfigPath(repoRoot, viper.GetString("config"))
+	rawConfig, err := os.ReadFile(path)
 	if err != nil {
-		return "", err
+		if os.IsNotExist(err) {
+			return config.Config{}, nil
+		}
+		return config.Config{}, fmt.Errorf("read config bytes: %w", err)
 	}
-	return filepath.Join(wd, ".norma"), nil
+
+	expanded, err := config.ExpandEnv(string(rawConfig))
+	if err != nil {
+		return config.Config{}, fmt.Errorf("expand env vars in config: %w", err)
+	}
+
+	viper.SetConfigType("yaml")
+	if err := viper.ReadConfig(strings.NewReader(expanded)); err != nil {
+		return config.Config{}, fmt.Errorf("read config: %w", err)
+	}
+
+	var cfg config.Config
+	if err := viper.Unmarshal(&cfg); err != nil {
+		return config.Config{}, fmt.Errorf("parse config: %w", err)
+	}
+
+	return cfg, nil
+}
+
+func resolveConfigPath(repoRoot, configuredPath string) string {
+	path := strings.TrimSpace(configuredPath)
+	if path == "" {
+		path = defaultConfigPath
+	}
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(repoRoot, path)
+	}
+	return path
+}
+
+func getNormaDir(repoRoot string) (string, error) {
+	return filepath.Join(repoRoot, ".norma"), nil
 }
