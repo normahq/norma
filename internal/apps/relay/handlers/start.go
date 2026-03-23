@@ -94,15 +94,8 @@ func (h *StartHandler) onCommand(ctx context.Context, event *events.CommandEvent
 }
 
 func parseAuthToken(args string) string {
-	if args == "" {
-		return ""
-	}
-	for _, part := range strings.Fields(args) {
-		if strings.HasPrefix(part, "auth=") {
-			return strings.TrimPrefix(part, "auth=")
-		}
-	}
-	return ""
+	// Deep link format: /start <payload> - args is the payload directly
+	return strings.TrimSpace(args)
 }
 
 type userInfo struct {
@@ -129,8 +122,10 @@ func (h *StartHandler) sendWelcomeMessage(ctx context.Context, chatID int64) err
 
 This bot allows you to interact with norma agent workflows via Telegram.
 
-To authenticate as the bot owner, use:
-/start auth=<your_owner_token>`
+To authenticate as the bot owner, send:
+/start <your_owner_token>
+
+Or open: https://t.me/<bot_username>?start=<owner_token>`
 	return h.sendMessage(ctx, chatID, text)
 }
 

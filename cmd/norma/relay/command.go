@@ -88,7 +88,7 @@ func serveCommand() *cobra.Command {
 
 			log.Info().
 				Str("owner_token", ownerToken).
-				Str("auth_url", fmt.Sprintf("https://t.me/<bot_username>/start?auth=%s", ownerToken)).
+				Str("auth_url", fmt.Sprintf("https://t.me/<bot_username>?start=%s", ownerToken)).
 				Msg("Relay bot owner token generated")
 
 			// Set owner token in config
