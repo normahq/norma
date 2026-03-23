@@ -33,10 +33,11 @@ type agentMessage struct {
 
 // RelayHandler handles bidirectional message relay between owner and agent.
 type RelayHandler struct {
-	ownerStore *auth.OwnerStore
-	tgClient   client.ClientWithResponsesInterface
-	normaCfg   config.Config
-	workingDir string
+	ownerStore     *auth.OwnerStore
+	tgClient       client.ClientWithResponsesInterface
+	normaCfg       config.Config
+	workingDir     string
+	sessionManager *TopicSessionManager
 
 	mu             sync.RWMutex
 	ownerID        int64
@@ -50,12 +51,13 @@ type RelayHandler struct {
 }
 
 // NewRelayHandler creates a new relay handler.
-func NewRelayHandler(ownerStore *auth.OwnerStore, tgClient client.ClientWithResponsesInterface, normaCfg config.Config, workingDir string, ag agent.Agent) *RelayHandler {
+func NewRelayHandler(ownerStore *auth.OwnerStore, tgClient client.ClientWithResponsesInterface, normaCfg config.Config, workingDir string, sessionManager *TopicSessionManager, ag agent.Agent) *RelayHandler {
 	return &RelayHandler{
 		ownerStore:     ownerStore,
 		tgClient:       tgClient,
 		normaCfg:       normaCfg,
 		workingDir:     workingDir,
+		sessionManager: sessionManager,
 		agentIn:        make(chan agentMessage, defaultChannelSize),
 		agentOut:       make(chan string, defaultChannelSize),
 		sessionService: session.InMemoryService(),
@@ -95,17 +97,28 @@ func (h *RelayHandler) onMessage(ctx context.Context, event *events.MessageEvent
 		return nil
 	}
 
+	// Check if this is a topic message
+	var topicID int
+	if event.Message.MessageThreadId != nil {
+		topicID = *event.Message.MessageThreadId
+	}
+
+	// If topic message, route to TopicSessionManager
+	if topicID != 0 && h.sessionManager != nil {
+		log.Info().Int64("user_id", ownerID).Int("topic_id", topicID).Str("text", text).Msg("Relaying message to topic agent")
+		if err := h.sessionManager.SendMessage(event.Message.Chat.Id, topicID, text); err != nil {
+			log.Error().Err(err).Int("topic_id", topicID).Msg("Failed to send message to topic agent")
+		}
+		return nil
+	}
+
+	// Non-topic messages go to main relay agent
 	log.Info().Int64("user_id", ownerID).Str("text", text).Msg("Relaying message to agent")
 
 	select {
 	case h.agentIn <- agentMessage{
 		chatID:  event.Message.Chat.Id,
-		topicID: func() int {
-			if event.Message.MessageThreadId != nil {
-				return *event.Message.MessageThreadId
-			}
-			return 0
-		}(),
+		topicID: 0,
 		message: text,
 	}:
 		return nil

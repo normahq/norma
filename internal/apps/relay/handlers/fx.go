@@ -15,6 +15,9 @@ var Module = fx.Module("relay_handlers",
 	fx.Provide(
 		NewStartHandler,
 		NewRelayHandler,
+		NewTopicResponseRelay,
+		NewTopicSessionManager,
+		NewNewHandler,
 		fx.Annotate(
 			registerStartHandler,
 			fx.As(new(tgbotkit.Handler)),
@@ -22,6 +25,11 @@ var Module = fx.Module("relay_handlers",
 		),
 		fx.Annotate(
 			registerRelayHandler,
+			fx.As(new(tgbotkit.Handler)),
+			fx.ResultTags(`group:"bot_handlers"`),
+		),
+		fx.Annotate(
+			registerNewHandler,
 			fx.As(new(tgbotkit.Handler)),
 			fx.ResultTags(`group:"bot_handlers"`),
 		),
@@ -92,5 +100,10 @@ func registerStartHandler(h *StartHandler) tgbotkit.Handler {
 
 // registerRelayHandler wraps RelayHandler for bot registration.
 func registerRelayHandler(h *RelayHandler) tgbotkit.Handler {
+	return h
+}
+
+// registerNewHandler wraps NewHandler for bot registration.
+func registerNewHandler(h *NewHandler) tgbotkit.Handler {
 	return h
 }
