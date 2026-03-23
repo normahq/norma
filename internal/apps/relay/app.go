@@ -13,6 +13,7 @@ import (
 	"github.com/metalagman/norma/internal/apps/relay/auth"
 	"github.com/metalagman/norma/internal/apps/relay/handlers"
 	"github.com/metalagman/norma/internal/apps/relay/tgbotkit"
+	"github.com/metalagman/norma/internal/apps/relaymcp"
 	"github.com/metalagman/norma/internal/config"
 	"github.com/rs/zerolog/log"
 	"go.uber.org/fx"
@@ -43,7 +44,7 @@ func Module(cfg Config, normaCfg config.Config) fx.Option {
 
 	// Create logger.
 	logger := log.Logger.With().Str("component", "relay").Logger()
-	
+
 	// Determine working directory from config or fallback to current directory.
 	workingDir := cfg.Relay.WorkingDir
 	if workingDir == "" {
@@ -128,6 +129,22 @@ func Module(cfg Config, normaCfg config.Config) fx.Option {
 		}),
 		tgbotkit.Module,
 		handlers.Module,
+		// Start TCP MCP server if configured
+		fx.Invoke(func(lc fx.Lifecycle, sessionManager *handlers.TopicSessionManager) {
+			if cfg.Relay.MCP.Address != "" {
+				lc.Append(fx.Hook{
+					OnStart: func(ctx context.Context) error {
+						go func() {
+							svc := handlers.NewRelayMCPServer(sessionManager)
+							if err := relaymcp.RunHTTP(ctx, svc, cfg.Relay.MCP.Address); err != nil {
+								log.Error().Err(err).Str("address", cfg.Relay.MCP.Address).Msg("MCP server error")
+							}
+						}()
+						log.Info().Str("address", cfg.Relay.MCP.Address).Msg("Relay MCP server started")
+						return nil
+					},
+				})
+			}
+		}),
 	)
 }
-

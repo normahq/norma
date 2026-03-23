@@ -3,6 +3,8 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -10,6 +12,7 @@ import (
 	"github.com/metalagman/norma/internal/adk/agentfactory"
 	"github.com/metalagman/norma/internal/apps/relay/auth"
 	"github.com/metalagman/norma/internal/config"
+	"github.com/metalagman/norma/internal/git"
 	"github.com/rs/zerolog/log"
 	"github.com/tgbotkit/client"
 	"github.com/tgbotkit/runtime/events"
@@ -21,12 +24,13 @@ import (
 )
 
 type topicSession struct {
-	topicID   int
-	agentName string
-	agent     agent.Agent
-	in        chan agentMessage
-	out       chan<- string
-	sessionID string
+	topicID      int
+	agentName    string
+	agent        agent.Agent
+	in           chan agentMessage
+	out          chan<- string
+	sessionID    string
+	workspaceDir string
 }
 
 type TopicSessionManager struct {
@@ -63,9 +67,14 @@ func (m *TopicSessionManager) CreateSession(ctx context.Context, chatID int64, t
 	}
 	m.mu.Unlock()
 
+	workspaceDir, err := m.createWorkspace(ctx, chatID, topicID)
+	if err != nil {
+		return fmt.Errorf("create workspace: %w", err)
+	}
+
 	req := agentfactory.CreationRequest{
 		Name:              agentName,
-		WorkingDirectory:  m.workingDir,
+		WorkingDirectory:  workspaceDir,
 		Stderr:            nil,
 		Logger:            nil,
 		PermissionHandler: defaultPermissionHandler,
@@ -73,6 +82,7 @@ func (m *TopicSessionManager) CreateSession(ctx context.Context, chatID int64, t
 
 	ag, err := m.factory.CreateAgent(ctx, agentName, req)
 	if err != nil {
+		_ = m.cleanupWorkspace(ctx, workspaceDir)
 		return fmt.Errorf("creating agent %q: %w", agentName, err)
 	}
 
@@ -83,16 +93,18 @@ func (m *TopicSessionManager) CreateSession(ctx context.Context, chatID int64, t
 		UserID:  sessionID,
 	})
 	if err != nil {
+		_ = m.cleanupWorkspace(ctx, workspaceDir)
 		return fmt.Errorf("creating session: %w", err)
 	}
 
 	ts := &topicSession{
-		topicID:   topicID,
-		agentName: agentName,
-		agent:     ag,
-		in:        make(chan agentMessage, defaultChannelSize),
-		out:       nil,
-		sessionID: sess.Session.ID(),
+		topicID:      topicID,
+		agentName:    agentName,
+		agent:        ag,
+		in:           make(chan agentMessage, defaultChannelSize),
+		out:          nil,
+		sessionID:    sess.Session.ID(),
+		workspaceDir: workspaceDir,
 	}
 
 	runCtx, cancel := context.WithCancel(context.Background())
@@ -103,6 +115,71 @@ func (m *TopicSessionManager) CreateSession(ctx context.Context, chatID int64, t
 	m.mu.Unlock()
 
 	go m.runAgentLoop(runCtx, ts, ag, sessionSvc, sess.Session, responseRelay, chatID, topicID)
+
+	return nil
+}
+
+func (m *TopicSessionManager) createWorkspace(ctx context.Context, chatID int64, topicID int) (string, error) {
+	relayDir := filepath.Join(m.workingDir, ".norma")
+	workspacesDir := filepath.Join(relayDir, "relay-workspaces")
+	if err := os.MkdirAll(workspacesDir, 0755); err != nil {
+		return "", fmt.Errorf("create workspaces dir: %w", err)
+	}
+
+	workspaceDir := filepath.Join(workspacesDir, fmt.Sprintf("topic-%d-%d", chatID, topicID))
+	branchName := fmt.Sprintf("norma/relay/%d/%d", chatID, topicID)
+
+	if _, err := git.MountWorktree(ctx, m.workingDir, workspaceDir, branchName, "main"); err != nil {
+		return "", fmt.Errorf("mount worktree: %w", err)
+	}
+
+	return workspaceDir, nil
+}
+
+func (m *TopicSessionManager) cleanupWorkspace(ctx context.Context, workspaceDir string) error {
+	if workspaceDir == "" {
+		return nil
+	}
+	if err := git.RemoveWorktree(ctx, m.workingDir, workspaceDir); err != nil {
+		log.Warn().Err(err).Str("workspace", workspaceDir).Msg("failed to remove worktree")
+		return err
+	}
+	return nil
+}
+
+func (m *TopicSessionManager) CommitWorkspace(ctx context.Context, chatID int64, topicID int) error {
+	sessionID := m.sessionID(chatID, topicID)
+
+	m.mu.RLock()
+	ts, exists := m.sessions[sessionID]
+	m.mu.RUnlock()
+
+	if !exists {
+		return fmt.Errorf("no session for topic %d", topicID)
+	}
+
+	workspaceDir := ts.workspaceDir
+	if workspaceDir == "" {
+		return fmt.Errorf("no workspace for topic %d", topicID)
+	}
+
+	statusOut, err := git.GitRunCmdOutput(ctx, workspaceDir, "git", "status", "--porcelain")
+	if err != nil {
+		return fmt.Errorf("read workspace status: %w", err)
+	}
+	status := strings.TrimSpace(statusOut)
+	if status == "" {
+		return nil
+	}
+
+	if err := git.GitRunCmdErr(ctx, workspaceDir, "git", "add", "-A"); err != nil {
+		return fmt.Errorf("stage workspace changes: %w", err)
+	}
+
+	commitMsg := fmt.Sprintf("chore: relay session %d/%d", chatID, topicID)
+	if err := git.GitRunCmdErr(ctx, workspaceDir, "git", "commit", "-m", commitMsg); err != nil {
+		return fmt.Errorf("commit workspace changes: %w", err)
+	}
 
 	return nil
 }
@@ -203,6 +280,16 @@ func (m *TopicSessionManager) StopSession(chatID int64, topicID int) {
 		cancel()
 		delete(m.cancels, sessionID)
 	}
+
+	if ts, exists := m.sessions[sessionID]; exists && ts.workspaceDir != "" {
+		workspaceDir := ts.workspaceDir
+		go func() {
+			if err := m.cleanupWorkspace(context.Background(), workspaceDir); err != nil {
+				log.Error().Err(err).Str("workspace", workspaceDir).Msg("cleanup workspace failed")
+			}
+		}()
+	}
+
 	delete(m.sessions, sessionID)
 }
 
@@ -214,6 +301,17 @@ func (m *TopicSessionManager) StopAll() {
 		cancel()
 	}
 	m.cancels = make(map[string]context.CancelFunc)
+
+	for _, ts := range m.sessions {
+		if ts.workspaceDir != "" {
+			workspaceDir := ts.workspaceDir
+			go func() {
+				if err := m.cleanupWorkspace(context.Background(), workspaceDir); err != nil {
+					log.Error().Err(err).Str("workspace", workspaceDir).Msg("cleanup workspace failed")
+				}
+			}()
+		}
+	}
 	m.sessions = make(map[string]*topicSession)
 }
 

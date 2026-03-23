@@ -22,6 +22,7 @@ import (
 
 const (
 	defaultChannelSize = 100
+	acpToolCallEvent   = "acp_tool_call"
 )
 
 // agentMessage represents a message to be processed by the agent.
@@ -257,6 +258,7 @@ func (h *RelayHandler) runAgent(ctx context.Context, sessionID, message string, 
 	go h.keepTyping(typingCtx, chatIDFromSessionID(sessionID))
 
 	var result strings.Builder
+
 	for ev, err := range r.Run(ctx, sessionID, sess.Session.ID(), userContent, agent.RunConfig{}) {
 		if err != nil {
 			return "", fmt.Errorf("agent run: %w", err)
@@ -264,9 +266,30 @@ func (h *RelayHandler) runAgent(ctx context.Context, sessionID, message string, 
 		if ev == nil {
 			continue
 		}
-		// Accumulate text from all content events (including partial).
+		// Handle tool call events: print tool name but hide parameters.
 		if ev.Content != nil {
 			for _, part := range ev.Content.Parts {
+				if part == nil {
+					continue
+				}
+				// Handle tool call start - print tool name only, hide parameters.
+				if part.FunctionCall != nil && part.FunctionCall.Name == acpToolCallEvent {
+					// Extract tool title from args.
+					args := part.FunctionCall.Args
+					title := extractToolTitle(args)
+					if title == "" {
+						title = acpToolCallEvent
+					}
+					// Print tool call start - only the tool name.
+					if onProgress != nil {
+						onProgress(fmt.Sprintf("ToolCall: %s\n", title))
+					}
+					continue
+				}
+				// Skip tool call update responses (noisy repeated statuses).
+				if part.FunctionResponse != nil && part.FunctionResponse.Name == "acp_tool_call_update" {
+					continue
+				}
 				// Skip thought/reasoning parts.
 				if part.Thought {
 					continue
@@ -285,6 +308,37 @@ func (h *RelayHandler) runAgent(ctx context.Context, sessionID, message string, 
 	}
 
 	return result.String(), nil
+}
+
+// extractToolTitle extracts the tool title from function call args.
+func extractToolTitle(args any) string {
+	if args == nil {
+		return ""
+	}
+	// Handle string args (raw JSON).
+	if s, ok := args.(string); ok {
+		// Try to parse as JSON to extract title.
+		if strings.HasPrefix(s, "{") {
+			// Simple extraction - look for "title".
+			if idx := strings.Index(s, `"title"`); idx >= 0 {
+				rest := s[idx+7:]
+				if idx := strings.Index(rest, `","`); idx >= 0 {
+					return strings.Trim(rest[:idx], `" :`)
+				}
+				if idx := strings.Index(rest, `"}`); idx >= 0 {
+					return strings.Trim(rest[:idx], `" :`)
+				}
+			}
+		}
+		return ""
+	}
+	// Handle map/struct args.
+	if m, ok := args.(map[string]any); ok {
+		if title, ok := m["title"].(string); ok {
+			return title
+		}
+	}
+	return ""
 }
 
 // keepTyping sends typing action every 4 seconds until context is canceled.
