@@ -37,23 +37,25 @@ type RelayHandler struct {
 	tgClient   client.ClientWithResponsesInterface
 	normaCfg   config.Config
 
-	mu       sync.RWMutex
-	ownerID  int64
-	chatID   int64
-	agentIn  chan agentMessage
-	agentOut chan string
-	quit     chan struct{}
+	mu             sync.RWMutex
+	ownerID        int64
+	chatID         int64
+	agentIn        chan agentMessage
+	agentOut       chan string
+	quit           chan struct{}
+	sessionService session.Service
 }
 
 // NewRelayHandler creates a new relay handler.
 func NewRelayHandler(ownerStore *auth.OwnerStore, tgClient client.ClientWithResponsesInterface, normaCfg config.Config) *RelayHandler {
 	return &RelayHandler{
-		ownerStore: ownerStore,
-		tgClient:   tgClient,
-		normaCfg:   normaCfg,
-		agentIn:    make(chan agentMessage, defaultChannelSize),
-		agentOut:   make(chan string, defaultChannelSize),
-		quit:       make(chan struct{}),
+		ownerStore:     ownerStore,
+		tgClient:       tgClient,
+		normaCfg:       normaCfg,
+		agentIn:        make(chan agentMessage, defaultChannelSize),
+		agentOut:       make(chan string, defaultChannelSize),
+		quit:           make(chan struct{}),
+		sessionService: session.InMemoryService(),
 	}
 }
 
@@ -92,7 +94,7 @@ func (h *RelayHandler) onMessage(ctx context.Context, event *events.MessageEvent
 	log.Info().Int64("user_id", ownerID).Str("text", text).Msg("Relaying message to agent")
 
 	select {
-	case h.agentIn <- agentMessage{chatID: chatID, message: text}:
+	case h.agentIn <- agentMessage{chatID: event.Message.Chat.Id, message: text}:
 		return nil
 	default:
 		log.Warn().Msg("Agent input channel full, dropping message")
@@ -207,17 +209,19 @@ func (h *RelayHandler) runAgent(ctx context.Context, factory *agentfactory.Facto
 		return "", fmt.Errorf("create agent: %w", err)
 	}
 
-	sessionService := session.InMemoryService()
 	r, err := runnerpkg.New(runnerpkg.Config{
 		AppName:        "norma-relay",
 		Agent:          ag,
-		SessionService: sessionService,
+		SessionService: h.sessionService,
 	})
 	if err != nil {
 		return "", fmt.Errorf("create runner: %w", err)
 	}
 
-	sess, err := sessionService.Create(ctx, &session.CreateRequest{AppName: "norma-relay", UserID: sessionID})
+	sess, err := h.sessionService.Create(ctx, &session.CreateRequest{
+		AppName: "norma-relay",
+		UserID:  sessionID,
+	})
 	if err != nil {
 		return "", fmt.Errorf("create session: %w", err)
 	}
@@ -264,11 +268,6 @@ func (h *RelayHandler) forwardAgentResponses(ctx context.Context) {
 			}
 		}
 	}
-}
-
-// GetInputChannel returns the channel for sending messages to the agent.
-func (h *RelayHandler) GetInputChannel() <-chan agentMessage {
-	return h.agentIn
 }
 
 // SendToOwner sends a message from the agent to the owner.
