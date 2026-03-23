@@ -122,9 +122,10 @@ func (h *RelayHandler) SetOwner(ctx context.Context, ownerID, chatID int64) {
 	// Signal existing forwarder to stop
 	close(h.quit)
 
-	// Start new forwarder with background context (not the command context)
+	// Start new forwarder and processor with background context (not the command context)
 	h.quit = make(chan struct{})
 	go h.forwardAgentResponses(context.Background())
+	go h.processAgentInput(context.Background())
 }
 
 // InitOwner sets only the owner ID (without chatID) and starts the forwarder.
@@ -138,9 +139,44 @@ func (h *RelayHandler) InitOwner(ctx context.Context, ownerID int64) {
 	h.ownerID = ownerID
 	// chatID will be set when first message arrives
 
-	// Start forwarder goroutine
+	// Start forwarder and processor goroutines
 	h.quit = make(chan struct{})
 	go h.forwardAgentResponses(context.Background())
+	go h.processAgentInput(context.Background())
+}
+
+// processAgentInput reads from agentIn and processes messages.
+// Currently echoes back - replace with actual agent integration.
+func (h *RelayHandler) processAgentInput(ctx context.Context) {
+	log.Debug().Msg("Agent input processor started")
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Debug().Msg("Agent input processor stopped by context")
+			return
+		case <-h.quit:
+			log.Debug().Msg("Agent input processor stopped by quit signal")
+			return
+		case msg, ok := <-h.agentIn:
+			if !ok {
+				log.Debug().Msg("Agent input channel closed")
+				return
+			}
+
+			log.Debug().Str("message", msg).Msg("Processing message from agentIn")
+
+			// For now, echo back with prefix
+			response := "Echo: " + msg
+
+			select {
+			case h.agentOut <- response:
+				log.Debug().Str("response", response).Msg("Sent response to agentOut")
+			default:
+				log.Warn().Msg("Agent output channel full, dropping response")
+			}
+		}
+	}
 }
 
 func (h *RelayHandler) forwardAgentResponses(ctx context.Context) {
