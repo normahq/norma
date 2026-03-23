@@ -355,12 +355,22 @@ func (h *RelayHandler) sendMessage(ctx context.Context, chatID int64, text strin
 	if chatID == 0 {
 		return fmt.Errorf("chatID is 0, cannot send message")
 	}
+
+	parseMode := "Markdown"
 	_, err := h.tgClient.SendMessageWithResponse(ctx, client.SendMessageJSONRequestBody{
-		ChatId: chatID,
-		Text:   text,
+		ChatId:    chatID,
+		Text:      text,
+		ParseMode: &parseMode,
 	})
 	if err != nil {
-		return fmt.Errorf("send message to chat %d: %w", chatID, err)
+		// If markdown fails, try sending without parse mode
+		_, err = h.tgClient.SendMessageWithResponse(ctx, client.SendMessageJSONRequestBody{
+			ChatId: chatID,
+			Text:   text,
+		})
+		if err != nil {
+			return fmt.Errorf("send message to chat %d: %w", chatID, err)
+		}
 	}
 	return nil
 }
