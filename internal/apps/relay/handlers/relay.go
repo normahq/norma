@@ -200,14 +200,16 @@ func (h *RelayHandler) runAgent(ctx context.Context, factory *agentfactory.Facto
 		return "", fmt.Errorf("create agent: %w", err)
 	}
 
+	sessionService := session.InMemoryService()
 	r, err := runnerpkg.New(runnerpkg.Config{
-		Agent: ag,
+		AppName:        "norma-relay",
+		Agent:          ag,
+		SessionService: sessionService,
 	})
 	if err != nil {
 		return "", fmt.Errorf("create runner: %w", err)
 	}
 
-	sessionService := session.InMemoryService()
 	sess, err := sessionService.Create(ctx, &session.CreateRequest{AppName: "norma-relay", UserID: "relay-user"})
 	if err != nil {
 		return "", fmt.Errorf("create session: %w", err)
