@@ -245,8 +245,8 @@ func (h *RelayHandler) runAgent(ctx context.Context, factory *agentfactory.Facto
 		if ev == nil {
 			continue
 		}
-		// Only collect final text, skip thought events
-		if ev.Content != nil && ev.TurnComplete {
+		// Collect text from all events with content
+		if ev.Content != nil {
 			for _, part := range ev.Content.Parts {
 				if part.Text != "" {
 					result += part.Text
