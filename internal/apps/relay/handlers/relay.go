@@ -96,7 +96,7 @@ func (h *RelayHandler) onMessage(ctx context.Context, event *events.MessageEvent
 	// If topic message, route to TopicSessionManager
 	if topicID != 0 && h.sessionManager != nil {
 		log.Info().Int64("user_id", ownerID).Int("topic_id", topicID).Str("text", text).Msg("Relaying message to topic agent")
-		if err := h.sessionManager.SendMessage(event.Message.Chat.Id, topicID, text); err != nil {
+		if err := h.sessionManager.SendMessage(ctx, event.Message.Chat.Id, topicID, text); err != nil {
 			log.Error().Err(err).Int("topic_id", topicID).Msg("Failed to send message to topic agent")
 		}
 		return nil

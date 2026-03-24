@@ -463,7 +463,7 @@ func (m *TopicSessionManager) sendMessagePlainToTopic(ctx context.Context, chatI
 	return nil
 }
 
-func (m *TopicSessionManager) SendMessage(chatID int64, topicID int, text string) error {
+func (m *TopicSessionManager) SendMessage(ctx context.Context, chatID int64, topicID int, text string) error {
 	sessionID := m.sessionID(chatID, topicID)
 
 	m.mu.RLock()
@@ -471,10 +471,29 @@ func (m *TopicSessionManager) SendMessage(chatID int64, topicID int, text string
 	m.mu.RUnlock()
 
 	if !exists {
-		return fmt.Errorf("no session for topic %d", topicID)
+		_, hasRecord := m.GetSessionRecord(sessionID)
+		if !hasRecord {
+			return fmt.Errorf("no session for topic %d", topicID)
+		}
+		log.Info().Str("session_id", sessionID).Int("topic_id", topicID).Msg("Lazily restoring topic session")
+		if err := m.sendMessagePlainToTopic(ctx, chatID, topicID, 0, "Restoring agent session..."); err != nil {
+			log.Warn().Err(err).Int("topic_id", topicID).Msg("failed to send restore notification")
+		}
+		if err := m.restoreSession(ctx, sessionID, chatID, topicID); err != nil {
+			return fmt.Errorf("lazy restore failed for topic %d: %w", topicID, err)
+		}
+		if err := m.sendMessagePlainToTopic(ctx, chatID, topicID, 0, "Done"); err != nil {
+			log.Warn().Err(err).Int("topic_id", topicID).Msg("failed to send done notification")
+		}
+		m.mu.RLock()
+		ts = m.sessions[sessionID]
+		m.mu.RUnlock()
+		if ts == nil {
+			return fmt.Errorf("session restore completed but session still not found")
+		}
 	}
 
-	m.processMessage(context.Background(), ts, text)
+	m.processMessage(ctx, ts, text)
 	return nil
 }
 
@@ -562,6 +581,43 @@ func (m *TopicSessionManager) GetSessionRecord(sessionID string) (sessionRecord,
 	defer m.mu.RUnlock()
 	rec, ok := m.records[sessionID]
 	return rec, ok
+}
+
+func (m *TopicSessionManager) restoreSession(ctx context.Context, sessionID string, chatID int64, topicID int) error {
+	rec, ok := m.GetSessionRecord(sessionID)
+	if !ok {
+		return fmt.Errorf("no persisted record for session %s", sessionID)
+	}
+	workspaceDir, err := m.ensureWorkspace(ctx, chatID, topicID, rec.WorkspaceDir)
+	if err != nil {
+		return fmt.Errorf("restore workspace: %w", err)
+	}
+
+	ts, err := m.buildTopicSession(ctx, sessionID, chatID, topicID, rec.AgentName, workspaceDir)
+	if err != nil {
+		_ = m.cleanupWorkspace(ctx, workspaceDir)
+		return fmt.Errorf("build topic session: %w", err)
+	}
+
+	m.mu.Lock()
+	m.sessions[sessionID] = ts
+	m.records[sessionID] = sessionRecord{
+		SessionID:    sessionID,
+		ChatID:       chatID,
+		TopicID:      topicID,
+		AgentName:    rec.AgentName,
+		WorkspaceDir: workspaceDir,
+		Status:       sessionStatusActive,
+		UpdatedAt:    nowRFC3339(),
+	}
+	err = m.persistLocked()
+	m.mu.Unlock()
+	if err != nil {
+		return fmt.Errorf("persist restored session: %w", err)
+	}
+
+	log.Info().Str("session_id", sessionID).Int("topic_id", topicID).Msg("session lazily restored")
+	return nil
 }
 
 func (m *TopicSessionManager) closeTopic(ctx context.Context, chatID int64, topicID int) {
