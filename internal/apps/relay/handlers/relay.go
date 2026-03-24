@@ -25,13 +25,6 @@ const (
 	acpToolCallEvent   = "acp_tool_call"
 )
 
-// agentMessage represents a message to be processed by the agent.
-type agentMessage struct {
-	chatID  int64
-	topicID int
-	message string
-}
-
 // RelayHandler handles bidirectional message relay between owner and agent.
 type RelayHandler struct {
 	ownerStore     *auth.OwnerStore
@@ -43,26 +36,22 @@ type RelayHandler struct {
 	mu             sync.RWMutex
 	ownerID        int64
 	chatID         int64
-	agentIn        chan agentMessage
-	agentOut       chan string
-	cancel         context.CancelFunc
 	sessionService session.Service
+	draftCounter   atomic.Int64
 
-	ag agent.Agent
+	relayAgents *RelayAgentManager
 }
 
 // NewRelayHandler creates a new relay handler.
-func NewRelayHandler(ownerStore *auth.OwnerStore, tgClient client.ClientWithResponsesInterface, normaCfg config.Config, workingDir string, sessionManager *TopicSessionManager, ag agent.Agent) *RelayHandler {
+func NewRelayHandler(ownerStore *auth.OwnerStore, tgClient client.ClientWithResponsesInterface, normaCfg config.Config, workingDir string, sessionManager *TopicSessionManager, relayAgents *RelayAgentManager) *RelayHandler {
 	return &RelayHandler{
 		ownerStore:     ownerStore,
 		tgClient:       tgClient,
 		normaCfg:       normaCfg,
 		workingDir:     workingDir,
 		sessionManager: sessionManager,
-		agentIn:        make(chan agentMessage, defaultChannelSize),
-		agentOut:       make(chan string, defaultChannelSize),
 		sessionService: session.InMemoryService(),
-		ag:             ag,
+		relayAgents:    relayAgents,
 	}
 }
 
@@ -116,17 +105,9 @@ func (h *RelayHandler) onMessage(ctx context.Context, event *events.MessageEvent
 	// Non-topic messages go to main relay agent
 	log.Info().Int64("user_id", ownerID).Str("text", text).Msg("Relaying message to agent")
 
-	select {
-	case h.agentIn <- agentMessage{
-		chatID:  event.Message.Chat.Id,
-		topicID: 0,
-		message: text,
-	}:
-		return nil
-	default:
-		log.Warn().Msg("Agent input channel full, dropping message")
-		return nil
-	}
+	draftID := int(h.draftCounter.Add(1))
+	h.processMessage(ctx, event.Message.Chat.Id, 0, text, draftID)
+	return nil
 }
 
 // SetOwner sets the owner and starts the response forwarder.
@@ -138,16 +119,6 @@ func (h *RelayHandler) SetOwner(ctx context.Context, ownerID, chatID int64) {
 
 	h.ownerID = ownerID
 	h.chatID = chatID
-
-	if h.cancel != nil {
-		h.cancel()
-	}
-
-	runCtx, cancel := context.WithCancel(context.Background())
-	h.cancel = cancel
-
-	go h.forwardAgentResponses(runCtx)
-	go h.processAgentInput(runCtx)
 }
 
 // InitOwner sets only the owner ID and starts the forwarder.
@@ -158,81 +129,60 @@ func (h *RelayHandler) InitOwner(ctx context.Context, ownerID int64) {
 	log.Info().Int64("owner_id", ownerID).Msg("Initializing relay with owner")
 
 	h.ownerID = ownerID
-
-	if h.cancel != nil {
-		h.cancel()
-	}
-
-	runCtx, cancel := context.WithCancel(context.Background())
-	h.cancel = cancel
-
-	go h.forwardAgentResponses(runCtx)
-	go h.processAgentInput(runCtx)
 }
 
-// Stop stops the relay handler goroutines.
+// Stop stops the relay handler (no-op, channels removed).
 func (h *RelayHandler) Stop() {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if h.cancel != nil {
-		h.cancel()
-	}
 }
 
-func (h *RelayHandler) processAgentInput(ctx context.Context) {
-	log.Info().Msg("Agent input processor started")
+func (h *RelayHandler) processMessage(ctx context.Context, chatID int64, topicID int, text string, draftID int) {
+	sessionID := fmt.Sprintf("chat-%d", chatID)
+	responseDraftID := draftID
+	eventsDraftID := int(h.draftCounter.Add(1))
 
-	// Resolve agent name from profile.
-	profileName := h.normaCfg.Profile
-	if profileName == "" {
-		profileName = "default"
+	onProgress := func(text string) {
+		_, err := h.sendMessageDraft(ctx, chatID, responseDraftID, text, topicID)
+		if err != nil {
+			log.Warn().Err(err).Msg("Failed to update message draft")
+			return
+		}
 	}
 
-	log.Info().Str("profile", profileName).Interface("all_profiles", h.normaCfg.Profiles).Msg("Resolving relay agent")
-
-	for {
-		select {
-		case <-ctx.Done():
+	onThought := func(text string) {
+		_, err := h.sendMessageDraftPlain(ctx, chatID, eventsDraftID, text, topicID)
+		if err != nil {
+			log.Warn().Err(err).Msg("Failed to update thought draft")
 			return
-		case msg, ok := <-h.agentIn:
-			if !ok {
-				return
-			}
+		}
+	}
 
-			sessionID := fmt.Sprintf("chat-%d", msg.chatID)
-			var messageID atomic.Int32
+	onTool := func(text string) {
+		_, err := h.sendMessageDraftPlain(ctx, chatID, eventsDraftID, text, topicID)
+		if err != nil {
+			log.Warn().Err(err).Msg("Failed to update tool-event draft")
+			return
+		}
+	}
 
-			onProgress := func(text string) {
-				// Limit updates to avoid rate limits? For now, we update on every chunk.
-				// In a real app we might want to throttle this.
-				id, err := h.sendMessageDraft(ctx, msg.chatID, int(messageID.Load()), text, msg.topicID)
-				if err != nil {
-					log.Warn().Err(err).Msg("Failed to update message draft")
-					return
-				}
-				if messageID.Load() == 0 {
-					messageID.Store(int32(id))
-				}
-			}
-
-			_, err := h.runAgent(ctx, sessionID, msg.message, onProgress)
-			if err != nil {
-				log.Error().Err(err).Msg("Failed to run agent")
-				response := fmt.Sprintf("error: %v", err)
-				select {
-				case h.agentOut <- response:
-				default:
-					log.Warn().Msg("Agent output channel full, dropping error response")
-				}
-			}
+	_, err := h.runAgent(ctx, sessionID, text, onProgress, onThought, onTool)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to run agent")
+		response := fmt.Sprintf("error: %v", err)
+		if _, sendErr := h.sendMessageDraft(ctx, chatID, 0, response, topicID); sendErr != nil {
+			log.Error().Err(sendErr).Msg("Failed to send error response")
 		}
 	}
 }
 
-func (h *RelayHandler) runAgent(ctx context.Context, sessionID, message string, onProgress func(string)) (string, error) {
+func (h *RelayHandler) runAgent(ctx context.Context, sessionID, message string, onProgress func(string), onThought func(string), onTool func(string)) (string, error) {
+	ag, err := h.relayAgents.Agent()
+	if err != nil {
+		return "", fmt.Errorf("getting relay agent: %w", err)
+	}
+
 	r, err := runnerpkg.New(runnerpkg.Config{
 		AppName:        "norma-relay",
-		Agent:          h.ag,
+		Agent:          ag,
 		SessionService: h.sessionService,
 	})
 	if err != nil {
@@ -281,17 +231,23 @@ func (h *RelayHandler) runAgent(ctx context.Context, sessionID, message string, 
 						title = acpToolCallEvent
 					}
 					// Print tool call start - only the tool name.
-					if onProgress != nil {
-						onProgress(fmt.Sprintf("ToolCall: %s\n", title))
+					if onTool != nil {
+						onTool(fmt.Sprintf("ToolCall: %s", title))
 					}
 					continue
 				}
-				// Skip tool call update responses (noisy repeated statuses).
+				// Forward tool call updates to the events stream.
 				if part.FunctionResponse != nil && part.FunctionResponse.Name == "acp_tool_call_update" {
+					if onTool != nil {
+						onTool(formatToolUpdate(part.FunctionResponse.Response))
+					}
 					continue
 				}
-				// Skip thought/reasoning parts.
+				// Handle thought parts.
 				if part.Thought {
+					if onThought != nil && part.Text != "" {
+						onThought(part.Text)
+					}
 					continue
 				}
 				if part.Text != "" {
@@ -308,6 +264,13 @@ func (h *RelayHandler) runAgent(ctx context.Context, sessionID, message string, 
 	}
 
 	return result.String(), nil
+}
+
+func formatToolUpdate(response any) string {
+	if response == nil {
+		return "ToolUpdate"
+	}
+	return fmt.Sprintf("ToolUpdate: %v", response)
 }
 
 // extractToolTitle extracts the tool title from function call args.
@@ -374,23 +337,6 @@ func chatIDFromSessionID(sessionID string) int64 {
 	return chatID
 }
 
-func (h *RelayHandler) forwardAgentResponses(ctx context.Context) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case msg, ok := <-h.agentOut:
-			if !ok {
-				return
-			}
-			chatID := h.getChatID()
-			if _, err := h.sendMessageDraft(ctx, chatID, 0, msg, 0); err != nil {
-				log.Error().Err(err).Msg("Failed to send agent response")
-			}
-		}
-	}
-}
-
 // SendToOwner sends a message from the agent to the owner.
 func (h *RelayHandler) SendToOwner(ctx context.Context, msg string) error {
 	chatID := h.getChatID()
@@ -398,12 +344,10 @@ func (h *RelayHandler) SendToOwner(ctx context.Context, msg string) error {
 		return fmt.Errorf("owner not set")
 	}
 
-	select {
-	case h.agentOut <- msg:
-		return nil
-	default:
-		return fmt.Errorf("agent output channel full")
+	if _, err := h.sendMessageDraft(ctx, chatID, 0, msg, 0); err != nil {
+		return fmt.Errorf("sending message: %w", err)
 	}
+	return nil
 }
 
 func (h *RelayHandler) getOwnerID() int64 {
@@ -424,56 +368,80 @@ func (h *RelayHandler) setChatID(chatID int64) {
 	h.chatID = chatID
 }
 
-// sendMessageDraft sends a new message or edits an existing one.
-func (h *RelayHandler) sendMessageDraft(ctx context.Context, chatID int64, draftID int, text string, topicID int) (int, error) {
-	if draftID == 0 {
-		// 1. Send new message.
-		parseMode := "Markdown"
-		req := client.SendMessageJSONRequestBody{
-			ChatId:    chatID,
-			Text:      text,
-			ParseMode: &parseMode,
-		}
-		if topicID != 0 {
-			req.MessageThreadId = &topicID
-		}
+func escapeMarkdownV2(text string) string {
+	replacer := strings.NewReplacer(
+		"\\", "\\\\",
+		"_", "\\_",
+		"*", "\\*",
+		"[", "\\[",
+		"]", "\\]",
+		"(", "\\(",
+		")", "\\)",
+		"~", "\\~",
+		"`", "\\`",
+		">", "\\>",
+		"#", "\\#",
+		"+", "\\+",
+		"-", "\\-",
+		"=", "\\=",
+		"|", "\\|",
+		"{", "\\{",
+		"}", "\\}",
+		".", "\\.",
+		"!", "\\!",
+	)
+	return replacer.Replace(text)
+}
 
-		resp, err := h.tgClient.SendMessageWithResponse(ctx, req)
-		if err != nil {
-			// If markdown fails, try sending without parse mode.
-			req.ParseMode = nil
-			resp, err = h.tgClient.SendMessageWithResponse(ctx, req)
-			if err != nil {
-				return 0, fmt.Errorf("sending message to chat %d: %w", chatID, err)
-			}
-		}
-		if resp.JSON200 == nil {
-			return 0, fmt.Errorf("failed to send message, no response body")
-		}
-		return resp.JSON200.Result.MessageId, nil
+func (h *RelayHandler) sendMessageDraft(ctx context.Context, chatID int64, draftID int, text string, topicID int) (int, error) {
+	parseMode := "MarkdownV2"
+	req := client.SendMessageDraftJSONRequestBody{
+		ChatId:    chatID,
+		DraftId:   draftID,
+		Text:      escapeMarkdownV2(text),
+		ParseMode: &parseMode,
+	}
+	if topicID != 0 {
+		req.MessageThreadId = &topicID
 	}
 
-	// 2. Edit existing message.
-	parseMode := "Markdown"
-	resp, err := h.tgClient.EditMessageTextWithResponse(ctx, client.EditMessageTextJSONRequestBody{
-		ChatId:    &chatID,
-		MessageId: &draftID,
-		Text:      text,
-		ParseMode: &parseMode,
-	})
+	resp, err := h.tgClient.SendMessageDraftWithResponse(ctx, req)
 	if err != nil {
-		// If markdown fails, try sending without parse mode.
-		resp, err = h.tgClient.EditMessageTextWithResponse(ctx, client.EditMessageTextJSONRequestBody{
-			ChatId:    &chatID,
-			MessageId: &draftID,
-			Text:      text,
-		})
+		log.Warn().Err(err).Int64("chat_id", chatID).Msg("send draft with MarkdownV2 failed, retrying without parse_mode")
+		req.ParseMode = nil
+		resp, err = h.tgClient.SendMessageDraftWithResponse(ctx, req)
 		if err != nil {
-			return draftID, fmt.Errorf("editing message %d in chat %d: %w", draftID, chatID, err)
+			return draftID, fmt.Errorf("sending draft to chat %d: %w", chatID, err)
 		}
+	}
+	if resp.JSON400 != nil {
+		return draftID, fmt.Errorf("sending draft to chat %d: %s", chatID, resp.JSON400.Description)
 	}
 	if resp.JSON200 == nil {
-		return draftID, nil
+		return draftID, fmt.Errorf("sending draft to chat %d: no response body", chatID)
+	}
+	return draftID, nil
+}
+
+func (h *RelayHandler) sendMessageDraftPlain(ctx context.Context, chatID int64, draftID int, text string, topicID int) (int, error) {
+	req := client.SendMessageDraftJSONRequestBody{
+		ChatId:  chatID,
+		DraftId: draftID,
+		Text:    text,
+	}
+	if topicID != 0 {
+		req.MessageThreadId = &topicID
+	}
+
+	resp, err := h.tgClient.SendMessageDraftWithResponse(ctx, req)
+	if err != nil {
+		return draftID, fmt.Errorf("sending plain draft to chat %d: %w", chatID, err)
+	}
+	if resp.JSON400 != nil {
+		return draftID, fmt.Errorf("sending plain draft to chat %d: %s", chatID, resp.JSON400.Description)
+	}
+	if resp.JSON200 == nil {
+		return draftID, fmt.Errorf("sending plain draft to chat %d: no response body", chatID)
 	}
 	return draftID, nil
 }

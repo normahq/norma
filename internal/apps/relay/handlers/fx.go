@@ -15,7 +15,6 @@ var Module = fx.Module("relay_handlers",
 	fx.Provide(
 		NewStartHandler,
 		NewRelayHandler,
-		NewTopicResponseRelay,
 		NewTopicSessionManager,
 		NewNewHandler,
 		fx.Annotate(
@@ -36,6 +35,7 @@ var Module = fx.Module("relay_handlers",
 	),
 	fx.Invoke(WireHandlers),
 	fx.Invoke(InitExistingOwner),
+	fx.Invoke(InitTopicSessions),
 )
 
 // StartHandlerParams contains the parameters for NewStartHandler.
@@ -88,6 +88,27 @@ func InitExistingOwner(params InitExistingOwnerParams) {
 	params.LC.Append(fx.Hook{
 		OnStop: func(ctx context.Context) error {
 			params.RelayHandler.Stop()
+			return nil
+		},
+	})
+}
+
+// InitTopicSessionsParams contains parameters for topic session lifecycle.
+type InitTopicSessionsParams struct {
+	fx.In
+
+	LC             fx.Lifecycle
+	SessionManager *TopicSessionManager
+}
+
+// InitTopicSessions restores persisted topic sessions on startup and closes them on shutdown.
+func InitTopicSessions(params InitTopicSessionsParams) {
+	params.LC.Append(fx.Hook{
+		OnStart: func(ctx context.Context) error {
+			return params.SessionManager.Restore(ctx)
+		},
+		OnStop: func(ctx context.Context) error {
+			params.SessionManager.StopAll()
 			return nil
 		},
 	})

@@ -54,7 +54,7 @@ func failure(operation string, code string, message string) (*mcp.CallToolResult
 }
 
 type RelayService interface {
-	StartAgent(ctx context.Context, agentName string) (string, error)
+	StartAgent(ctx context.Context, chatID int64, agentName string) (AgentInfo, error)
 	StopAgent(ctx context.Context, sessionID string) error
 	ListAgents(ctx context.Context) ([]AgentInfo, error)
 	GetSession(ctx context.Context, sessionID string) (AgentInfo, error)
@@ -177,12 +177,16 @@ func (s *service) registerTools(server *mcp.Server) {
 }
 
 type startAgentInput struct {
+	ChatID    int64  `json:"chat_id" jsonschema:"Telegram chat ID where topic should be created"`
 	AgentName string `json:"agent_name" jsonschema:"name of the agent to start"`
 }
 
 type startAgentOutput struct {
 	ToolOutcome
 	SessionID string `json:"session_id,omitempty"`
+	TopicID   int    `json:"topic_id,omitempty"`
+	ChatID    int64  `json:"chat_id,omitempty"`
+	AgentName string `json:"agent_name,omitempty"`
 }
 
 func (s *service) startAgent(ctx context.Context, _ *mcp.CallToolRequest, in startAgentInput) (*mcp.CallToolResult, startAgentOutput, error) {
@@ -190,8 +194,12 @@ func (s *service) startAgent(ctx context.Context, _ *mcp.CallToolRequest, in sta
 		result, out := validationFailure("norma.relay.start_agent", "agent_name is required")
 		return result, startAgentOutput{ToolOutcome: out}, nil
 	}
+	if in.ChatID == 0 {
+		result, out := validationFailure("norma.relay.start_agent", "chat_id is required")
+		return result, startAgentOutput{ToolOutcome: out}, nil
+	}
 
-	sessionID, err := s.svc.StartAgent(ctx, in.AgentName)
+	info, err := s.svc.StartAgent(ctx, in.ChatID, in.AgentName)
 	if err != nil {
 		result, out := backendFailure("norma.relay.start_agent", err)
 		return result, startAgentOutput{ToolOutcome: out}, nil
@@ -199,7 +207,10 @@ func (s *service) startAgent(ctx context.Context, _ *mcp.CallToolRequest, in sta
 
 	return nil, startAgentOutput{
 		ToolOutcome: okOutcome(),
-		SessionID:   sessionID,
+		SessionID:   info.SessionID,
+		TopicID:     info.TopicID,
+		ChatID:      info.ChatID,
+		AgentName:   info.AgentName,
 	}, nil
 }
 

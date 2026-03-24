@@ -70,7 +70,6 @@ func serveCommand() *cobra.Command {
 				return fmt.Errorf("unmarshalling shared config: %w", err)
 			}
 
-
 			// 3. Unmarshal relay app config from the global viper instance.
 			var cfg relay.Config
 			if err := viper.Unmarshal(&cfg); err != nil {
@@ -136,7 +135,6 @@ func serveCommand() *cobra.Command {
 	return cmd
 }
 
-
 func initDotEnv() {
 	if err := godotenv.Load(); err != nil && !errors.Is(err, os.ErrNotExist) {
 		log.Warn().Err(err).Msg("failed to load .env file")
@@ -163,6 +161,4 @@ func initConfig(repoRoot string) error {
 	}
 
 	return nil
-	}
-
-
+}

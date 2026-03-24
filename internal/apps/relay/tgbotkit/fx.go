@@ -1,7 +1,8 @@
 package tgbotkit
 
 import (
-	"context"
+	"fmt"
+	"strings"
 
 	"github.com/metalagman/appkit/lifecycle"
 	"github.com/rs/zerolog"
@@ -41,7 +42,6 @@ func NewClient(cfg Config) (client.ClientWithResponsesInterface, error) {
 
 // NewBot creates a new Telegram bot runtime.
 func NewBot(
-	lc fx.Lifecycle,
 	cfg Config,
 	client client.ClientWithResponsesInterface,
 	updateSource runtime.UpdateSource,
@@ -59,31 +59,25 @@ func NewBot(
 		return nil, err
 	}
 
-	runCtx, cancel := context.WithCancel(context.Background())
-
-	lc.Append(fx.Hook{
-		OnStart: func(ctx context.Context) error {
-			go func() {
-				if err := bot.Run(runCtx); err != nil {
-					// Using bot logger which is already configured
-					bot.Logger().Errorf("bot run failed: %v", err)
-				}
-			}()
-			return nil
-		},
-		OnStop: func(ctx context.Context) error {
-			cancel()
-			return nil
-		},
-	})
-
 	return bot, nil
 }
 
 // NewUpdateSource creates a new update source (webhook or polling).
 func NewUpdateSource(cfg Config, client client.ClientWithResponsesInterface, l zerolog.Logger) (runtime.UpdateSource, error) {
-	// Use webhook if configured
-	if cfg.WebhookURL != "" {
+	mode := strings.ToLower(strings.TrimSpace(cfg.ReceiverMode))
+	if mode == "" {
+		if strings.TrimSpace(cfg.WebhookURL) != "" {
+			mode = "webhook"
+		} else {
+			mode = "polling"
+		}
+	}
+
+	switch mode {
+	case "webhook":
+		if strings.TrimSpace(cfg.WebhookURL) == "" {
+			return nil, fmt.Errorf("receiver_mode=webhook requires relay.telegram.webhook_url")
+		}
 		w, err := webhook.New(
 			webhook.NewOptions(
 				webhook.WithToken(cfg.WebhookToken),
@@ -96,16 +90,16 @@ func NewUpdateSource(cfg Config, client client.ClientWithResponsesInterface, l z
 		}
 
 		return w, nil
+	case "polling":
+		opts := updatepoller.NewOptions(
+			client,
+			updatepoller.WithOffsetStore(offsetstore.NewInMemoryOffsetStore(0)),
+			updatepoller.WithLogger(logger.NewZerolog(l)),
+		)
+		return updatepoller.NewPoller(opts)
+	default:
+		return nil, fmt.Errorf("unsupported relay.telegram.receiver_mode %q (expected polling or webhook)", mode)
 	}
-
-	// Use long polling as default
-	opts := updatepoller.NewOptions(
-		client,
-		updatepoller.WithOffsetStore(offsetstore.NewInMemoryOffsetStore(0)),
-		updatepoller.WithLogger(logger.NewZerolog(l)),
-	)
-
-	return updatepoller.NewPoller(opts)
 }
 
 // Handler is a local interface for bot handlers.

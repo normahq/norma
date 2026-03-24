@@ -3,11 +3,9 @@ package relay
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 
-	acp "github.com/coder/acp-go-sdk"
 	"github.com/ipfans/fxlogger"
 	"github.com/metalagman/norma/internal/adk/agentfactory"
 	"github.com/metalagman/norma/internal/apps/relay/auth"
@@ -16,9 +14,8 @@ import (
 	"github.com/metalagman/norma/internal/apps/relaymcp"
 	"github.com/metalagman/norma/internal/config"
 	"github.com/rs/zerolog/log"
+	"github.com/tgbotkit/runtime"
 	"go.uber.org/fx"
-	"google.golang.org/adk/agent"
-	"google.golang.org/adk/session"
 )
 
 // App creates a new fx.App for the relay bot with the provided configuration.
@@ -40,6 +37,7 @@ func Module(cfg Config, normaCfg config.Config) fx.Option {
 		Token:        cfg.Relay.Telegram.Token,
 		WebhookToken: cfg.Relay.Telegram.WebhookToken,
 		WebhookURL:   cfg.Relay.Telegram.WebhookURL,
+		ReceiverMode: cfg.Relay.Telegram.ReceiverMode,
 	}
 
 	// Create logger.
@@ -58,6 +56,12 @@ func Module(cfg Config, normaCfg config.Config) fx.Option {
 			normaCfg,
 			workingDir,
 		),
+		fx.Provide(
+			fx.Annotate(
+				func() []string { return append([]string(nil), cfg.Relay.InternalMCP.Servers...) },
+				fx.ResultTags(`name:"relay_internal_mcp_servers"`),
+			),
+		),
 		// Provide auth token with named injection.
 		fx.Provide(
 			fx.Annotate(
@@ -74,61 +78,34 @@ func Module(cfg Config, normaCfg config.Config) fx.Option {
 			}
 			return auth.NewOwnerStore(normaDir)
 		}),
-		// Provide session service.
-		fx.Provide(session.InMemoryService),
 		// Provide agent factory.
 		fx.Provide(func(normaCfg config.Config) *agentfactory.Factory {
 			return agentfactory.NewFactoryWithMCPServers(normaCfg.Agents, normaCfg.MCPServers)
 		}),
-		// Provide relay agent.
-		fx.Provide(func(lc fx.Lifecycle, factory *agentfactory.Factory, normaCfg config.Config, workingDir string) (agent.Agent, error) {
-			profileName := normaCfg.Profile
-			if profileName == "" {
-				profileName = "default"
-			}
-			var agentName string
-			if profile, ok := normaCfg.Profiles[profileName]; ok {
-				agentName = profile.Relay
-			}
-			if agentName == "" {
-				return nil, fmt.Errorf("no relay agent configured in profile %q", profileName)
-			}
-
-			req := agentfactory.CreationRequest{
-				Name:             agentName,
-				WorkingDirectory: workingDir,
-				Stderr:           os.Stderr,
-				Logger:           &log.Logger,
-				PermissionHandler: func(_ context.Context, req acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error) {
-					if len(req.Options) > 0 {
-						return acp.RequestPermissionResponse{
-							Outcome: acp.NewRequestPermissionOutcomeSelected(req.Options[0].OptionId),
-						}, nil
-					}
-					return acp.RequestPermissionResponse{
-						Outcome: acp.NewRequestPermissionOutcomeCancelled(),
-					}, nil
-				},
-			}
-
-			ag, err := factory.CreateAgent(context.Background(), agentName, req)
-			if err != nil {
-				return nil, fmt.Errorf("creating relay agent: %w", err)
-			}
-
+		tgbotkit.Module,
+		handlers.Module,
+		fx.Provide(
+			handlers.NewInternalMCPManager,
+			handlers.NewRelayAgentManager,
+		),
+		// Start Telegram runtime only after internal MCP + relay agent are started.
+		fx.Invoke(func(lc fx.Lifecycle, bot *runtime.Bot, _ *handlers.InternalMCPManager, _ *handlers.RelayAgentManager) {
+			runCtx, cancel := context.WithCancel(context.Background())
 			lc.Append(fx.Hook{
+				OnStart: func(ctx context.Context) error {
+					go func() {
+						if err := bot.Run(runCtx); err != nil {
+							bot.Logger().Errorf("bot run failed: %v", err)
+						}
+					}()
+					return nil
+				},
 				OnStop: func(ctx context.Context) error {
-					if closer, ok := ag.(io.Closer); ok {
-						return closer.Close()
-					}
+					cancel()
 					return nil
 				},
 			})
-
-			return ag, nil
 		}),
-		tgbotkit.Module,
-		handlers.Module,
 		// Start TCP MCP server if configured
 		fx.Invoke(func(lc fx.Lifecycle, sessionManager *handlers.TopicSessionManager) {
 			if cfg.Relay.MCP.Address != "" {

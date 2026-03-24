@@ -40,4 +40,5 @@ func TestConfigLoading(t *testing.T) {
 	// Check if merged successfully
 	assert.Equal(t, "opencode", viper.GetString("profiles.default.relay"))
 	assert.Equal(t, "info", viper.GetString("relay.logger.level")) // From embedded relay.yaml
+	assert.Equal(t, "polling", viper.GetString("relay.telegram.receiver_mode"))
 }

@@ -8,6 +8,9 @@ relay:
     # Set via NORMA_RELAY_TELEGRAM_TOKEN env var
     token: ""
 
+    # Receiver mode: polling (default) or webhook
+    receiver_mode: "polling"
+
     # Optional webhook configuration
     webhook_token: ""
     webhook_url: ""
@@ -20,3 +23,8 @@ relay:
   logger:
     level: "info"
     pretty: true
+
+  # Internal MCP servers to start with relay lifecycle.
+  # Server implementations are wired incrementally.
+  internal_mcp:
+    servers: []
