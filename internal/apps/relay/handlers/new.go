@@ -368,8 +368,6 @@ func (m *TopicSessionManager) processMessage(ctx context.Context, ts *topicSessi
 	userContent := genai.NewContentFromText(text, genai.RoleUser)
 	userID := m.sessionID(ts.chatID, ts.topicID)
 
-	var result strings.Builder
-
 	for ev, err := range ts.runner.Run(ctx, userID, ts.sess.ID(), userContent, agent.RunConfig{}) {
 		if err != nil {
 			log.Error().Err(err).Int("topic_id", ts.topicID).Msg("agent run error")
@@ -403,8 +401,7 @@ func (m *TopicSessionManager) processMessage(ctx context.Context, ts *topicSessi
 					continue
 				}
 				if part.Text != "" {
-					result.WriteString(part.Text)
-					_ = m.sendMessageToTopic(ctx, ts.chatID, ts.topicID, responseDraftID, result.String())
+					_ = m.sendMessageToTopic(ctx, ts.chatID, ts.topicID, responseDraftID, part.Text)
 				}
 			}
 		}
