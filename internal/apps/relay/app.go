@@ -90,6 +90,19 @@ func Module(cfg Config, normaCfg config.Config) fx.Option {
 		),
 		fx.Provide(
 			fx.Annotate(
+				func() map[string]interface{} {
+					// Convert to interface{} to avoid import in session manager
+					m := make(map[string]interface{})
+					for k, v := range normaCfg.Agents {
+						m[k] = v
+					}
+					return m
+				},
+				fx.ResultTags(`name:"relay_agent_configs"`),
+			),
+		),
+		fx.Provide(
+			fx.Annotate(
 				func() string {
 					_, profile, err := normaCfg.ResolveProfile("")
 					if err != nil {
