@@ -6,7 +6,9 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/metalagman/norma/internal/apps/relay/agent"
 	"github.com/metalagman/norma/internal/apps/relay/auth"
+	"github.com/metalagman/norma/internal/apps/relay/messenger"
 	relaysession "github.com/metalagman/norma/internal/apps/relay/session"
 	"github.com/metalagman/norma/internal/config"
 	"github.com/rs/zerolog"
@@ -15,12 +17,14 @@ import (
 	"github.com/tgbotkit/runtime/events"
 	"github.com/tgbotkit/runtime/handlers"
 	"go.uber.org/fx"
+	"google.golang.org/genai"
 )
 
 // RelayHandler handles bidirectional message relay between owner and agent.
 type RelayHandler struct {
 	ownerStore     *auth.OwnerStore
 	sessionManager *relaysession.Manager
+	messenger      *messenger.Messenger
 	normaCfg       config.Config
 	tgClient       client.ClientWithResponsesInterface
 	authToken      string
@@ -38,6 +42,7 @@ type relayHandlerDeps struct {
 	LC             fx.Lifecycle
 	OwnerStore     *auth.OwnerStore
 	SessionManager *relaysession.Manager
+	Messenger      *messenger.Messenger
 	NormaCfg       config.Config
 	TGClient       client.ClientWithResponsesInterface
 	AuthToken      string `name:"relay_auth_token"`
@@ -48,6 +53,7 @@ func NewRelayHandler(deps relayHandlerDeps) (*RelayHandler, error) {
 	h := &RelayHandler{
 		ownerStore:     deps.OwnerStore,
 		sessionManager: deps.SessionManager,
+		messenger:      deps.Messenger,
 		normaCfg:       deps.NormaCfg,
 		tgClient:       deps.TGClient,
 		authToken:      strings.TrimSpace(deps.AuthToken),
@@ -90,7 +96,7 @@ func (h *RelayHandler) SendToOwner(ctx context.Context, msg string) error {
 		return fmt.Errorf("owner not set")
 	}
 
-	if err := h.sessionManager.SendMessagePlain(ctx, chatID, msg, 0); err != nil {
+	if err := h.messenger.SendPlain(ctx, chatID, msg, 0); err != nil {
 		return fmt.Errorf("sending message: %w", err)
 	}
 	return nil
@@ -133,8 +139,8 @@ func (h *RelayHandler) onMessage(ctx context.Context, event *events.MessageEvent
 
 	log.Info().Int64("user_id", ownerID).Int("topic_id", topicID).Msg("Relaying message to agent")
 
+	// Ensure session exists
 	if topicID == 0 {
-		// Ensure main session exists
 		sessionID := fmt.Sprintf("relay-%d-0", chatID)
 		if _, ok := h.sessionManager.GetSessionRecord(sessionID); !ok {
 			agentName := h.getRelayAgentName()
@@ -149,22 +155,41 @@ func (h *RelayHandler) onMessage(ctx context.Context, event *events.MessageEvent
 		}
 	}
 
+	ts, err := h.sessionManager.GetOrRestoreSession(ctx, chatID, topicID)
+	if err != nil {
+		log.Error().Err(err).Int("topic_id", topicID).Msg("Failed to get/restore session")
+		// Try to respond with error
+		_ = h.messenger.SendPlain(ctx, chatID, fmt.Sprintf("Error restoring session: %v", err), topicID)
+		return nil
+	}
+
+	// Send thinking feedback
 	thoughtDraftID := event.Message.MessageId + 1
-	if err := h.sessionManager.SendDraftPlain(ctx, chatID, thoughtDraftID, "Thinking...", topicID); err != nil {
+	if err := h.messenger.SendDraftPlain(ctx, chatID, thoughtDraftID, "Thinking...", topicID); err != nil {
 		log.Warn().Err(err).Int("topic_id", topicID).Msg("failed to send thinking draft")
 	}
 
-	result, err := h.sessionManager.ProcessUserMessage(ctx, chatID, topicID, text)
+	// Run agent
+	userContent := genai.NewContentFromText(text, genai.RoleUser)
+	userID := fmt.Sprintf("relay-%d-%d", chatID, topicID)
+
+	result, err := agent.ProcessEvents(ctx, agent.EventParams{
+		Runner:      ts.GetRunner(),
+		UserID:      userID,
+		SessionID:   ts.GetSessionID(),
+		UserContent: userContent,
+	})
+
 	if err != nil {
-		log.Error().Err(err).Int("topic_id", topicID).Msg("Failed to send message to agent")
-		if sendErr := h.sessionManager.SendMessagePlain(ctx, chatID, fmt.Sprintf("Error: %v", err), topicID); sendErr != nil {
+		log.Error().Err(err).Int("topic_id", topicID).Msg("Agent execution failed")
+		if sendErr := h.messenger.SendPlain(ctx, chatID, fmt.Sprintf("Error: %v", err), topicID); sendErr != nil {
 			log.Warn().Err(sendErr).Int("topic_id", topicID).Msg("failed to send relay error message")
 		}
 		return nil
 	}
 
 	if strings.TrimSpace(result) != "" {
-		if sendErr := h.sessionManager.SendMessageMarkdown(ctx, chatID, result, topicID); sendErr != nil {
+		if sendErr := h.messenger.SendMarkdown(ctx, chatID, result, topicID); sendErr != nil {
 			log.Warn().Err(sendErr).Int("topic_id", topicID).Msg("failed to send relay response")
 		}
 	}
@@ -228,7 +253,7 @@ func (h *RelayHandler) onStart(ctx context.Context) {
 
 	h.SetOwner(owner.UserID, 0)
 
-	if err := h.sessionManager.SendMessagePlain(ctx, owner.UserID, "Boss, I'm online and ready to work.", 0); err != nil {
+	if err := h.messenger.SendPlain(ctx, owner.UserID, "Boss, I'm online and ready to work.", 0); err != nil {
 		h.logger.Warn().Err(err).Int64("owner_id", owner.UserID).Msg("failed to send startup ready message to owner")
 		return
 	}

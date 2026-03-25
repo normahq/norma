@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/metalagman/norma/internal/apps/relay/agent"
+	"github.com/metalagman/norma/internal/apps/relay/messenger"
 	"github.com/metalagman/norma/internal/apps/relay/session"
 	"github.com/metalagman/norma/internal/apps/relay/tgbotkit"
 	"go.uber.org/fx"
@@ -14,6 +15,7 @@ var Module = fx.Module("relay_handlers",
 	fx.Provide(
 		agent.NewBuilder,
 		session.NewManager,
+		messenger.NewMessenger,
 		NewStartHandler,
 		NewRelayHandler,
 		NewCommandHandler,

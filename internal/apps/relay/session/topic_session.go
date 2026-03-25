@@ -18,3 +18,15 @@ type topicSession struct {
 	chatID       int64
 	workspaceDir string
 }
+
+func (s *topicSession) GetRunner() *runner.Runner {
+	return s.runner
+}
+
+func (s *topicSession) GetSessionID() string {
+	return s.sess.ID()
+}
+
+func (s *topicSession) GetWorkspaceDir() string {
+	return s.workspaceDir
+}

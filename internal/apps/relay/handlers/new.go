@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/metalagman/norma/internal/apps/relay/auth"
+	"github.com/metalagman/norma/internal/apps/relay/messenger"
 	"github.com/metalagman/norma/internal/apps/relay/session"
 	"github.com/rs/zerolog/log"
 	"github.com/tgbotkit/runtime/events"
@@ -17,6 +18,7 @@ import (
 type CommandHandler struct {
 	ownerStore     *auth.OwnerStore
 	sessionManager *session.Manager
+	messenger      *messenger.Messenger
 }
 
 type commandHandlerParams struct {
@@ -24,6 +26,7 @@ type commandHandlerParams struct {
 
 	OwnerStore     *auth.OwnerStore
 	SessionManager *session.Manager
+	Messenger      *messenger.Messenger
 }
 
 // NewCommandHandler creates a new /new command handler.
@@ -31,6 +34,7 @@ func NewCommandHandler(params commandHandlerParams) *CommandHandler {
 	return &CommandHandler{
 		ownerStore:     params.OwnerStore,
 		sessionManager: params.SessionManager,
+		messenger:      params.Messenger,
 	}
 }
 
@@ -48,7 +52,7 @@ func (h *CommandHandler) onCommand(ctx context.Context, event *events.CommandEve
 	userID := event.Message.From.Id
 
 	if !h.ownerStore.HasOwner() || !h.ownerStore.IsOwner(userID) {
-		if err := h.sessionManager.SendMessagePlain(ctx, chatID, "Only the bot owner can use this command.", 0); err != nil {
+		if err := h.messenger.SendPlain(ctx, chatID, "Only the bot owner can use this command.", 0); err != nil {
 			return err
 		}
 		return nil
@@ -56,7 +60,7 @@ func (h *CommandHandler) onCommand(ctx context.Context, event *events.CommandEve
 
 	agentName := strings.TrimSpace(event.Args)
 	if agentName == "" {
-		if err := h.sessionManager.SendMessagePlain(ctx, chatID, "Usage: /new <agent_name>\n\nAvailable agents: gemini_agent, opencode_agent, etc.", 0); err != nil {
+		if err := h.messenger.SendPlain(ctx, chatID, "Usage: /new <agent_name>\n\nAvailable agents: gemini_agent, opencode_agent, etc.", 0); err != nil {
 			return err
 		}
 		return nil
@@ -71,14 +75,14 @@ func (h *CommandHandler) onCommand(ctx context.Context, event *events.CommandEve
 	sessionID, topicID, err := h.sessionManager.CreateTopicSession(ctx, chatID, agentName)
 	if err != nil {
 		log.Error().Err(err).Str("agent", agentName).Msg("Failed to create topic with agent")
-		if sendErr := h.sessionManager.SendMessagePlain(ctx, chatID, fmt.Sprintf("Failed to create agent session: %v", err), 0); sendErr != nil {
+		if sendErr := h.messenger.SendPlain(ctx, chatID, fmt.Sprintf("Failed to create agent session: %v", err), 0); sendErr != nil {
 			return sendErr
 		}
 		return nil
 	}
 
 	welcomeMsg := fmt.Sprintf("🤖 Started new **%s** agent session (%s).", agentName, sessionID)
-	if err := h.sessionManager.SendMessageMarkdown(ctx, chatID, welcomeMsg, topicID); err != nil {
+	if err := h.messenger.SendMarkdown(ctx, chatID, welcomeMsg, topicID); err != nil {
 		log.Error().Err(err).Msg("Failed to send welcome message")
 		return err
 	}
