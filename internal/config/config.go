@@ -15,8 +15,35 @@ type Config struct {
 	Profiles   map[string]ProfileConfig               `json:"profiles,omitempty"  mapstructure:"profiles"     validate:"required,gt=0,dive,required"`
 	Profile    string                                 `json:"profile,omitempty"   mapstructure:"profile"`
 	RoleIDs    map[string]string                      `json:"-"                  mapstructure:"-"`
-	Budgets    Budgets                                `json:"budgets"             mapstructure:"budgets"      validate:"required"`
-	Retention  RetentionPolicy                        `json:"retention"          mapstructure:"retention"`
+	Budgets    Budgets                                `json:"budgets,omitempty"   mapstructure:"budgets"`
+	Retention  RetentionPolicy                        `json:"retention,omitempty" mapstructure:"retention"`
+}
+
+// Budgets defines run limits (optional, defaults to 5 iterations if not set).
+type Budgets struct {
+	MaxIterations int `json:"max_iterations,omitempty" mapstructure:"max_iterations" validate:"omitempty,min=1"`
+}
+
+// RetentionPolicy defines how many old runs to keep (optional).
+type RetentionPolicy struct {
+	KeepLast int `json:"keep_last,omitempty" mapstructure:"keep_last" validate:"omitempty,min=1"`
+	KeepDays int `json:"keep_days,omitempty" mapstructure:"keep_days" validate:"omitempty,min=1"`
+}
+
+// GetBudgets returns budgets with default values applied.
+func (c Config) GetBudgets() Budgets {
+	if c.Budgets.MaxIterations <= 0 {
+		return Budgets{MaxIterations: 5}
+	}
+	return c.Budgets
+}
+
+// GetRetention returns retention policy with default values applied.
+func (c Config) GetRetention() RetentionPolicy {
+	if c.Retention.KeepLast <= 0 && c.Retention.KeepDays <= 0 {
+		return RetentionPolicy{KeepLast: 50, KeepDays: 30}
+	}
+	return c.Retention
 }
 
 // AgentConfig describes how to run an agent.
@@ -38,17 +65,6 @@ type PDCAAgentRefs struct {
 	Do    string `json:"do,omitempty"    mapstructure:"do"    validate:"required,min=1"`
 	Check string `json:"check,omitempty" mapstructure:"check" validate:"required,min=1"`
 	Act   string `json:"act,omitempty"   mapstructure:"act"   validate:"required,min=1"`
-}
-
-// Budgets defines run limits.
-type Budgets struct {
-	MaxIterations int `json:"max_iterations" mapstructure:"max_iterations" validate:"required,min=1"`
-}
-
-// RetentionPolicy defines how many old runs to keep.
-type RetentionPolicy struct {
-	KeepLast int `json:"keep_last,omitempty" mapstructure:"keep_last" validate:"omitempty,min=1"`
-	KeepDays int `json:"keep_days,omitempty" mapstructure:"keep_days" validate:"omitempty,min=1"`
 }
 
 const defaultProfile = "default"

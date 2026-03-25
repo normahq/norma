@@ -55,7 +55,7 @@ func loadConfig(repoRoot string) (config.Config, error) {
 	}
 	cfg.Profile = selectedProfile
 	cfg.RoleIDs = roleIDs
-	if cfg.Budgets.MaxIterations <= 0 {
+	if cfg.GetBudgets().MaxIterations <= 0 {
 		return config.Config{}, fmt.Errorf("budgets.max_iterations must be > 0")
 	}
 	return cfg, nil

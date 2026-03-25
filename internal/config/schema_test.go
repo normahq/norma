@@ -32,9 +32,6 @@ func TestValidateSettings_AcceptACPTypes(t *testing.T) {
 				"planner": "planner",
 			},
 		},
-		"budgets": map[string]any{
-			"max_iterations": 1,
-		},
 	}
 
 	if err := ValidateSettings(settings); err != nil {
@@ -61,9 +58,6 @@ func TestValidateSettings_GenericACPRequiresCmd(t *testing.T) {
 					"act":   "worker",
 				},
 			},
-		},
-		"budgets": map[string]any{
-			"max_iterations": 1,
 		},
 	}
 
@@ -93,9 +87,6 @@ func TestValidateSettings_RejectGenericExec(t *testing.T) {
 				},
 			},
 		},
-		"budgets": map[string]any{
-			"max_iterations": 1,
-		},
 	}
 
 	if err := ValidateSettings(settings); err == nil {
@@ -122,9 +113,6 @@ func TestValidateSettings_RejectGenericExecRequiresCmd(t *testing.T) {
 					"act":   "worker",
 				},
 			},
-		},
-		"budgets": map[string]any{
-			"max_iterations": 1,
 		},
 	}
 
@@ -153,9 +141,6 @@ func TestValidateSettings_RejectExecType(t *testing.T) {
 					"act":   "worker",
 				},
 			},
-		},
-		"budgets": map[string]any{
-			"max_iterations": 1,
 		},
 	}
 

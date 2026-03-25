@@ -41,8 +41,8 @@ func pruneCommand() *cobra.Command {
 			policy := run.RetentionPolicy{KeepLast: keepLast, KeepDays: keepDays}
 			if policy.KeepLast <= 0 && policy.KeepDays <= 0 {
 				policy = run.RetentionPolicy{
-					KeepLast: cfg.Retention.KeepLast,
-					KeepDays: cfg.Retention.KeepDays,
+					KeepLast: cfg.GetRetention().KeepLast,
+					KeepDays: cfg.GetRetention().KeepDays,
 				}
 			}
 			if policy.KeepLast <= 0 && policy.KeepDays <= 0 {
