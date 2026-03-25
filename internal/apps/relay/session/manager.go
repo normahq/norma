@@ -6,7 +6,6 @@ import (
 	"fmt"
 	gohtml "html"
 	"io"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -14,25 +13,20 @@ import (
 	"time"
 
 	tgmd "github.com/Mad-Pixels/goldmark-tgmd"
-	"github.com/metalagman/norma/internal/adk/agentfactory"
 	"github.com/metalagman/norma/internal/apps/relay/agent"
-	"github.com/metalagman/norma/internal/config"
 	"github.com/metalagman/norma/internal/git"
 	"github.com/rs/zerolog/log"
 	"github.com/tgbotkit/client"
-	"google.golang.org/adk/runner"
-	"google.golang.org/adk/session"
 	"google.golang.org/genai"
 )
 
 // Manager manages per-topic ADK agent sessions and Telegram output.
 type Manager struct {
-	factory    *agentfactory.Factory
-	normaCfg   config.Config
-	workingDir string
-	tgClient   client.ClientWithResponsesInterface
-	workspaces *agent.WorkspaceManager
-	store      *Store
+	agentBuilder *agent.Builder
+	workingDir   string
+	tgClient     client.ClientWithResponsesInterface
+	workspaces   *agent.WorkspaceManager
+	store        *Store
 
 	mu       sync.RWMutex
 	sessions map[string]*topicSession
@@ -40,24 +34,12 @@ type Manager struct {
 }
 
 const (
-	sessionIDPrefix        = "relay"
-	legacySessionIDPrefix  = "topic"
-	relaySystemInstruction = `You are Norma Relay, an AI assistant operating inside a Telegram chat/topic.
-
-Reply requirements:
-- Use standard Markdown only (no HTML).
-- Keep responses concise and directly actionable for chat.
-- Return only user-facing final answers (no internal reasoning or tool traces).
-- Use fenced code blocks for commands or code when needed.
-- If the request is ambiguous, ask one short clarifying question.
-
-Context:
-- You are communicating with the relay bot owner.
-- Your Markdown response will be converted before being sent to Telegram.`
+	sessionIDPrefix       = "relay"
+	legacySessionIDPrefix = "topic"
 )
 
 // NewManager creates a session Manager.
-func NewManager(factory *agentfactory.Factory, normaCfg config.Config, workingDir string, tgClient client.ClientWithResponsesInterface) (*Manager, error) {
+func NewManager(agentBuilder *agent.Builder, workingDir string, tgClient client.ClientWithResponsesInterface) (*Manager, error) {
 	normaDir := filepath.Join(workingDir, ".norma")
 	store, err := newStore(normaDir)
 	if err != nil {
@@ -65,14 +47,13 @@ func NewManager(factory *agentfactory.Factory, normaCfg config.Config, workingDi
 	}
 
 	return &Manager{
-		factory:    factory,
-		normaCfg:   normaCfg,
-		workingDir: workingDir,
-		tgClient:   tgClient,
-		workspaces: agent.NewWorkspaceManager(workingDir),
-		store:      store,
-		sessions:   make(map[string]*topicSession),
-		records:    make(map[string]Record),
+		agentBuilder: agentBuilder,
+		workingDir:   workingDir,
+		tgClient:     tgClient,
+		workspaces:   agent.NewWorkspaceManager(workingDir),
+		store:        store,
+		sessions:     make(map[string]*topicSession),
+		records:      make(map[string]Record),
 	}, nil
 }
 
@@ -95,10 +76,22 @@ func (m *Manager) CreateSession(ctx context.Context, chatID int64, topicID int, 
 		return fmt.Errorf("create workspace: %w", err)
 	}
 
-	ts, err := m.buildTopicSession(ctx, sessionID, chatID, topicID, agentName, workspaceDir)
+	built, err := m.agentBuilder.Build(ctx, sessionID, chatID, topicID, agentName, workspaceDir)
 	if err != nil {
 		_ = m.workspaces.CleanupWorkspace(ctx, workspaceDir)
 		return err
+	}
+
+	ts := &topicSession{
+		sessionID:    sessionID,
+		topicID:      topicID,
+		agentName:    agentName,
+		agent:        built.Agent,
+		runner:       built.Runner,
+		sessionSvc:   built.SessionSvc,
+		sess:         built.Session,
+		chatID:       chatID,
+		workspaceDir: workspaceDir,
 	}
 
 	m.mu.Lock()
@@ -188,7 +181,7 @@ func (m *Manager) Restore(ctx context.Context) error {
 			continue
 		}
 
-		ts, err := m.buildTopicSession(ctx, sessionID, rec.ChatID, rec.TopicID, rec.AgentName, workspaceDir)
+		built, err := m.agentBuilder.Build(ctx, sessionID, rec.ChatID, rec.TopicID, rec.AgentName, workspaceDir)
 		if err != nil {
 			log.Warn().Err(err).Str("session_id", rec.SessionID).Msg("restore session failed")
 			rec.Status = statusError
@@ -198,6 +191,18 @@ func (m *Manager) Restore(ctx context.Context) error {
 			m.mu.Unlock()
 			updated = true
 			continue
+		}
+
+		ts := &topicSession{
+			sessionID:    sessionID,
+			topicID:      rec.TopicID,
+			agentName:    rec.AgentName,
+			agent:        built.Agent,
+			runner:       built.Runner,
+			sessionSvc:   built.SessionSvc,
+			sess:         built.Session,
+			chatID:       rec.ChatID,
+			workspaceDir: workspaceDir,
 		}
 
 		m.mu.Lock()
@@ -229,58 +234,6 @@ func (m *Manager) Restore(ctx context.Context) error {
 		log.Info().Int("sessions", restored).Msg("restored relay topic sessions")
 	}
 	return nil
-}
-
-func (m *Manager) buildTopicSession(ctx context.Context, sessionID string, chatID int64, topicID int, agentName, workspaceDir string) (*topicSession, error) {
-	req := agentfactory.CreationRequest{
-		Name:              agentName,
-		WorkingDirectory:  workspaceDir,
-		Stderr:            os.Stderr,
-		Logger:            nil,
-		SystemInstruction: m.buildRelaySystemInstruction(agentName),
-		PermissionHandler: agent.DefaultPermissionHandler,
-	}
-
-	ag, err := m.factory.CreateAgent(ctx, agentName, req)
-	if err != nil {
-		return nil, fmt.Errorf("creating agent %q: %w", agentName, err)
-	}
-
-	sessionSvc := session.InMemoryService()
-	sess, err := sessionSvc.Create(ctx, &session.CreateRequest{
-		AppName: fmt.Sprintf("norma-relay-topic-%d", topicID),
-		UserID:  sessionID,
-	})
-	if err != nil {
-		if closer, ok := ag.(io.Closer); ok {
-			_ = closer.Close()
-		}
-		return nil, fmt.Errorf("creating session: %w", err)
-	}
-
-	r, err := runner.New(runner.Config{
-		AppName:        fmt.Sprintf("norma-relay-topic-%d", topicID),
-		Agent:          ag,
-		SessionService: sessionSvc,
-	})
-	if err != nil {
-		if closer, ok := ag.(io.Closer); ok {
-			_ = closer.Close()
-		}
-		return nil, fmt.Errorf("creating runner: %w", err)
-	}
-
-	return &topicSession{
-		sessionID:    sessionID,
-		topicID:      topicID,
-		agentName:    agentName,
-		agent:        ag,
-		runner:       r,
-		sessionSvc:   sessionSvc,
-		sess:         sess.Session,
-		chatID:       chatID,
-		workspaceDir: workspaceDir,
-	}, nil
 }
 
 func (m *Manager) processMessage(ctx context.Context, ts *topicSession, text string) (string, error) {
@@ -443,18 +396,30 @@ func (m *Manager) restoreSession(ctx context.Context, sessionID string, chatID i
 		return fmt.Errorf("restore workspace: %w", err)
 	}
 
-	ts, err := m.buildTopicSession(ctx, sessionID, chatID, topicID, rec.AgentName, workspaceDir)
+	built, err := m.agentBuilder.Build(ctx, sessionID, chatID, topicID, rec.AgentName, workspaceDir)
 	if err != nil {
 		_ = m.workspaces.CleanupWorkspace(ctx, workspaceDir)
 		return fmt.Errorf("build topic session: %w", err)
+	}
+
+	ts := &topicSession{
+		sessionID:    sessionID,
+		topicID:      rec.TopicID,
+		agentName:    rec.AgentName,
+		agent:        built.Agent,
+		runner:       built.Runner,
+		sessionSvc:   built.SessionSvc,
+		sess:         built.Session,
+		chatID:       rec.ChatID,
+		workspaceDir: workspaceDir,
 	}
 
 	m.mu.Lock()
 	m.sessions[sessionID] = ts
 	m.records[sessionID] = Record{
 		SessionID:    sessionID,
-		ChatID:       chatID,
-		TopicID:      topicID,
+		ChatID:       rec.ChatID,
+		TopicID:      rec.TopicID,
 		AgentName:    rec.AgentName,
 		WorkspaceDir: workspaceDir,
 		Status:       statusActive,
@@ -547,19 +512,6 @@ func (m *Manager) normalizeRecords(records map[string]Record) (map[string]Record
 	}
 
 	return out, changed
-}
-
-func (m *Manager) buildRelaySystemInstruction(agentName string) string {
-	base := relaySystemInstruction
-	agentCfg, ok := m.normaCfg.Agents[agentName]
-	if !ok {
-		return base
-	}
-	agentSpecific := strings.TrimSpace(agentCfg.SystemInstruction)
-	if agentSpecific == "" {
-		return base
-	}
-	return base + "\n\nAgent-specific instructions:\n" + agentSpecific
 }
 
 // SendDraftPlain sends a plain-text draft (no parse_mode).

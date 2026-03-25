@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 
+	"github.com/metalagman/norma/internal/apps/relay/agent"
 	"github.com/metalagman/norma/internal/apps/relay/session"
 	"github.com/metalagman/norma/internal/apps/relay/tgbotkit"
 	"go.uber.org/fx"
@@ -11,6 +12,7 @@ import (
 // Module provides handlers for the relay bot.
 var Module = fx.Module("relay_handlers",
 	fx.Provide(
+		agent.NewBuilder,
 		session.NewManager,
 		NewStartHandler,
 		NewRelayHandler,
