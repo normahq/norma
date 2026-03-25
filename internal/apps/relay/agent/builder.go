@@ -39,11 +39,21 @@ type Builder struct {
 	normaCfg config.Config
 }
 
+// NewBuilder creates a Builder with the given factory and config.
 func NewBuilder(factory *agentfactory.Factory, normaCfg config.Config) *Builder {
 	return &Builder{
 		factory:  factory,
 		normaCfg: normaCfg,
 	}
+}
+
+// CanBuild checks if an agent can be built with the given name.
+// It returns an error if the agent is not found in the factory registry.
+func (b *Builder) CanBuild(agentName string) error {
+	if _, err := b.factory.GetAgentConfig(agentName); err != nil {
+		return fmt.Errorf("agent %q not found", agentName)
+	}
+	return nil
 }
 
 type BuiltAgent struct {

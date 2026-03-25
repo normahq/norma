@@ -149,6 +149,12 @@ func (m *Manager) CreateTopicSession(ctx context.Context, chatID int64, agentNam
 		Str("agent", agentName).
 		Msg("creating topic session")
 
+	// Validate agent can be built before creating the topic
+	if err := m.agentBuilder.CanBuild(agentName); err != nil {
+		m.logger.Error().Err(err).Str("agent", agentName).Msg("agent validation failed, not creating topic")
+		return "", 0, fmt.Errorf("agent %q not available: %w", agentName, err)
+	}
+
 	topicName := fmt.Sprintf("Relay: %s", agentName)
 	createTopicResp, err := m.tgClient.CreateForumTopicWithResponse(ctx, client.CreateForumTopicJSONRequestBody{
 		ChatId: chatID,

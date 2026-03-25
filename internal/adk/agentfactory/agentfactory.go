@@ -73,6 +73,18 @@ func (f *Factory) GetMCPServer(name string) (agentconfig.MCPServerConfig, bool) 
 	return cfg, ok
 }
 
+// GetAgentConfig returns the agent configuration for the given name.
+// It returns an error if the agent is not found.
+func (f *Factory) GetAgentConfig(name string) (agentconfig.Config, error) {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	cfg, ok := f.registry[name]
+	if !ok {
+		return agentconfig.Config{}, fmt.Errorf("agent %q not found in registry", name)
+	}
+	return cfg, nil
+}
+
 // CreateAgent creates an agent.Agent instance by name and creation request.
 // It returns an error if the agent is not found or its type is unsupported.
 func (f *Factory) CreateAgent(ctx context.Context, name string, req CreationRequest) (agent.Agent, error) {
@@ -139,10 +151,10 @@ var acpConstructor = func(ctx context.Context, cfg agentconfig.Config, req Creat
 		SystemInstructions: req.SystemInstruction,
 		Command:            cmd,
 		WorkingDir:         req.WorkingDirectory,
-		Stderr:            req.Stderr,
-		PermissionHandler: req.PermissionHandler,
-		Logger:            logger,
-		MCPServers:        req.MCPServers,
+		Stderr:             req.Stderr,
+		PermissionHandler:  req.PermissionHandler,
+		Logger:             logger,
+		MCPServers:         req.MCPServers,
 	})
 }
 
