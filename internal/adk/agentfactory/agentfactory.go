@@ -48,10 +48,40 @@ func NewFactory(agents map[string]agentconfig.Config) *Factory {
 }
 
 // NewFactoryWithMCPServers creates a new Factory from a map of agent configurations and MCP servers.
+// It also adds alias-type keys (e.g., "opencode_acp" -> agent named "opencode") to the registry
+// so that MCP servers and other callers can use the agent type as the name.
 func NewFactoryWithMCPServers(agents map[string]agentconfig.Config, mcpServers map[string]agentconfig.MCPServerConfig) *Factory {
+	// Add alias-type keys to registry so type names can be used as agent names.
+	// For example: "opencode_acp" key will point to the "opencode" agent config.
+	registry := make(map[string]agentconfig.Config, len(agents)*2)
+	for name, cfg := range agents {
+		registry[name] = cfg
+		// Also register by type alias if type is a known alias.
+		if cfg.Type != "" {
+			if aliasKey := typeToAliasKey(cfg.Type); aliasKey != "" {
+				if _, exists := registry[aliasKey]; !exists {
+					registry[aliasKey] = cfg
+				}
+			}
+		}
+	}
 	return &Factory{
-		registry:   agents,
+		registry:   registry,
 		mcpServers: mcpServers,
+	}
+}
+
+// typeToAliasKey returns the alias key for an agent type, or empty string if not an alias.
+// For example: "opencode_acp" -> "opencode_acp", "gemini_acp" -> "gemini_acp".
+func typeToAliasKey(agentType string) string {
+	switch agentType {
+	case agentconfig.AgentTypeGeminiACP,
+		agentconfig.AgentTypeCodexACP,
+		agentconfig.AgentTypeOpenCodeACP,
+		agentconfig.AgentTypeCopilotACP:
+		return agentType
+	default:
+		return ""
 	}
 }
 
@@ -139,10 +169,10 @@ var acpConstructor = func(ctx context.Context, cfg agentconfig.Config, req Creat
 		SystemInstructions: req.SystemInstruction,
 		Command:            cmd,
 		WorkingDir:         req.WorkingDirectory,
-		Stderr:            req.Stderr,
-		PermissionHandler: req.PermissionHandler,
-		Logger:            logger,
-		MCPServers:        req.MCPServers,
+		Stderr:             req.Stderr,
+		PermissionHandler:  req.PermissionHandler,
+		Logger:             logger,
+		MCPServers:         req.MCPServers,
 	})
 }
 
