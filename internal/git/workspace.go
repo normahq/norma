@@ -38,6 +38,7 @@ func MountWorktree(ctx context.Context, repoRoot, workspaceDir, branchName, base
 		return "", fmt.Errorf("git worktree add: %w", err)
 	}
 
+	// Sync branch with base: merge base into existing branch to pick up new changes
 	if baseBranch != "" && branchName != baseBranch {
 		if err := GitRunCmdErr(ctx, workspaceDir, "git", "merge", "--no-edit", baseBranch); err != nil {
 			_ = GitRunCmdErr(ctx, repoRoot, "git", "worktree", "remove", "--force", workspaceDir)
