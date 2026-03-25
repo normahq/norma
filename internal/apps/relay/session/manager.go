@@ -77,8 +77,8 @@ func (m *Manager) sessionID(chatID int64, topicID int) string {
 }
 
 // SessionBranchName returns the git branch name for a relay session.
-func (m *Manager) SessionBranchName(chatID int64, topicID int) string {
-	return fmt.Sprintf("norma/relay/%d/%d", chatID, topicID)
+func (m *Manager) SessionBranchName(sessionID string) string {
+	return fmt.Sprintf("norma/relay/%s", sessionID)
 }
 
 // CreateSession builds an agent for the given topic and stores it in memory.
@@ -100,7 +100,7 @@ func (m *Manager) CreateSession(ctx context.Context, chatID int64, topicID int, 
 	}
 	m.mu.Unlock()
 
-	branchName := m.SessionBranchName(chatID, topicID)
+	branchName := m.SessionBranchName(sessionID)
 	workspaceDir, err := m.workspaces.EnsureWorkspace(ctx, sessionID, branchName, "")
 	if err != nil {
 		m.logger.Error().Err(err).Str("session_id", sessionID).Msg("failed to create workspace")
@@ -247,7 +247,7 @@ func (m *Manager) EnsureSession(ctx context.Context, chatID int64, topicID int, 
 		return ts, nil
 	}
 
-	branchName := m.SessionBranchName(chatID, topicID)
+	branchName := m.SessionBranchName(sessionID)
 	workspaceDir, err := m.workspaces.EnsureWorkspace(ctx, sessionID, branchName, "")
 	if err != nil {
 		m.logger.Error().Err(err).Str("session_id", sessionID).Msg("failed to create workspace")

@@ -53,7 +53,7 @@ type BuiltAgent struct {
 }
 
 func (b *Builder) Build(ctx context.Context, sessionID string, chatID int64, topicID int, agentName, workspaceDir string) (*BuiltAgent, error) {
-	branchName := fmt.Sprintf("norma/relay/%d/%d", chatID, topicID)
+	branchName := fmt.Sprintf("norma/relay/%s", sessionID)
 	req := agentfactory.CreationRequest{
 		Name:              agentName,
 		Description:       b.buildAgentDescription(agentName),
