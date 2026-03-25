@@ -14,6 +14,7 @@ import (
 	"github.com/metalagman/norma/internal/apps/relaymcp"
 	"github.com/metalagman/norma/internal/apps/sessionmcp"
 	"github.com/metalagman/norma/internal/apps/tasksmcp"
+	"github.com/metalagman/norma/internal/apps/workspacemcp"
 	"github.com/metalagman/norma/internal/task"
 	"github.com/rs/zerolog"
 	"go.uber.org/fx"
@@ -172,6 +173,21 @@ func (m *InternalMCPManager) ensureBundledServers(ctx context.Context, relayMCPA
 		m.addCleanup(res.Close)
 	}
 
+	// norma.workspace
+	if _, ok := m.factory.GetMCPServer("norma.workspace"); !ok {
+		svc := session.NewWorkspaceMCPServer(m.sessionManager)
+		res, err := workspacemcp.StartHTTPServer(ctx, svc, "127.0.0.1:0")
+		if err != nil {
+			return fmt.Errorf("starting bundled workspace MCP: %w", err)
+		}
+		m.logger.Info().Str("addr", res.Addr).Msg("bundled norma.workspace server started")
+		m.factory.AddMCPServer("norma.workspace", agentconfig.MCPServerConfig{
+			Type: agentconfig.MCPServerTypeHTTP,
+			URL:  fmt.Sprintf("http://%s/mcp", res.Addr),
+		})
+		m.addCleanup(res.Close)
+	}
+
 	return nil
 }
 
@@ -183,7 +199,7 @@ func (m *InternalMCPManager) addCleanup(f func() error) {
 
 func isBundled(id string) bool {
 	switch id {
-	case "norma.config", "norma.tasks", "norma.state", "norma.relay":
+	case "norma.config", "norma.tasks", "norma.state", "norma.relay", "norma.workspace":
 		return true
 	default:
 		return false

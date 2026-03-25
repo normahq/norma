@@ -39,9 +39,9 @@ func (m *WorkspaceManager) EnsureWorkspace(ctx context.Context, key, branchName,
 	}
 
 	if fi, err := os.Stat(workspaceDir); err == nil && fi.IsDir() {
-		// Workspace already exists — sync with base branch
-		if err := m.syncWorkspace(ctx, workspaceDir, branchName); err != nil {
-			return "", fmt.Errorf("sync workspace: %w", err)
+		// Workspace already exists — import latest base
+		if err := m.Import(ctx, workspaceDir); err != nil {
+			return "", fmt.Errorf("import base: %w", err)
 		}
 		return workspaceDir, nil
 	} else if err != nil && !os.IsNotExist(err) {
@@ -55,20 +55,78 @@ func (m *WorkspaceManager) EnsureWorkspace(ctx context.Context, key, branchName,
 	return workspaceDir, nil
 }
 
-// syncWorkspace fetches base branch updates and merges them into the workspace branch.
-func (m *WorkspaceManager) syncWorkspace(ctx context.Context, workspaceDir, branchName string) error {
-	if err := git.GitRunCmdErr(ctx, workspaceDir, "git", "fetch", "origin"); err != nil {
-		log.Warn().Err(err).Str("workspace", workspaceDir).Msg("git fetch failed, proceeding without sync")
+// Import rebases workspace branch onto local master.
+func (m *WorkspaceManager) Import(ctx context.Context, workspaceDir string) error {
+	if err := git.GitRunCmdErr(ctx, workspaceDir, "git", "rebase", "master"); err != nil {
+		// Abort rebase on failure so workspace stays clean
+		_ = git.GitRunCmdErr(ctx, workspaceDir, "git", "rebase", "--abort")
+		return fmt.Errorf("git rebase master: %w", err)
+	}
+	log.Info().Str("workspace", workspaceDir).Msg("workspace rebased onto master")
+	return nil
+}
+
+// Export squash-merges workspace branch into local master and commits.
+func (m *WorkspaceManager) Export(ctx context.Context, workspaceDir, branchName, commitMessage string) error {
+	mainRepo := m.workingDir
+
+	// Stash local changes in main repo if dirty
+	dirty := strings.TrimSpace(git.GitRunCmd(ctx, mainRepo, "git", "status", "--porcelain"))
+	stashed := dirty != ""
+	if stashed {
+		if err := git.GitRunCmdErr(ctx, mainRepo, "git", "stash", "push", "-u", "-m", "norma pre-export"); err != nil {
+			return fmt.Errorf("git stash push: %w", err)
+		}
+	}
+
+	restoreStash := func() error {
+		if !stashed {
+			return nil
+		}
+		return git.GitRunCmdErr(ctx, mainRepo, "git", "stash", "pop")
+	}
+
+	beforeHash := strings.TrimSpace(git.GitRunCmd(ctx, mainRepo, "git", "rev-parse", "HEAD"))
+
+	// Squash merge workspace branch into master
+	if err := git.GitRunCmdErr(ctx, mainRepo, "git", "merge", "--squash", branchName); err != nil {
+		_ = git.GitRunCmdErr(ctx, mainRepo, "git", "reset", "--hard", beforeHash)
+		_ = restoreStash()
+		return fmt.Errorf("git merge --squash %s: %w", branchName, err)
+	}
+
+	// Stage and check if there are changes
+	if err := git.GitRunCmdErr(ctx, mainRepo, "git", "add", "-A"); err != nil {
+		_ = git.GitRunCmdErr(ctx, mainRepo, "git", "reset", "--hard", beforeHash)
+		_ = restoreStash()
+		return fmt.Errorf("git add: %w", err)
+	}
+
+	status := strings.TrimSpace(git.GitRunCmd(ctx, mainRepo, "git", "status", "--porcelain"))
+	if status == "" {
+		_ = restoreStash()
+		log.Info().Msg("nothing to export — workspace already matches master")
 		return nil
 	}
 
-	baseRef := fmt.Sprintf("origin/%s", "master")
-	if err := git.GitRunCmdErr(ctx, workspaceDir, "git", "merge", "--no-edit", baseRef); err != nil {
-		log.Warn().Err(err).Str("base", baseRef).Msg("git merge failed, workspace may have conflicts")
-		return nil
+	// Commit on master
+	if err := git.GitRunCmdErr(ctx, mainRepo, "git", "commit", "-m", commitMessage); err != nil {
+		_ = git.GitRunCmdErr(ctx, mainRepo, "git", "reset", "--hard", beforeHash)
+		_ = restoreStash()
+		return fmt.Errorf("git commit: %w", err)
 	}
 
-	log.Info().Str("workspace", workspaceDir).Str("base", baseRef).Msg("workspace synced with base")
+	if err := restoreStash(); err != nil {
+		return fmt.Errorf("git stash pop: %w", err)
+	}
+
+	afterHash := strings.TrimSpace(git.GitRunCmd(ctx, mainRepo, "git", "rev-parse", "HEAD"))
+	log.Info().
+		Str("branch", branchName).
+		Str("before_hash", beforeHash).
+		Str("after_hash", afterHash).
+		Msg("workspace exported to master")
+
 	return nil
 }
 

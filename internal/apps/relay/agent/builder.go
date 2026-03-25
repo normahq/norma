@@ -31,7 +31,8 @@ Built-in MCP Servers:
 - norma.config — read/write Norma configuration
 - norma.tasks — manage tasks, epics, features (Beads integration)
 - norma.state — persistent session state storage
-- norma.relay — spawn and manage subagent sessions`
+- norma.relay — spawn and manage subagent sessions
+- norma.workspace — import/export workspace changes with master`
 
 type Builder struct {
 	factory  *agentfactory.Factory
