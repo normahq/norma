@@ -7,11 +7,11 @@ import (
 	"path/filepath"
 
 	"github.com/ipfans/fxlogger"
+	"github.com/metalagman/norma/internal/adk/agentconfig"
 	"github.com/metalagman/norma/internal/adk/agentfactory"
 	"github.com/metalagman/norma/internal/apps/relay/auth"
 	"github.com/metalagman/norma/internal/apps/relay/handlers"
 	"github.com/metalagman/norma/internal/apps/relay/tgbotkit"
-	"github.com/metalagman/norma/internal/apps/relaymcp"
 	"github.com/metalagman/norma/internal/config"
 	"github.com/rs/zerolog/log"
 	"github.com/tgbotkit/runtime"
@@ -40,13 +40,26 @@ func Module(cfg Config, normaCfg config.Config) fx.Option {
 		ReceiverMode: cfg.Relay.Telegram.ReceiverMode,
 	}
 
-	// Create logger.
 	logger := log.Logger.With().Str("component", "relay").Logger()
 
-	// Determine working directory from config or fallback to current directory.
 	workingDir := cfg.Relay.WorkingDir
 	if workingDir == "" {
 		workingDir, _ = os.Getwd()
+	}
+
+	// Start with global MCP servers.
+	mcpServers := make(map[string]agentconfig.MCPServerConfig, len(normaCfg.MCPServers))
+	for k, v := range normaCfg.MCPServers {
+		mcpServers[k] = v
+	}
+
+	// Add relay MCP server to factory if address is configured.
+	// The actual server will be started by InternalMCPManager.
+	if cfg.Relay.MCP.Address != "" {
+		mcpServers["norma.relay"] = agentconfig.MCPServerConfig{
+			Type: agentconfig.MCPServerTypeHTTP,
+			URL:  fmt.Sprintf("http://%s/mcp", cfg.Relay.MCP.Address),
+		}
 	}
 
 	return fx.Module("relay",
@@ -55,6 +68,13 @@ func Module(cfg Config, normaCfg config.Config) fx.Option {
 			logger,
 			normaCfg,
 			workingDir,
+			mcpServers,
+		),
+		fx.Provide(
+			fx.Annotate(
+				func() string { return cfg.Relay.MCP.Address },
+				fx.ResultTags(`name:"relay_mcp_addr"`),
+			),
 		),
 		fx.Provide(
 			fx.Annotate(
@@ -62,34 +82,29 @@ func Module(cfg Config, normaCfg config.Config) fx.Option {
 				fx.ResultTags(`name:"relay_internal_mcp_servers"`),
 			),
 		),
-		// Provide auth token with named injection.
 		fx.Provide(
 			fx.Annotate(
 				func() string { return cfg.Relay.Auth.OwnerToken },
 				fx.ResultTags(`name:"relay_auth_token"`),
 			),
 		),
-		// Provide owner store.
 		fx.Provide(func() (*auth.OwnerStore, error) {
 			normaDir := filepath.Join(workingDir, ".norma")
-			// Ensure norma directory exists.
 			if err := os.MkdirAll(normaDir, 0755); err != nil {
 				return nil, fmt.Errorf("creating norma dir: %w", err)
 			}
 			return auth.NewOwnerStore(normaDir)
 		}),
-		// Provide agent factory.
-		fx.Provide(func(normaCfg config.Config) *agentfactory.Factory {
-			return agentfactory.NewFactoryWithMCPServers(normaCfg.Agents, normaCfg.MCPServers)
+		fx.Provide(func(mcpServers map[string]agentconfig.MCPServerConfig) *agentfactory.Factory {
+			return agentfactory.NewFactoryWithMCPServers(normaCfg.Agents, mcpServers)
 		}),
 		tgbotkit.Module,
 		handlers.Module,
 		fx.Provide(
 			handlers.NewInternalMCPManager,
-			handlers.NewRelayAgentManager,
 		),
-		// Start Telegram runtime only after internal MCP + relay agent are started.
-		fx.Invoke(func(lc fx.Lifecycle, bot *runtime.Bot, _ *handlers.InternalMCPManager, _ *handlers.RelayAgentManager) {
+		// Start Telegram runtime only after internal MCP is started.
+		fx.Invoke(func(lc fx.Lifecycle, bot *runtime.Bot, _ *handlers.InternalMCPManager) {
 			runCtx, cancel := context.WithCancel(context.Background())
 			lc.Append(fx.Hook{
 				OnStart: func(ctx context.Context) error {
@@ -105,23 +120,6 @@ func Module(cfg Config, normaCfg config.Config) fx.Option {
 					return nil
 				},
 			})
-		}),
-		// Start TCP MCP server if configured
-		fx.Invoke(func(lc fx.Lifecycle, sessionManager *handlers.TopicSessionManager) {
-			if cfg.Relay.MCP.Address != "" {
-				lc.Append(fx.Hook{
-					OnStart: func(ctx context.Context) error {
-						go func() {
-							svc := handlers.NewRelayMCPServer(sessionManager)
-							if err := relaymcp.RunHTTP(ctx, svc, cfg.Relay.MCP.Address); err != nil {
-								log.Error().Err(err).Str("address", cfg.Relay.MCP.Address).Msg("MCP server error")
-							}
-						}()
-						log.Info().Str("address", cfg.Relay.MCP.Address).Msg("Relay MCP server started")
-						return nil
-					},
-				})
-			}
 		}),
 	)
 }

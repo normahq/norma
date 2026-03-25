@@ -1,4 +1,4 @@
-package handlers
+package session
 
 import (
 	"encoding/json"
@@ -11,12 +11,13 @@ import (
 )
 
 const (
-	sessionStatusActive  = "active"
-	sessionStatusStopped = "stopped"
-	sessionStatusError   = "error"
+	statusActive  = "active"
+	statusStopped = "stopped"
+	statusError   = "error"
 )
 
-type sessionRecord struct {
+// Record is a serializable session metadata entry.
+type Record struct {
 	SessionID    string `json:"session_id"`
 	ChatID       int64  `json:"chat_id"`
 	TopicID      int    `json:"topic_id"`
@@ -27,36 +28,37 @@ type sessionRecord struct {
 }
 
 type sessionSnapshot struct {
-	Sessions []sessionRecord `json:"sessions"`
+	Sessions []Record `json:"sessions"`
 }
 
-type topicSessionStore struct {
+// Store persists topic session records as JSON.
+type Store struct {
 	path string
 	mu   sync.Mutex
 }
 
-func newTopicSessionStore(normaDir string) (*topicSessionStore, error) {
+func newStore(normaDir string) (*Store, error) {
 	if err := os.MkdirAll(normaDir, 0o755); err != nil {
 		return nil, fmt.Errorf("create norma dir: %w", err)
 	}
-	return &topicSessionStore{
+	return &Store{
 		path: filepath.Join(normaDir, "relay_sessions.json"),
 	}, nil
 }
 
-func (s *topicSessionStore) load() (map[string]sessionRecord, error) {
+func (s *Store) Load() (map[string]Record, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	raw, err := os.ReadFile(s.path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return map[string]sessionRecord{}, nil
+			return map[string]Record{}, nil
 		}
 		return nil, fmt.Errorf("read session store: %w", err)
 	}
 	if len(raw) == 0 {
-		return map[string]sessionRecord{}, nil
+		return map[string]Record{}, nil
 	}
 
 	var snap sessionSnapshot
@@ -64,7 +66,7 @@ func (s *topicSessionStore) load() (map[string]sessionRecord, error) {
 		return nil, fmt.Errorf("decode session store: %w", err)
 	}
 
-	out := make(map[string]sessionRecord, len(snap.Sessions))
+	out := make(map[string]Record, len(snap.Sessions))
 	for _, rec := range snap.Sessions {
 		if rec.SessionID == "" {
 			continue
@@ -74,7 +76,7 @@ func (s *topicSessionStore) load() (map[string]sessionRecord, error) {
 	return out, nil
 }
 
-func (s *topicSessionStore) save(records map[string]sessionRecord) error {
+func (s *Store) Save(records map[string]Record) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -85,7 +87,7 @@ func (s *topicSessionStore) save(records map[string]sessionRecord) error {
 	sort.Strings(keys)
 
 	snap := sessionSnapshot{
-		Sessions: make([]sessionRecord, 0, len(keys)),
+		Sessions: make([]Record, 0, len(keys)),
 	}
 	for _, k := range keys {
 		snap.Sessions = append(snap.Sessions, records[k])

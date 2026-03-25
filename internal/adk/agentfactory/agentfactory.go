@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 
 	"github.com/coder/acp-go-sdk"
 	"github.com/metalagman/norma/internal/adk/acpagent"
@@ -34,6 +35,7 @@ type constructor func(ctx context.Context, cfg agentconfig.Config, req CreationR
 
 // Factory is a registry of agent configurations.
 type Factory struct {
+	mu         sync.RWMutex
 	registry   map[string]agentconfig.Config
 	mcpServers map[string]agentconfig.MCPServerConfig
 }
@@ -53,6 +55,24 @@ func NewFactoryWithMCPServers(agents map[string]agentconfig.Config, mcpServers m
 	}
 }
 
+// AddMCPServer adds an MCP server configuration to the factory.
+func (f *Factory) AddMCPServer(name string, cfg agentconfig.MCPServerConfig) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.mcpServers == nil {
+		f.mcpServers = make(map[string]agentconfig.MCPServerConfig)
+	}
+	f.mcpServers[name] = cfg
+}
+
+// GetMCPServer returns the MCP server configuration for the given name.
+func (f *Factory) GetMCPServer(name string) (agentconfig.MCPServerConfig, bool) {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	cfg, ok := f.mcpServers[name]
+	return cfg, ok
+}
+
 // CreateAgent creates an agent.Agent instance by name and creation request.
 // It returns an error if the agent is not found or its type is unsupported.
 func (f *Factory) CreateAgent(ctx context.Context, name string, req CreationRequest) (agent.Agent, error) {
@@ -60,13 +80,17 @@ func (f *Factory) CreateAgent(ctx context.Context, name string, req CreationRequ
 		return nil, fmt.Errorf("working directory is required")
 	}
 
+	f.mu.RLock()
 	cfg, ok := f.registry[name]
+	mcpServers := f.mcpServers
+	f.mu.RUnlock()
+
 	if !ok {
 		return nil, fmt.Errorf("agent %q not found or unsupported", name)
 	}
 
 	if req.MCPServers == nil {
-		req.MCPServers = f.mcpServers
+		req.MCPServers = mcpServers
 	}
 
 	create, ok := constructors[cfg.Type]

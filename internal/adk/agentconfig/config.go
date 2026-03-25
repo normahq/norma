@@ -34,17 +34,18 @@ type MCPServerConfig struct {
 
 // Config describes how to run an agent.
 type Config struct {
-	Type       string   `json:"type"                 mapstructure:"type"       validate:"required"`
-	Cmd        []string `json:"cmd,omitempty"        mapstructure:"cmd"`
-	ExtraArgs  []string `json:"extra_args,omitempty" mapstructure:"extra_args"`
-	Model      string   `json:"model,omitempty"      mapstructure:"model"      validate:"omitempty,min=1"`
-	Mode       string   `json:"mode,omitempty"       mapstructure:"mode"       validate:"omitempty,min=1"`
-	BaseURL    string   `json:"base_url,omitempty"   mapstructure:"base_url"   validate:"omitempty,min=1"`
-	APIKey     string   `json:"api_key,omitempty"    mapstructure:"api_key"    validate:"omitempty,min=1"`
-	Timeout    int      `json:"timeout,omitempty"    mapstructure:"timeout"    validate:"omitempty,min=1"`
-	UseTTY     *bool    `json:"use_tty,omitempty"    mapstructure:"use_tty"`
-	Pool       []string `json:"pool,omitempty"       mapstructure:"pool"`
-	MCPServers any      `json:"mcp_servers,omitempty" mapstructure:"mcp_servers"`
+	Type              string   `json:"type"                   mapstructure:"type"               validate:"required"`
+	Cmd               []string `json:"cmd,omitempty"          mapstructure:"cmd"`
+	ExtraArgs         []string `json:"extra_args,omitempty"   mapstructure:"extra_args"`
+	Model             string   `json:"model,omitempty"        mapstructure:"model"              validate:"omitempty,min=1"`
+	Mode              string   `json:"mode,omitempty"         mapstructure:"mode"               validate:"omitempty,min=1"`
+	BaseURL           string   `json:"base_url,omitempty"     mapstructure:"base_url"           validate:"omitempty,min=1"`
+	APIKey            string   `json:"api_key,omitempty"      mapstructure:"api_key"            validate:"omitempty,min=1"`
+	Timeout           int      `json:"timeout,omitempty"      mapstructure:"timeout"            validate:"omitempty,min=1"`
+	UseTTY            *bool    `json:"use_tty,omitempty"      mapstructure:"use_tty"`
+	Pool              []string `json:"pool,omitempty"         mapstructure:"pool"`
+	MCPServers        any      `json:"mcp_servers,omitempty"  mapstructure:"mcp_servers"`
+	SystemInstruction string   `json:"system_instruction,omitempty" mapstructure:"system_instruction" validate:"omitempty,min=1"`
 }
 
 var configValidator = newConfigValidator()

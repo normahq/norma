@@ -72,7 +72,7 @@ func (m *ownerOnlyMiddleware) Handle(next eventemitter.Listener) eventemitter.Li
 			if err := m.sendUnauthorizedMessage(ctx, chatID, "No owner registered. Please start the bot with /start first."); err != nil {
 				logger.Error().Err(err).Msg("Failed to send unauthorized message")
 			}
-			return nil
+			return eventemitter.ErrBreak
 		}
 
 		// Check if user is the owner
@@ -81,7 +81,7 @@ func (m *ownerOnlyMiddleware) Handle(next eventemitter.Listener) eventemitter.Li
 			if err := m.sendUnauthorizedMessage(ctx, chatID, "Unauthorized. Only the bot owner can use this command."); err != nil {
 				logger.Error().Err(err).Msg("Failed to send unauthorized message")
 			}
-			return nil
+			return eventemitter.ErrBreak
 		}
 
 		// User is owner, add owner info to context

@@ -34,7 +34,7 @@ When working ON the `norma` project itself, agents MUST:
 All contributors MUST:
 - **Start with a tracked issue**: File or reference a Beads issue before opening a PR.
 - **Follow Conventional Commits**: Use Conventional Commits for all new commits.
-- **Pass quality gates**: `go test -race ./...` and `go tool golangci-lint run` must pass before submission.
+- **Pass quality gates**: `go test -race ./...` and `go tool golangci-lint run` must pass before submission. **Always run these quality gates after making any changes to ensure stability.**
 - **Sync via merge (no rebase)**: Use merge-based pulls when updating from origin (`git pull --no-rebase` or `git pull --merge`). Do not rebase shared branches.
 
 ## 0.3) Logging policy

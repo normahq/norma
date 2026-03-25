@@ -6,26 +6,37 @@ import (
 	"strings"
 
 	"github.com/metalagman/norma/internal/apps/relay/auth"
+	"github.com/metalagman/norma/internal/apps/relay/session"
 	"github.com/rs/zerolog/log"
 	"github.com/tgbotkit/client"
 	"github.com/tgbotkit/runtime/events"
 	"github.com/tgbotkit/runtime/handlers"
+	"go.uber.org/fx"
 )
 
 // StartHandler handles /start command for owner authentication.
 type StartHandler struct {
-	ownerStore   *auth.OwnerStore
-	tgClient     client.ClientWithResponsesInterface
-	authToken    string
-	relayHandler *RelayHandler
+	ownerStore     *auth.OwnerStore
+	sessionManager *session.Manager
+	authToken      string
+	relayHandler   *RelayHandler
+}
+
+// StartHandlerParams provides dependencies for StartHandler.
+type StartHandlerParams struct {
+	fx.In
+
+	OwnerStore     *auth.OwnerStore
+	SessionManager *session.Manager
+	AuthToken      string `name:"relay_auth_token"`
 }
 
 // NewStartHandler creates a new start handler.
 func NewStartHandler(params StartHandlerParams) *StartHandler {
 	return &StartHandler{
-		ownerStore: params.OwnerStore,
-		tgClient:   params.TgClient,
-		authToken:  params.Auth.AuthToken,
+		ownerStore:     params.OwnerStore,
+		sessionManager: params.SessionManager,
+		authToken:      params.AuthToken,
 	}
 }
 
@@ -46,71 +57,77 @@ func (h *StartHandler) onCommand(ctx context.Context, event *events.CommandEvent
 
 	chatID := event.Message.Chat.Id
 	userID := event.Message.From.Id
-
-	authToken := parseAuthToken(event.Args)
+	authToken := strings.TrimSpace(event.Args)
 
 	log.Debug().
 		Int64("user_id", userID).
 		Int64("chat_id", chatID).
-		Str("token", authToken).
 		Msg("Start command received")
 
-	// Check if owner is already registered
 	if h.ownerStore.HasOwner() {
 		if h.ownerStore.IsOwner(userID) {
-			// Re-activate relay for existing owner
 			if h.relayHandler != nil {
-				h.relayHandler.SetOwner(ctx, userID, chatID)
+				h.relayHandler.SetOwner(userID, chatID)
 				log.Info().Int64("user_id", userID).Msg("Relay re-activated for existing owner")
 			}
-			return h.sendMessage(ctx, chatID, "You are already registered as the bot owner. Relay mode is active.")
+			if err := h.sessionManager.SendMessagePlain(ctx, chatID, "You are already registered as the bot owner. Relay mode is active.", 0); err != nil {
+				return err
+			}
+			return nil
 		}
-		return h.sendMessage(ctx, chatID, "Bot owner is already registered. Only the owner can use this bot.")
+		if err := h.sessionManager.SendMessagePlain(ctx, chatID, "Bot owner is already registered. Only the owner can use this bot.", 0); err != nil {
+			return err
+		}
+		return nil
 	}
 
-	// If no auth token provided, show welcome message
 	if authToken == "" {
-		return h.sendWelcomeMessage(ctx, chatID)
+		if err := h.sendWelcomeMessage(ctx, chatID); err != nil {
+			return err
+		}
+		return nil
 	}
 
-	// Validate auth token
 	if authToken != h.authToken {
-		log.Warn().Str("provided_token", authToken).Msg("Invalid auth token provided")
-		return h.sendMessage(ctx, chatID, "Invalid authentication token. Please try again.")
+		log.Warn().Msg("Invalid auth token provided")
+		if err := h.sessionManager.SendMessagePlain(ctx, chatID, "Invalid authentication token. Please try again.", 0); err != nil {
+			return err
+		}
+		return nil
 	}
 
-	// Extract user info
-	userInfo := extractUserInfo(event.Message.From)
+	info := extractUserInfo(event.Message.From)
 
-	// Check if the chat supports topics (forum supergroup).
 	var hasTopicsEnabled bool
 	if event.Message.Chat.IsForum != nil {
 		hasTopicsEnabled = *event.Message.Chat.IsForum
 	}
 
-	// Register user as owner.
-	registered, err := h.ownerStore.RegisterOwner(userID, userInfo.username, userInfo.firstName, userInfo.lastName, hasTopicsEnabled)
+	registered, err := h.ownerStore.RegisterOwner(userID, info.username, info.firstName, info.lastName, hasTopicsEnabled)
 	if err != nil {
 		log.Error().Err(err).Int64("user_id", userID).Msg("Failed to register owner")
-		return h.sendMessage(ctx, chatID, "Failed to register owner. Please try again.")
+		if sendErr := h.sessionManager.SendMessagePlain(ctx, chatID, "Failed to register owner. Please try again.", 0); sendErr != nil {
+			return sendErr
+		}
+		return nil
 	}
 
 	if !registered {
-		return h.sendMessage(ctx, chatID, "Owner is already registered.")
+		if err := h.sessionManager.SendMessagePlain(ctx, chatID, "Owner is already registered.", 0); err != nil {
+			return err
+		}
+		return nil
 	}
 
 	log.Info().
 		Int64("user_id", userID).
-		Str("username", userInfo.username).
-		Str("first_name", userInfo.firstName).
+		Str("username", info.username).
 		Msg("Owner registered successfully")
 
-	return h.sendOwnerRegisteredMessage(ctx, userID, chatID, userInfo.firstName)
-}
-
-func parseAuthToken(args string) string {
-	// Deep link format: /start <payload> - args is the payload directly.
-	return strings.TrimSpace(args)
+	if err := h.sendOwnerRegisteredMessage(ctx, userID, chatID, info.firstName); err != nil {
+		return err
+	}
+	return nil
 }
 
 type userInfo struct {
@@ -133,15 +150,7 @@ func extractUserInfo(from *client.User) userInfo {
 }
 
 func (h *StartHandler) sendWelcomeMessage(ctx context.Context, chatID int64) error {
-	text := `Welcome to Norma Relay Bot!
-
-This bot allows you to interact with norma agent workflows via Telegram.
-
-To authenticate as the bot owner, send:
-/start <your_owner_token>
-
-Or open: https://t.me/<bot_username>?start=<owner_token>`
-	return h.sendMessage(ctx, chatID, text)
+	return h.sessionManager.SendMessagePlain(ctx, chatID, "Welcome to Norma Relay Bot!\n\nTo authenticate, send /start <your_owner_token>", 0)
 }
 
 func (h *StartHandler) sendOwnerRegisteredMessage(ctx context.Context, ownerID, chatID int64, firstName string) error {
@@ -150,31 +159,12 @@ func (h *StartHandler) sendOwnerRegisteredMessage(ctx context.Context, ownerID, 
 		name = "Owner"
 	}
 
-	log.Info().
-		Int64("owner_id", ownerID).
-		Int64("chat_id", chatID).
-		Msg("Setting owner on relay handler")
-
-	// Activate relay mode.
 	if h.relayHandler != nil {
-		h.relayHandler.SetOwner(ctx, ownerID, chatID)
-		log.Info().Msg("Relay handler SetOwner called successfully")
+		h.relayHandler.SetOwner(ownerID, chatID)
 	} else {
 		log.Error().Msg("relayHandler is nil, cannot set owner")
 	}
 
-	text := fmt.Sprintf("Congratulations, %s! You are now registered as the bot owner.\n\nRelay mode is active. Send me messages and I will forward them to the agent.", name)
-
-	return h.sendMessage(ctx, chatID, text)
-}
-
-func (h *StartHandler) sendMessage(ctx context.Context, chatID int64, text string) error {
-	_, err := h.tgClient.SendMessageWithResponse(ctx, client.SendMessageJSONRequestBody{
-		ChatId: chatID,
-		Text:   text,
-	})
-	if err != nil {
-		return fmt.Errorf("sending message to chat %d: %w", chatID, err)
-	}
-	return nil
+	text := fmt.Sprintf("Congratulations, %s! You are now registered as the bot owner.\n\nRelay mode is active.", name)
+	return h.sessionManager.SendMessagePlain(ctx, chatID, text, 0)
 }

@@ -1,6 +1,9 @@
 profile: default
 
 agents:
+  fl:
+    type: gemini_acp
+    model: gemini-3.1-flash-lite-preview
   gemini:
     type: gemini_acp
     model: gemini-3-flash-preview
@@ -17,6 +20,7 @@ agents:
     mode: plan
   copilot:
     type: copilot_acp
+    model: gpt-5-mini
   copilot_plan:
     type: copilot_acp
     mode: plan
@@ -30,6 +34,9 @@ agents:
   codex:
     type: codex_acp
     model: gpt-5.4
+  gpt:
+    type: codex_acp
+    model: gpt-5.4-mini
 
 mcp_servers:
   playground_ping_pong:
@@ -51,15 +58,15 @@ profiles:
       check: opencode
       act: opencode
     planner: codex
-    relay: opencode
+    relay: fl
   codex:
     pdca:
-      plan: codex_acp
-      do: codex_acp
-      check: codex_acp
-      act: codex_acp
-    planner: codex_acp
-    relay: opencode
+      plan: codex
+      do: codex
+      check: codex
+      act: codex
+    planner: codex
+    relay: codex
   opencode:
     pdca:
       plan: opencode_plan
@@ -75,7 +82,7 @@ profiles:
       check: opencode_minimax_plan
       act: opencode_minimax_plan
     planner: opencode_minimax_plan
-    relay: opencode
+    relay: opencode_minimax
   gemini:
     pdca:
       plan: gemini_plan
@@ -83,7 +90,7 @@ profiles:
       check: gemini_plan
       act: gemini_plan
     planner: gemini_plan
-    relay: opencode
+    relay: gemini
   copilot:
     pdca:
       plan: copilot_plan
@@ -91,8 +98,15 @@ profiles:
       check: copilot_plan
       act: copilot_plan
     planner: copilot_plan
-    relay: opencode
-
+    relay: copilot
+  fl:
+    pdca:
+      plan: fl
+      do: fl
+      check: fl
+      act: fl
+    planner: fl
+    relay: fl
 
 budgets:
   max_iterations: 5

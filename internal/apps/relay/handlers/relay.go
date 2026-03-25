@@ -5,59 +5,95 @@ import (
 	"fmt"
 	"strings"
 	"sync"
-	"sync/atomic"
-	"time"
 
 	"github.com/metalagman/norma/internal/apps/relay/auth"
+	relaysession "github.com/metalagman/norma/internal/apps/relay/session"
 	"github.com/metalagman/norma/internal/config"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/tgbotkit/client"
 	"github.com/tgbotkit/runtime/events"
 	"github.com/tgbotkit/runtime/handlers"
-	"google.golang.org/adk/agent"
-	runnerpkg "google.golang.org/adk/runner"
-	"google.golang.org/adk/session"
-	"google.golang.org/genai"
-)
-
-const (
-	defaultChannelSize = 100
-	acpToolCallEvent   = "acp_tool_call"
+	"go.uber.org/fx"
 )
 
 // RelayHandler handles bidirectional message relay between owner and agent.
 type RelayHandler struct {
 	ownerStore     *auth.OwnerStore
-	tgClient       client.ClientWithResponsesInterface
+	sessionManager *relaysession.Manager
 	normaCfg       config.Config
-	workingDir     string
-	sessionManager *TopicSessionManager
+	tgClient       client.ClientWithResponsesInterface
+	authToken      string
+	logger         zerolog.Logger
 
-	mu             sync.RWMutex
-	ownerID        int64
-	chatID         int64
-	sessionService session.Service
-	draftCounter   atomic.Int64
-
-	relayAgents *RelayAgentManager
+	mu          sync.RWMutex
+	ownerID     int64
+	chatID      int64
+	botUsername string
 }
 
-// NewRelayHandler creates a new relay handler.
-func NewRelayHandler(ownerStore *auth.OwnerStore, tgClient client.ClientWithResponsesInterface, normaCfg config.Config, workingDir string, sessionManager *TopicSessionManager, relayAgents *RelayAgentManager) *RelayHandler {
-	return &RelayHandler{
-		ownerStore:     ownerStore,
-		tgClient:       tgClient,
-		normaCfg:       normaCfg,
-		workingDir:     workingDir,
-		sessionManager: sessionManager,
-		sessionService: session.InMemoryService(),
-		relayAgents:    relayAgents,
+type relayHandlerDeps struct {
+	fx.In
+
+	LC             fx.Lifecycle
+	OwnerStore     *auth.OwnerStore
+	SessionManager *relaysession.Manager
+	NormaCfg       config.Config
+	TGClient       client.ClientWithResponsesInterface
+	AuthToken      string `name:"relay_auth_token"`
+	Logger         zerolog.Logger
+}
+
+func NewRelayHandler(deps relayHandlerDeps) (*RelayHandler, error) {
+	h := &RelayHandler{
+		ownerStore:     deps.OwnerStore,
+		sessionManager: deps.SessionManager,
+		normaCfg:       deps.NormaCfg,
+		tgClient:       deps.TGClient,
+		authToken:      strings.TrimSpace(deps.AuthToken),
+		logger:         deps.Logger.With().Str("component", "relay.handler").Logger(),
 	}
+
+	deps.LC.Append(fx.Hook{
+		OnStart: func(ctx context.Context) error {
+			h.onStart(ctx)
+			return nil
+		},
+	})
+
+	return h, nil
 }
 
 // Register registers the handler with the registry.
 func (h *RelayHandler) Register(registry handlers.RegistryInterface) {
 	registry.OnMessage(h.onMessage)
+}
+
+// SetOwner binds the handler to the owner. Pass chatID=0 when the chat
+// is not yet known (it will be set from the first incoming message).
+func (h *RelayHandler) SetOwner(ownerID, chatID int64) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	log.Info().Int64("owner_id", ownerID).Int64("chat_id", chatID).Msg("Setting owner for relay")
+
+	h.ownerID = ownerID
+	if chatID != 0 {
+		h.chatID = chatID
+	}
+}
+
+// SendToOwner sends a message from the agent to the owner.
+func (h *RelayHandler) SendToOwner(ctx context.Context, msg string) error {
+	chatID := h.getChatID()
+	if chatID == 0 {
+		return fmt.Errorf("owner not set")
+	}
+
+	if err := h.sessionManager.SendMessagePlain(ctx, chatID, msg, 0); err != nil {
+		return fmt.Errorf("sending message: %w", err)
+	}
+	return nil
 }
 
 func (h *RelayHandler) onMessage(ctx context.Context, event *events.MessageEvent) error {
@@ -72,13 +108,16 @@ func (h *RelayHandler) onMessage(ctx context.Context, event *events.MessageEvent
 		return nil
 	}
 
-	// Update chatID if not set.
 	if chatID == 0 {
 		h.setChatID(event.Message.Chat.Id)
 		log.Info().Int64("chat_id", event.Message.Chat.Id).Msg("Chat ID set from message")
+		chatID = event.Message.Chat.Id
 	}
 
 	if event.Message.Text == nil {
+		return nil
+	}
+	if hasCommandEntity(event.Message) {
 		return nil
 	}
 
@@ -87,267 +126,63 @@ func (h *RelayHandler) onMessage(ctx context.Context, event *events.MessageEvent
 		return nil
 	}
 
-	// Check if this is a topic message
 	var topicID int
 	if event.Message.MessageThreadId != nil {
 		topicID = *event.Message.MessageThreadId
 	}
 
-	// If topic message, route to TopicSessionManager
-	if topicID != 0 && h.sessionManager != nil {
-		log.Info().Int64("user_id", ownerID).Int("topic_id", topicID).Str("text", text).Msg("Relaying message to topic agent")
-		if err := h.sessionManager.SendMessage(ctx, event.Message.Chat.Id, topicID, text); err != nil {
-			log.Error().Err(err).Int("topic_id", topicID).Msg("Failed to send message to topic agent")
+	log.Info().Int64("user_id", ownerID).Int("topic_id", topicID).Msg("Relaying message to agent")
+
+	if topicID == 0 {
+		// Ensure main session exists
+		sessionID := fmt.Sprintf("relay-%d-0", chatID)
+		if _, ok := h.sessionManager.GetSessionRecord(sessionID); !ok {
+			agentName := h.getRelayAgentName()
+			if agentName == "" {
+				log.Error().Msg("Failed to resolve relay agent name")
+				return nil
+			}
+			if err := h.sessionManager.CreateSession(ctx, chatID, 0, agentName); err != nil {
+				log.Error().Err(err).Msg("Failed to create main relay session")
+				return nil
+			}
+		}
+	}
+
+	thoughtDraftID := event.Message.MessageId + 1
+	if err := h.sessionManager.SendDraftPlain(ctx, chatID, thoughtDraftID, "Thinking...", topicID); err != nil {
+		log.Warn().Err(err).Int("topic_id", topicID).Msg("failed to send thinking draft")
+	}
+
+	result, err := h.sessionManager.ProcessUserMessage(ctx, chatID, topicID, text)
+	if err != nil {
+		log.Error().Err(err).Int("topic_id", topicID).Msg("Failed to send message to agent")
+		if sendErr := h.sessionManager.SendMessagePlain(ctx, chatID, fmt.Sprintf("Error: %v", err), topicID); sendErr != nil {
+			log.Warn().Err(sendErr).Int("topic_id", topicID).Msg("failed to send relay error message")
 		}
 		return nil
 	}
 
-	// Non-topic messages go to main relay agent
-	log.Info().Int64("user_id", ownerID).Str("text", text).Msg("Relaying message to agent")
+	if strings.TrimSpace(result) != "" {
+		if sendErr := h.sessionManager.SendMessageMarkdown(ctx, chatID, result, topicID); sendErr != nil {
+			log.Warn().Err(sendErr).Int("topic_id", topicID).Msg("failed to send relay response")
+		}
+	}
 
-	draftID := int(h.draftCounter.Add(1))
-	h.processMessage(ctx, event.Message.Chat.Id, 0, text, draftID)
 	return nil
 }
 
-// SetOwner sets the owner and starts the response forwarder.
-func (h *RelayHandler) SetOwner(ctx context.Context, ownerID, chatID int64) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	log.Info().Int64("owner_id", ownerID).Int64("chat_id", chatID).Msg("Setting owner for relay")
-
-	h.ownerID = ownerID
-	h.chatID = chatID
-}
-
-// InitOwner sets only the owner ID and starts the forwarder.
-func (h *RelayHandler) InitOwner(ctx context.Context, ownerID int64) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	log.Info().Int64("owner_id", ownerID).Msg("Initializing relay with owner")
-
-	h.ownerID = ownerID
-}
-
-// Stop stops the relay handler (no-op, channels removed).
-func (h *RelayHandler) Stop() {
-}
-
-func (h *RelayHandler) processMessage(ctx context.Context, chatID int64, topicID int, text string, draftID int) {
-	sessionID := fmt.Sprintf("chat-%d", chatID)
-	responseDraftID := draftID
-	eventsDraftID := int(h.draftCounter.Add(1))
-
-	onProgress := func(text string) {
-		_, err := h.sendMessageDraft(ctx, chatID, responseDraftID, text, topicID)
-		if err != nil {
-			log.Warn().Err(err).Msg("Failed to update message draft")
-			return
-		}
+func (h *RelayHandler) getRelayAgentName() string {
+	cfg := h.normaCfg
+	profileName := strings.TrimSpace(cfg.Profile)
+	if profileName == "" {
+		profileName = "default"
 	}
-
-	onThought := func(text string) {
-		_, err := h.sendMessageDraftPlain(ctx, chatID, eventsDraftID, text, topicID)
-		if err != nil {
-			log.Warn().Err(err).Msg("Failed to update thought draft")
-			return
-		}
-	}
-
-	onTool := func(text string) {
-		_, err := h.sendMessageDraftPlain(ctx, chatID, eventsDraftID, text, topicID)
-		if err != nil {
-			log.Warn().Err(err).Msg("Failed to update tool-event draft")
-			return
-		}
-	}
-
-	_, err := h.runAgent(ctx, sessionID, text, onProgress, onThought, onTool)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to run agent")
-		response := fmt.Sprintf("error: %v", err)
-		if _, sendErr := h.sendMessageDraft(ctx, chatID, 0, response, topicID); sendErr != nil {
-			log.Error().Err(sendErr).Msg("Failed to send error response")
-		}
-	}
-}
-
-func (h *RelayHandler) runAgent(ctx context.Context, sessionID, message string, onProgress func(string), onThought func(string), onTool func(string)) (string, error) {
-	ag, err := h.relayAgents.Agent()
-	if err != nil {
-		return "", fmt.Errorf("getting relay agent: %w", err)
-	}
-
-	r, err := runnerpkg.New(runnerpkg.Config{
-		AppName:        "norma-relay",
-		Agent:          ag,
-		SessionService: h.sessionService,
-	})
-	if err != nil {
-		return "", fmt.Errorf("creating runner: %w", err)
-	}
-
-	sess, err := h.sessionService.Create(ctx, &session.CreateRequest{
-		AppName: "norma-relay",
-		UserID:  sessionID,
-	})
-	if err != nil {
-		return "", fmt.Errorf("creating session: %w", err)
-	}
-
-	userContent := genai.NewContentFromText(message, genai.RoleUser)
-
-	// Send typing action before starting.
-	h.sendChatAction(ctx, chatIDFromSessionID(sessionID), "typing")
-
-	// Start a goroutine to keep sending typing action while agent runs.
-	typingCtx, cancelTyping := context.WithCancel(ctx)
-	defer cancelTyping()
-	go h.keepTyping(typingCtx, chatIDFromSessionID(sessionID))
-
-	var result strings.Builder
-
-	for ev, err := range r.Run(ctx, sessionID, sess.Session.ID(), userContent, agent.RunConfig{}) {
-		if err != nil {
-			return "", fmt.Errorf("agent run: %w", err)
-		}
-		if ev == nil {
-			continue
-		}
-		// Handle tool call events: print tool name but hide parameters.
-		if ev.Content != nil {
-			for _, part := range ev.Content.Parts {
-				if part == nil {
-					continue
-				}
-				// Handle tool call start - print tool name only, hide parameters.
-				if part.FunctionCall != nil && part.FunctionCall.Name == acpToolCallEvent {
-					// Extract tool title from args.
-					args := part.FunctionCall.Args
-					title := extractToolTitle(args)
-					if title == "" {
-						title = acpToolCallEvent
-					}
-					// Print tool call start - only the tool name.
-					if onTool != nil {
-						onTool(fmt.Sprintf("ToolCall: %s", title))
-					}
-					continue
-				}
-				// Forward tool call updates to the events stream.
-				if part.FunctionResponse != nil && part.FunctionResponse.Name == "acp_tool_call_update" {
-					if onTool != nil {
-						onTool(formatToolUpdate(part.FunctionResponse.Response))
-					}
-					continue
-				}
-				// Handle thought parts.
-				if part.Thought {
-					if onThought != nil && part.Text != "" {
-						onThought(part.Text)
-					}
-					continue
-				}
-				if part.Text != "" {
-					result.WriteString(part.Text)
-					if onProgress != nil {
-						onProgress(result.String())
-					}
-				}
-			}
-		}
-		if ev.TurnComplete {
-			break
-		}
-	}
-
-	return result.String(), nil
-}
-
-func formatToolUpdate(response any) string {
-	if response == nil {
-		return "ToolUpdate"
-	}
-	return fmt.Sprintf("ToolUpdate: %v", response)
-}
-
-// extractToolTitle extracts the tool title from function call args.
-func extractToolTitle(args any) string {
-	if args == nil {
+	profile, ok := cfg.Profiles[profileName]
+	if !ok {
 		return ""
 	}
-	// Handle string args (raw JSON).
-	if s, ok := args.(string); ok {
-		// Try to parse as JSON to extract title.
-		if strings.HasPrefix(s, "{") {
-			// Simple extraction - look for "title".
-			if idx := strings.Index(s, `"title"`); idx >= 0 {
-				rest := s[idx+7:]
-				if idx := strings.Index(rest, `","`); idx >= 0 {
-					return strings.Trim(rest[:idx], `" :`)
-				}
-				if idx := strings.Index(rest, `"}`); idx >= 0 {
-					return strings.Trim(rest[:idx], `" :`)
-				}
-			}
-		}
-		return ""
-	}
-	// Handle map/struct args.
-	if m, ok := args.(map[string]any); ok {
-		if title, ok := m["title"].(string); ok {
-			return title
-		}
-	}
-	return ""
-}
-
-// keepTyping sends typing action every 4 seconds until context is canceled.
-func (h *RelayHandler) keepTyping(ctx context.Context, chatID int64) {
-	ticker := time.NewTicker(4 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			h.sendChatAction(ctx, chatID, "typing")
-		}
-	}
-}
-
-// sendChatAction sends a chat action (typing, etc.) to the user.
-func (h *RelayHandler) sendChatAction(ctx context.Context, chatID int64, action string) {
-	if chatID == 0 {
-		return
-	}
-	_, _ = h.tgClient.SendChatActionWithResponse(ctx, client.SendChatActionJSONRequestBody{
-		ChatId: chatID,
-		Action: action,
-	})
-}
-
-// chatIDFromSessionID extracts chatID from sessionID (format: "chat-<chatID>").
-func chatIDFromSessionID(sessionID string) int64 {
-	var chatID int64
-	_, _ = fmt.Sscanf(sessionID, "chat-%d", &chatID)
-	return chatID
-}
-
-// SendToOwner sends a message from the agent to the owner.
-func (h *RelayHandler) SendToOwner(ctx context.Context, msg string) error {
-	chatID := h.getChatID()
-	if chatID == 0 {
-		return fmt.Errorf("owner not set")
-	}
-
-	if _, err := h.sendMessageDraft(ctx, chatID, 0, msg, 0); err != nil {
-		return fmt.Errorf("sending message: %w", err)
-	}
-	return nil
+	return strings.TrimSpace(profile.Relay)
 }
 
 func (h *RelayHandler) getOwnerID() int64 {
@@ -368,80 +203,67 @@ func (h *RelayHandler) setChatID(chatID int64) {
 	h.chatID = chatID
 }
 
-func escapeMarkdownV2(text string) string {
-	replacer := strings.NewReplacer(
-		"\\", "\\\\",
-		"_", "\\_",
-		"*", "\\*",
-		"[", "\\[",
-		"]", "\\]",
-		"(", "\\(",
-		")", "\\)",
-		"~", "\\~",
-		"`", "\\`",
-		">", "\\>",
-		"#", "\\#",
-		"+", "\\+",
-		"-", "\\-",
-		"=", "\\=",
-		"|", "\\|",
-		"{", "\\{",
-		"}", "\\}",
-		".", "\\.",
-		"!", "\\!",
-	)
-	return replacer.Replace(text)
-}
-
-func (h *RelayHandler) sendMessageDraft(ctx context.Context, chatID int64, draftID int, text string, topicID int) (int, error) {
-	parseMode := "MarkdownV2"
-	req := client.SendMessageDraftJSONRequestBody{
-		ChatId:    chatID,
-		DraftId:   draftID,
-		Text:      escapeMarkdownV2(text),
-		ParseMode: &parseMode,
+func hasCommandEntity(msg *client.Message) bool {
+	if msg == nil || msg.Entities == nil {
+		return false
 	}
-	if topicID != 0 {
-		req.MessageThreadId = &topicID
-	}
-
-	resp, err := h.tgClient.SendMessageDraftWithResponse(ctx, req)
-	if err != nil {
-		log.Warn().Err(err).Int64("chat_id", chatID).Msg("send draft with MarkdownV2 failed, retrying without parse_mode")
-		req.ParseMode = nil
-		resp, err = h.tgClient.SendMessageDraftWithResponse(ctx, req)
-		if err != nil {
-			return draftID, fmt.Errorf("sending draft to chat %d: %w", chatID, err)
+	for _, entity := range *msg.Entities {
+		if entity.Type == "bot_command" {
+			return true
 		}
 	}
-	if resp.JSON400 != nil {
-		return draftID, fmt.Errorf("sending draft to chat %d: %s", chatID, resp.JSON400.Description)
-	}
-	if resp.JSON200 == nil {
-		return draftID, fmt.Errorf("sending draft to chat %d: no response body", chatID)
-	}
-	return draftID, nil
+	return false
 }
 
-func (h *RelayHandler) sendMessageDraftPlain(ctx context.Context, chatID int64, draftID int, text string, topicID int) (int, error) {
-	req := client.SendMessageDraftJSONRequestBody{
-		ChatId:  chatID,
-		DraftId: draftID,
-		Text:    text,
+func (h *RelayHandler) onStart(ctx context.Context) {
+	h.initializeBotUsername(ctx)
+
+	if !h.ownerStore.HasOwner() {
+		return
 	}
-	if topicID != 0 {
-		req.MessageThreadId = &topicID
+	owner := h.ownerStore.GetOwner()
+	if owner == nil {
+		return
 	}
 
-	resp, err := h.tgClient.SendMessageDraftWithResponse(ctx, req)
+	h.SetOwner(owner.UserID, 0)
+
+	if err := h.sessionManager.SendMessagePlain(ctx, owner.UserID, "Boss, I'm online and ready to work.", 0); err != nil {
+		h.logger.Warn().Err(err).Int64("owner_id", owner.UserID).Msg("failed to send startup ready message to owner")
+		return
+	}
+	h.logger.Info().Int64("owner_id", owner.UserID).Msg("startup ready message sent to owner")
+}
+
+func (h *RelayHandler) initializeBotUsername(ctx context.Context) {
+	if h.tgClient == nil {
+		return
+	}
+
+	meResp, err := h.tgClient.GetMeWithResponse(ctx)
 	if err != nil {
-		return draftID, fmt.Errorf("sending plain draft to chat %d: %w", chatID, err)
+		h.logger.Warn().Err(err).Msg("getMe failed; bot username unavailable")
+		return
 	}
-	if resp.JSON400 != nil {
-		return draftID, fmt.Errorf("sending plain draft to chat %d: %s", chatID, resp.JSON400.Description)
+	if meResp.JSON200 == nil || meResp.JSON200.Result.Username == nil {
+		h.logger.Warn().Str("status", meResp.Status()).Msg("getMe response missing username")
+		return
 	}
-	if resp.JSON200 == nil {
-		return draftID, fmt.Errorf("sending plain draft to chat %d: no response body", chatID)
+
+	username := strings.TrimSpace(*meResp.JSON200.Result.Username)
+	if username == "" {
+		h.logger.Warn().Msg("getMe returned empty username")
+		return
 	}
-	return draftID, nil
+
+	h.mu.Lock()
+	h.botUsername = username
+	h.mu.Unlock()
+
+	if h.authToken != "" {
+		deeplink := fmt.Sprintf("https://t.me/%s?start=%s", username, h.authToken)
+		h.logger.Info().Str("bot_username", username).Str("start_deeplink", deeplink).Msg("relay start deeplink ready")
+		return
+	}
+	h.logger.Info().Str("bot_username", username).Msg("relay bot username loaded")
 }

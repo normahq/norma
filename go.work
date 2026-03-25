@@ -1,0 +1,5 @@
+go 1.25.5
+
+use .
+
+replace github.com/tgbotkit/runtime => ../tgbotkit-runtime

@@ -3,6 +3,7 @@ module github.com/metalagman/norma
 go 1.25.5
 
 require (
+	github.com/Mad-Pixels/goldmark-tgmd v0.0.10
 	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/glamour v0.10.0
@@ -10,13 +11,17 @@ require (
 	github.com/coder/acp-go-sdk v0.6.3
 	github.com/go-playground/validator/v10 v10.30.1
 	github.com/go-viper/mapstructure/v2 v2.5.0
+	github.com/ipfans/fxlogger v0.2.0
 	github.com/joho/godotenv v1.5.1
+	github.com/metalagman/appkit v0.1.0
 	github.com/modelcontextprotocol/go-sdk v1.4.0
 	github.com/pressly/goose/v3 v3.16.0
 	github.com/rs/zerolog v1.34.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.11.1
+	github.com/tgbotkit/client v0.3.2
+	github.com/tgbotkit/runtime v0.0.0-20260109122317-889dc0dc115c
 	github.com/xeipuuv/gojsonschema v1.2.0
 	go.uber.org/fx v1.24.0
 	google.golang.org/adk v0.6.0
@@ -153,7 +158,6 @@ require (
 	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
 	github.com/hexops/gotextdiff v1.0.3 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
-	github.com/ipfans/fxlogger v0.2.0 // indirect
 	github.com/jgautheron/goconst v1.8.2 // indirect
 	github.com/jingyugao/rowserrcheck v1.1.1 // indirect
 	github.com/jjti/go-spancheck v0.6.5 // indirect
@@ -187,7 +191,6 @@ require (
 	github.com/mattn/go-localereader v0.0.1 // indirect
 	github.com/mattn/go-runewidth v0.0.19 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.1 // indirect
-	github.com/metalagman/appkit v0.1.0 // indirect
 	github.com/metalagman/omnidist v0.1.24 // indirect
 	github.com/mgechev/revive v1.14.0 // indirect
 	github.com/microcosm-cc/bluemonday v1.0.27 // indirect
@@ -243,8 +246,6 @@ require (
 	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/tetafro/godot v1.5.4 // indirect
-	github.com/tgbotkit/client v0.3.2 // indirect
-	github.com/tgbotkit/runtime v0.0.0-20260109122317-889dc0dc115c // indirect
 	github.com/timakin/bodyclose v0.0.0-20241222091800-1db5c5ca4d67 // indirect
 	github.com/timonwong/loggercheck v0.11.0 // indirect
 	github.com/tomarrell/wrapcheck/v2 v2.12.0 // indirect

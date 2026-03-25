@@ -1,4 +1,4 @@
-package handlers
+package session
 
 import (
 	"context"
@@ -8,10 +8,11 @@ import (
 )
 
 type relayMCPServer struct {
-	manager *TopicSessionManager
+	manager *Manager
 }
 
-func NewRelayMCPServer(manager *TopicSessionManager) relaymcp.RelayService {
+// NewRelayMCPServer wraps a session Manager as a RelayService.
+func NewRelayMCPServer(manager *Manager) relaymcp.RelayService {
 	return &relayMCPServer{manager: manager}
 }
 

@@ -79,12 +79,44 @@ Restore strategy is **lazy**:
 2. Relay resolves session by `(chat_id, topic_id)`.
 3. If topic session is missing in memory but has persisted binding metadata, relay lazily recreates it and notifies the topic.
 4. Relay calls ADK runner for that session.
-5. Relay streams events:
-   - `part.Text` -> response draft (MarkdownV2)
-   - `part.Thought` -> plain-text draft
-   - `acp_tool_call` / `acp_tool_call_update` -> plain-text draft
+5. Relay streams partial updates to Telegram using Bot API `sendMessageDraft`.
 
-Draft IDs are allocated per turn and separated by channel (response vs thought/event).
+## Telegram Client Draft API
+
+Partial model-response updates MUST be sent through the Telegram client method for Bot API `sendMessageDraft` (not `sendMessage`).
+
+### Request fields
+
+- `chat_id` (required)
+- `draft_id` (required, non-zero)
+- `text` (required)
+- `message_thread_id` (required for topic replies)
+- `parse_mode` (optional; use `MarkdownV2` for assistant response text)
+
+### Two draft streams per turn
+
+- Response draft stream:
+  - Contains assistant response text.
+  - Uses MarkdownV2-escaped text.
+- Events draft stream:
+  - Contains thoughts and tool-event updates.
+  - Uses plain text (no `parse_mode`).
+
+### Draft lifecycle contract
+
+1. At turn start, allocate two separate non-zero `draft_id` values:
+   - one for response
+   - one for events
+2. During the same turn, send each partial update to its stream using the same stream `draft_id`.
+3. Keep re-sending with the same `draft_id` as new partial text arrives (Telegram animates draft updates with the same ID).
+4. When the model turn completes, stop sending updates for both stream draft IDs.
+5. The last update sent for each stream is the final visible draft state for that turn.
+
+### Error handling
+
+- For response stream with `MarkdownV2`:
+  - If request fails, retry once without `parse_mode`.
+- Treat API bad requests or missing success body as failed draft updates and report/log them.
 
 ## Subagent Spawn
 
@@ -120,6 +152,7 @@ Both paths create:
 6. Relay MCP `start_agent` creates topic + session and returns IDs.
 7. Restart keeps persisted topic bindings but resets ADK session history.
 8. First message to a persisted topic lazily restores session runtime and sends restore notifications.
-9. Stream channel separation is preserved:
-   - thoughts/tool events plain text
-   - assistant response MarkdownV2
+9. Partial updates are sent with Telegram Bot API `sendMessageDraft` (not `sendMessage`).
+10. Per turn, two non-zero draft streams are used and kept separate (response vs events).
+11. Reusing the same `draft_id` within each stream updates the same animated draft message.
+12. Response stream uses MarkdownV2 (with fallback retry without `parse_mode`), while events stream stays plain text.
