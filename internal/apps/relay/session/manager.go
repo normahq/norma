@@ -143,18 +143,20 @@ func (m *Manager) CreateSession(ctx context.Context, chatID int64, topicID int, 
 }
 
 // CreateTopicSession creates a Telegram forum topic and an agent session for it.
+// It first validates the agent can be built before creating the topic to avoid orphaned topics.
 func (m *Manager) CreateTopicSession(ctx context.Context, chatID int64, agentName string) (string, int, error) {
 	m.logger.Info().
 		Int64("chat_id", chatID).
 		Str("agent", agentName).
 		Msg("creating topic session")
 
-	// Validate agent can be built before creating the topic
-	if err := m.agentBuilder.CanBuild(agentName); err != nil {
+	// First validate agent can be built - this checks factory registry without creating anything
+	if err := m.agentBuilder.ValidateAgent(agentName); err != nil {
 		m.logger.Error().Err(err).Str("agent", agentName).Msg("agent validation failed, not creating topic")
 		return "", 0, fmt.Errorf("agent %q not available: %w", agentName, err)
 	}
 
+	// Agent validated, now create the topic
 	topicName := fmt.Sprintf("Relay: %s", agentName)
 	createTopicResp, err := m.tgClient.CreateForumTopicWithResponse(ctx, client.CreateForumTopicJSONRequestBody{
 		ChatId: chatID,

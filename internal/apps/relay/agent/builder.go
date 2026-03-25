@@ -47,13 +47,10 @@ func NewBuilder(factory *agentfactory.Factory, normaCfg config.Config) *Builder 
 	}
 }
 
-// CanBuild checks if an agent can be built with the given name.
-// It returns an error if the agent is not found in the factory registry.
-func (b *Builder) CanBuild(agentName string) error {
-	if _, err := b.factory.GetAgentConfig(agentName); err != nil {
-		return fmt.Errorf("agent %q not found", agentName)
-	}
-	return nil
+// ValidateAgent checks if an agent with the given name can be created.
+// It returns an error if the agent is not found or its type is unsupported.
+func (b *Builder) ValidateAgent(agentName string) error {
+	return b.factory.ValidateAgent(agentName)
 }
 
 type BuiltAgent struct {

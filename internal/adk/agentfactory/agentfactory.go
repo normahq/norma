@@ -85,6 +85,20 @@ func (f *Factory) GetAgentConfig(name string) (agentconfig.Config, error) {
 	return cfg, nil
 }
 
+// ValidateAgent checks if an agent with the given name can be created.
+// It returns an error if the agent is not found or its type is unsupported.
+func (f *Factory) ValidateAgent(name string) error {
+	cfg, err := f.GetAgentConfig(name)
+	if err != nil {
+		return err
+	}
+	// Check if the type is supported
+	if _, ok := constructors[cfg.Type]; !ok {
+		return fmt.Errorf("agent type %q is not supported", cfg.Type)
+	}
+	return nil
+}
+
 // CreateAgent creates an agent.Agent instance by name and creation request.
 // It returns an error if the agent is not found or its type is unsupported.
 func (f *Factory) CreateAgent(ctx context.Context, name string, req CreationRequest) (agent.Agent, error) {
