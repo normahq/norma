@@ -48,6 +48,25 @@ type Config struct {
 	SystemInstruction string   `json:"system_instruction,omitempty" mapstructure:"system_instruction" validate:"omitempty,min=1"`
 }
 
+// Description returns a human-readable description of the agent config.
+// Format: "name: type=<type> model=<model> mode=<mode>" with missing parts omitted.
+func (c Config) Description(name string) string {
+	var parts []string
+	if c.Type != "" {
+		parts = append(parts, fmt.Sprintf("type=%s", c.Type))
+	}
+	if c.Model != "" {
+		parts = append(parts, fmt.Sprintf("model=%s", c.Model))
+	}
+	if c.Mode != "" {
+		parts = append(parts, fmt.Sprintf("mode=%s", c.Mode))
+	}
+	if len(parts) == 0 {
+		return name
+	}
+	return fmt.Sprintf("%s: %s", name, strings.Join(parts, " "))
+}
+
 var configValidator = newConfigValidator()
 
 func newConfigValidator() *validator.Validate {

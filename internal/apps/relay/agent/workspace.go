@@ -26,7 +26,7 @@ func NewWorkspaceManager(workingDir string) *WorkspaceManager {
 // Otherwise a new worktree is mounted at workspacesDir/<key> using branch <branchName>.
 func (m *WorkspaceManager) EnsureWorkspace(ctx context.Context, key, branchName, existingPath string) (string, error) {
 	relayDir := filepath.Join(m.workingDir, ".norma")
-	workspacesDir := filepath.Join(relayDir, "relay-workspaces")
+	workspacesDir := filepath.Join(relayDir, "relay-sessions")
 	if err := os.MkdirAll(workspacesDir, 0o755); err != nil {
 		return "", fmt.Errorf("create workspaces dir: %w", err)
 	}

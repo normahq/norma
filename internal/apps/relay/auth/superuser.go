@@ -11,6 +11,7 @@ import (
 // Owner represents the authenticated admin user.
 type Owner struct {
 	UserID           int64     `json:"user_id"`
+	ChatID           int64     `json:"chat_id,omitempty"`
 	Username         string    `json:"username,omitempty"`
 	FirstName        string    `json:"first_name,omitempty"`
 	LastName         string    `json:"last_name,omitempty"`
@@ -42,13 +43,14 @@ func NewOwnerStore(normaDir string) (*OwnerStore, error) {
 
 // RegisterOwner registers a new owner if none exists.
 // Returns true if registered, false if already exists.
-func (s *OwnerStore) RegisterOwner(userID int64, username, firstName, lastName string, hasTopicsEnabled bool) (bool, error) {
+func (s *OwnerStore) RegisterOwner(userID, chatID int64, username, firstName, lastName string, hasTopicsEnabled bool) (bool, error) {
 	if s.owner != nil {
 		return false, nil
 	}
 
 	s.owner = &Owner{
 		UserID:           userID,
+		ChatID:           chatID,
 		Username:         username,
 		FirstName:        firstName,
 		LastName:         lastName,
@@ -69,6 +71,15 @@ func (s *OwnerStore) IsOwner(userID int64) bool {
 		return false
 	}
 	return s.owner.UserID == userID
+}
+
+// UpdateChatID updates and persists the owner's chat ID.
+func (s *OwnerStore) UpdateChatID(chatID int64) error {
+	if s.owner == nil {
+		return fmt.Errorf("no owner registered")
+	}
+	s.owner.ChatID = chatID
+	return s.save()
 }
 
 // GetOwner returns the registered owner, or nil if none exists.

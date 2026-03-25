@@ -70,6 +70,10 @@ func (h *StartHandler) onCommand(ctx context.Context, event *events.CommandEvent
 
 	if h.ownerStore.HasOwner() {
 		if h.ownerStore.IsOwner(userID) {
+			// Persist chatID for existing owner
+			if err := h.ownerStore.UpdateChatID(chatID); err != nil {
+				log.Warn().Err(err).Msg("failed to update owner chatID")
+			}
 			if h.relayHandler != nil {
 				h.relayHandler.SetOwner(userID, chatID)
 				log.Info().Int64("user_id", userID).Msg("Relay re-activated for existing owner")
@@ -107,7 +111,7 @@ func (h *StartHandler) onCommand(ctx context.Context, event *events.CommandEvent
 		hasTopicsEnabled = *event.Message.Chat.IsForum
 	}
 
-	registered, err := h.ownerStore.RegisterOwner(userID, info.username, info.firstName, info.lastName, hasTopicsEnabled)
+	registered, err := h.ownerStore.RegisterOwner(userID, chatID, info.username, info.firstName, info.lastName, hasTopicsEnabled)
 	if err != nil {
 		log.Error().Err(err).Int64("user_id", userID).Msg("Failed to register owner")
 		if sendErr := h.messenger.SendPlain(ctx, chatID, "Failed to register owner. Please try again.", 0); sendErr != nil {

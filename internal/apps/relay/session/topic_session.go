@@ -6,8 +6,8 @@ import (
 	"google.golang.org/adk/session"
 )
 
-// topicSession represents a single Telegram topic's ADK agent session.
-type topicSession struct {
+// TopicSession represents a single Telegram topic's ADK agent session.
+type TopicSession struct {
 	sessionID    string
 	topicID      int
 	agentName    string
@@ -17,16 +17,17 @@ type topicSession struct {
 	sess         session.Session
 	chatID       int64
 	workspaceDir string
+	branchName   string
 }
 
-func (s *topicSession) GetRunner() *runner.Runner {
+func (s *TopicSession) GetRunner() *runner.Runner {
 	return s.runner
 }
 
-func (s *topicSession) GetSessionID() string {
+func (s *TopicSession) GetSessionID() string {
 	return s.sess.ID()
 }
 
-func (s *topicSession) GetWorkspaceDir() string {
+func (s *TopicSession) GetWorkspaceDir() string {
 	return s.workspaceDir
 }

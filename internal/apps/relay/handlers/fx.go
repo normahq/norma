@@ -1,8 +1,6 @@
 package handlers
 
 import (
-	"context"
-
 	"github.com/metalagman/norma/internal/apps/relay/agent"
 	"github.com/metalagman/norma/internal/apps/relay/messenger"
 	"github.com/metalagman/norma/internal/apps/relay/session"
@@ -36,25 +34,11 @@ var Module = fx.Module("relay_handlers",
 		),
 	),
 	fx.Invoke(WireHandlers),
-	fx.Invoke(InitTopicSessions),
 )
 
 // WireHandlers connects the start handler to the relay handler.
 func WireHandlers(start *StartHandler, relay *RelayHandler) {
 	start.SetRelayHandler(relay)
-}
-
-// InitTopicSessions restores persisted topic sessions on startup and closes them on shutdown.
-func InitTopicSessions(lc fx.Lifecycle, mgr *session.Manager) {
-	lc.Append(fx.Hook{
-		OnStart: func(ctx context.Context) error {
-			return mgr.Restore(ctx)
-		},
-		OnStop: func(ctx context.Context) error {
-			mgr.StopAll()
-			return nil
-		},
-	})
 }
 
 func registerStartHandler(h *StartHandler) tgbotkit.Handler {

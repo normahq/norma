@@ -25,7 +25,13 @@ Reply requirements:
 
 Context:
 - You are communicating with the relay bot owner.
-- Your Markdown response will be converted before being sent to Telegram.`
+- Your Markdown response will be converted before being sent to Telegram.
+
+Built-in MCP Servers:
+- norma.config — read/write Norma configuration
+- norma.tasks — manage tasks, epics, features (Beads integration)
+- norma.state — persistent session state storage
+- norma.relay — spawn and manage subagent sessions`
 
 type Builder struct {
 	factory  *agentfactory.Factory
@@ -47,12 +53,14 @@ type BuiltAgent struct {
 }
 
 func (b *Builder) Build(ctx context.Context, sessionID string, chatID int64, topicID int, agentName, workspaceDir string) (*BuiltAgent, error) {
+	branchName := fmt.Sprintf("norma/relay/%d/%d", chatID, topicID)
 	req := agentfactory.CreationRequest{
 		Name:              agentName,
+		Description:       b.buildAgentDescription(agentName),
 		WorkingDirectory:  workspaceDir,
 		Stderr:            os.Stderr,
 		Logger:            nil,
-		SystemInstruction: b.buildRelaySystemInstruction(agentName),
+		SystemInstruction: b.buildRelaySystemInstruction(agentName, branchName, workspaceDir),
 		PermissionHandler: DefaultPermissionHandler,
 	}
 
@@ -93,8 +101,12 @@ func (b *Builder) Build(ctx context.Context, sessionID string, chatID int64, top
 	}, nil
 }
 
-func (b *Builder) buildRelaySystemInstruction(agentName string) string {
+func (b *Builder) buildRelaySystemInstruction(agentName, branchName, workspaceDir string) string {
 	base := relaySystemInstruction
+
+	workspaceContext := fmt.Sprintf("\n\nWorkspace:\n- Branch: %s\n- Path: %s", branchName, workspaceDir)
+	base += workspaceContext
+
 	agentCfg, ok := b.normaCfg.Agents[agentName]
 	if !ok {
 		return base
@@ -104,4 +116,13 @@ func (b *Builder) buildRelaySystemInstruction(agentName string) string {
 		return base
 	}
 	return base + "\n\nAgent-specific instructions:\n" + agentSpecific
+}
+
+// buildAgentDescription returns a human-readable description of the agent.
+func (b *Builder) buildAgentDescription(agentName string) string {
+	agentCfg, ok := b.normaCfg.Agents[agentName]
+	if !ok {
+		return agentName
+	}
+	return agentCfg.Description(agentName)
 }

@@ -88,6 +88,18 @@ func Module(cfg Config, normaCfg config.Config) fx.Option {
 				fx.ResultTags(`name:"relay_auth_token"`),
 			),
 		),
+		fx.Provide(
+			fx.Annotate(
+				func() string {
+					_, profile, err := normaCfg.ResolveProfile("")
+					if err != nil {
+						return ""
+					}
+					return profile.Relay
+				},
+				fx.ResultTags(`name:"relay_agent_name"`),
+			),
+		),
 		fx.Provide(func() (*auth.OwnerStore, error) {
 			normaDir := filepath.Join(workingDir, ".norma")
 			if err := os.MkdirAll(normaDir, 0755); err != nil {
