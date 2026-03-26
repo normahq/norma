@@ -68,7 +68,7 @@ func (b *Builder) Build(ctx context.Context, sessionID string, chatID int64, top
 		WorkingDirectory:  workspaceDir,
 		Stderr:            os.Stderr,
 		Logger:            nil,
-		SystemInstruction: b.buildRelaySystemInstruction(agentName, branchName, workspaceDir),
+		SystemInstruction: b.buildRelaySystemInstruction(sessionID, agentName, branchName, workspaceDir),
 		PermissionHandler: DefaultPermissionHandler,
 	}
 
@@ -109,11 +109,12 @@ func (b *Builder) Build(ctx context.Context, sessionID string, chatID int64, top
 	}, nil
 }
 
-func (b *Builder) buildRelaySystemInstruction(agentName, branchName, workspaceDir string) string {
+func (b *Builder) buildRelaySystemInstruction(sessionID, agentName, branchName, workspaceDir string) string {
 	base := relaySystemInstruction
 
-	workspaceContext := fmt.Sprintf("\n\nWorkspace:\n- Branch: %s\n- Path: %s", branchName, workspaceDir)
-	base += workspaceContext
+	sessionContext := fmt.Sprintf("\n\nSession:\n- ID: %s", sessionID)
+	workspaceContext := fmt.Sprintf("\nWorkspace:\n- Branch: %s\n- Path: %s", branchName, workspaceDir)
+	base += sessionContext + workspaceContext
 
 	agentCfg, ok := b.normaCfg.Agents[agentName]
 	if !ok {
