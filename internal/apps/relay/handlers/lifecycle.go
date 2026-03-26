@@ -3,19 +3,18 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 
 	"github.com/normahq/norma/internal/adk/agentconfig"
-	"github.com/normahq/norma/internal/adk/agentfactory"
+	"github.com/normahq/norma/internal/adk/mcpregistry"
 	"github.com/normahq/norma/internal/apps/configmcp"
 	"github.com/normahq/norma/internal/apps/relay/session"
 	"github.com/normahq/norma/internal/apps/relaymcp"
 	"github.com/normahq/norma/internal/apps/sessionmcp"
-	"github.com/normahq/norma/internal/apps/tasksmcp"
 	"github.com/normahq/norma/internal/apps/workspacemcp"
-	"github.com/normahq/norma/internal/task"
 	"github.com/rs/zerolog"
 	"go.uber.org/fx"
 )
@@ -26,7 +25,7 @@ type InternalMCPManager struct {
 	started        bool
 	mu             sync.RWMutex
 	logger         zerolog.Logger
-	factory        *agentfactory.Factory
+	registry       mcpregistry.Registry
 	workingDir     string
 	sessionManager *session.Manager
 	cleanups       []func() error
@@ -38,7 +37,7 @@ type internalMCPParams struct {
 	LC             fx.Lifecycle
 	ServerIDs      []string `name:"relay_internal_mcp_servers"`
 	Logger         zerolog.Logger
-	Factory        *agentfactory.Factory
+	Registry       *mcpregistry.MapRegistry
 	WorkingDir     string
 	SessionManager *session.Manager
 	RelayMCPAddr   string `name:"relay_mcp_addr" optional:"true"`
@@ -49,7 +48,7 @@ func NewInternalMCPManager(params internalMCPParams) *InternalMCPManager {
 	manager := &InternalMCPManager{
 		serverIDs:      append([]string(nil), params.ServerIDs...),
 		logger:         params.Logger.With().Str("component", "relay.internal_mcp").Logger(),
-		factory:        params.Factory,
+		registry:       params.Registry,
 		workingDir:     params.WorkingDir,
 		sessionManager: params.SessionManager,
 	}
@@ -98,8 +97,8 @@ func NewInternalMCPManager(params internalMCPParams) *InternalMCPManager {
 
 func (m *InternalMCPManager) ensureBundledServers(ctx context.Context, relayMCPAddr string) error {
 	// norma.config
-	if _, ok := m.factory.GetMCPServer("norma.config"); !ok {
-		configPath := filepath.Join(m.workingDir, ".norma", "config.yaml")
+	if _, ok := m.registry.Get("norma.config"); !ok {
+		configPath := selectConfigPath(m.workingDir, "relay")
 		svc, err := configmcp.NewConfigService(configPath)
 		if err != nil {
 			m.logger.Warn().Err(err).Msg("failed to create config service")
@@ -109,7 +108,7 @@ func (m *InternalMCPManager) ensureBundledServers(ctx context.Context, relayMCPA
 				return fmt.Errorf("starting bundled config MCP: %w", err)
 			}
 			m.logger.Info().Str("addr", res.Addr).Msg("bundled norma.config server started")
-			m.factory.AddMCPServer("norma.config", agentconfig.MCPServerConfig{
+			m.registry.Set("norma.config", agentconfig.MCPServerConfig{
 				Type: agentconfig.MCPServerTypeHTTP,
 				URL:  fmt.Sprintf("http://%s/mcp", res.Addr),
 			})
@@ -117,31 +116,15 @@ func (m *InternalMCPManager) ensureBundledServers(ctx context.Context, relayMCPA
 		}
 	}
 
-	// norma.tasks
-	if _, ok := m.factory.GetMCPServer("norma.tasks"); !ok {
-		tracker := task.NewBeadsTracker("")
-		tracker.WorkingDir = m.workingDir
-		res, err := tasksmcp.StartHTTPServer(ctx, tracker, "127.0.0.1:0")
-		if err != nil {
-			return fmt.Errorf("starting bundled tasks MCP: %w", err)
-		}
-		m.logger.Info().Str("addr", res.Addr).Msg("bundled norma.tasks server started")
-		m.factory.AddMCPServer("norma.tasks", agentconfig.MCPServerConfig{
-			Type: agentconfig.MCPServerTypeHTTP,
-			URL:  fmt.Sprintf("http://%s/mcp", res.Addr),
-		})
-		m.addCleanup(res.Close)
-	}
-
 	// norma.state (session state)
-	if _, ok := m.factory.GetMCPServer("norma.state"); !ok {
+	if _, ok := m.registry.Get("norma.state"); !ok {
 		store := sessionmcp.NewMemoryStore()
 		res, err := sessionmcp.StartHTTPServer(ctx, store, "127.0.0.1:0")
 		if err != nil {
 			return fmt.Errorf("starting bundled state MCP: %w", err)
 		}
 		m.logger.Info().Str("addr", res.Addr).Msg("bundled norma.state server started")
-		m.factory.AddMCPServer("norma.state", agentconfig.MCPServerConfig{
+		m.registry.Set("norma.state", agentconfig.MCPServerConfig{
 			Type: agentconfig.MCPServerTypeHTTP,
 			URL:  fmt.Sprintf("http://%s/mcp", res.Addr),
 		})
@@ -149,7 +132,7 @@ func (m *InternalMCPManager) ensureBundledServers(ctx context.Context, relayMCPA
 	}
 
 	// norma.relay
-	if _, ok := m.factory.GetMCPServer("norma.relay"); !ok || relayMCPAddr != "" {
+	if _, ok := m.registry.Get("norma.relay"); !ok || relayMCPAddr != "" {
 		// If it's already in factory but relayMCPAddr is set, it means it was configured in app.go
 		// and we should start it on that address.
 		// If it's NOT in factory, we start it on a random port.
@@ -166,7 +149,7 @@ func (m *InternalMCPManager) ensureBundledServers(ctx context.Context, relayMCPA
 		m.logger.Info().Str("addr", res.Addr).Msg("bundled norma.relay server started")
 
 		// Always update factory with actual address (especially if it was random)
-		m.factory.AddMCPServer("norma.relay", agentconfig.MCPServerConfig{
+		m.registry.Set("norma.relay", agentconfig.MCPServerConfig{
 			Type: agentconfig.MCPServerTypeHTTP,
 			URL:  fmt.Sprintf("http://%s/mcp", res.Addr),
 		})
@@ -174,14 +157,14 @@ func (m *InternalMCPManager) ensureBundledServers(ctx context.Context, relayMCPA
 	}
 
 	// norma.workspace
-	if _, ok := m.factory.GetMCPServer("norma.workspace"); !ok {
+	if _, ok := m.registry.Get("norma.workspace"); !ok {
 		svc := session.NewWorkspaceMCPServer(m.sessionManager)
 		res, err := workspacemcp.StartHTTPServer(ctx, svc, "127.0.0.1:0")
 		if err != nil {
 			return fmt.Errorf("starting bundled workspace MCP: %w", err)
 		}
 		m.logger.Info().Str("addr", res.Addr).Msg("bundled norma.workspace server started")
-		m.factory.AddMCPServer("norma.workspace", agentconfig.MCPServerConfig{
+		m.registry.Set("norma.workspace", agentconfig.MCPServerConfig{
 			Type: agentconfig.MCPServerTypeHTTP,
 			URL:  fmt.Sprintf("http://%s/mcp", res.Addr),
 		})
@@ -189,6 +172,14 @@ func (m *InternalMCPManager) ensureBundledServers(ctx context.Context, relayMCPA
 	}
 
 	return nil
+}
+
+func selectConfigPath(workDir, appName string) string {
+	appPath := filepath.Join(workDir, ".norma", appName+".yaml")
+	if info, err := os.Stat(appPath); err == nil && !info.IsDir() {
+		return appPath
+	}
+	return filepath.Join(workDir, ".norma", "config.yaml")
 }
 
 func (m *InternalMCPManager) addCleanup(f func() error) {
@@ -199,7 +190,7 @@ func (m *InternalMCPManager) addCleanup(f func() error) {
 
 func isBundled(id string) bool {
 	switch id {
-	case "norma.config", "norma.tasks", "norma.state", "norma.relay", "norma.workspace":
+	case "norma.config", "norma.state", "norma.relay", "norma.workspace":
 		return true
 	default:
 		return false

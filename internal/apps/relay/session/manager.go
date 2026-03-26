@@ -6,7 +6,6 @@ import (
 	"io"
 	"sync"
 
-	"github.com/normahq/norma/internal/adk/agentconfig"
 	"github.com/normahq/norma/internal/apps/relay/agent"
 	"github.com/normahq/norma/internal/git"
 	"github.com/rs/zerolog"
@@ -16,19 +15,6 @@ import (
 
 const sessionIDPrefix = "relay"
 
-// convertAgentConfigs converts map[string]interface{} to map[string]agentconfig.Config.
-func convertAgentConfigs(in map[string]interface{}) map[string]agentconfig.Config {
-	out := make(map[string]agentconfig.Config, len(in))
-	for k, v := range in {
-		cfg, ok := v.(agentconfig.Config)
-		if !ok {
-			panic(fmt.Sprintf("invalid agent config type for %q: %T", k, v))
-		}
-		out[k] = cfg
-	}
-	return out
-}
-
 // Manager manages per-topic ADK agent sessions (in-memory only, no persistence).
 type Manager struct {
 	agentBuilder *agent.Builder
@@ -36,9 +22,6 @@ type Manager struct {
 	tgClient     client.ClientWithResponsesInterface
 	workspaces   *agent.WorkspaceManager
 	logger       zerolog.Logger
-
-	// agentConfigs stores normalized agent configs (type is generic_acp after normalization)
-	agentConfigs map[string]agentconfig.Config
 
 	rootCtx    context.Context
 	rootCancel context.CancelFunc
@@ -56,7 +39,6 @@ type ManagerParams struct {
 	WorkingDir   string
 	TGClient     client.ClientWithResponsesInterface
 	Logger       zerolog.Logger
-	AgentConfigs map[string]interface{} `name:"relay_agent_configs"`
 }
 
 // NewManager creates a session Manager.
@@ -72,7 +54,6 @@ func NewManager(p ManagerParams) (*Manager, error) {
 		rootCtx:      rootCtx,
 		rootCancel:   rootCancel,
 		sessions:     make(map[string]*TopicSession),
-		agentConfigs: convertAgentConfigs(p.AgentConfigs),
 	}
 
 	p.LC.Append(fx.Hook{
@@ -93,10 +74,7 @@ func NewManager(p ManagerParams) (*Manager, error) {
 
 // ValidateAgent checks if an agent with the given name exists in the config.
 func (m *Manager) ValidateAgent(agentName string) error {
-	if _, ok := m.agentConfigs[agentName]; !ok {
-		return fmt.Errorf("agent %q not found in registry", agentName)
-	}
-	return nil
+	return m.agentBuilder.ValidateAgent(agentName)
 }
 
 func (m *Manager) sessionID(chatID int64, topicID int) string {

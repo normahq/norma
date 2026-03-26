@@ -107,82 +107,102 @@ const NormaGitignoreContent = `# ignore everything in .norma by default
 
 # keep config
 !config.yaml
-!config.yml
 `
 
-const DefaultConfigYAML = `profile: default
-agents:
-  gemini_acp_agent:
-    type: gemini_acp
-    model: gemini-3-flash-preview
-  opencode_acp_agent:
-    type: opencode_acp
-    model: opencode/big-pickle
-  codex_acp_agent:
-    type: codex_acp
-  copilot_acp:
-    type: copilot_acp
-  custom_generic_acp_agent:
-    type: generic_acp
-    cmd: ["custom-acp-cli", "--acp"]
-  fallback_pool:
-    type: pool
-    pool:
-      - opencode_acp_agent
-      - gemini_acp_agent
+const DefaultConfigYAML = `norma:
+  agents:
+    gemini_acp_agent:
+      type: gemini_acp
+      gemini_acp:
+        model: gemini-3-flash-preview
+    opencode_acp_agent:
+      type: opencode_acp
+      opencode_acp:
+        model: opencode/big-pickle
+    codex_acp_agent:
+      type: codex_acp
+      codex_acp:
+        model: gpt-5-codex
+    copilot_acp:
+      type: copilot_acp
+      copilot_acp:
+        model: gpt-5-codex
+    custom_generic_acp_agent:
+      type: generic_acp
+      generic_acp:
+        cmd: ["custom-acp-cli", "--acp"]
+    fallback_pool:
+      type: pool
+      pool:
+        members:
+          - opencode_acp_agent
+          - gemini_acp_agent
 
-# Example MCP server configurations:
-# mcp_servers:
-#   my_mcp_server:
-#     type: stdio
-#     cmd: ["npx", "-y", "@example/mcp-server"]
+  # Example MCP server configurations:
+  # mcp_servers:
+  #   my_mcp_server:
+  #     type: stdio
+  #     cmd: ["npx", "-y", "@example/mcp-server"]
 
+cli:
+  pdca:
+    plan: gemini_acp_agent
+    do: gemini_acp_agent
+    check: gemini_acp_agent
+    act: gemini_acp_agent
+  planner: gemini_acp_agent
+  budgets:
+    max_iterations: 5
+  retention:
+    keep_last: 50
+    keep_days: 30
 profiles:
   default:
-    pdca:
-      plan: gemini_acp_agent
-      do: gemini_acp_agent
-      check: gemini_acp_agent
-      act: gemini_acp_agent
-    planner: gemini_acp_agent
+    cli:
+      pdca:
+        plan: gemini_acp_agent
+        do: gemini_acp_agent
+        check: gemini_acp_agent
+        act: gemini_acp_agent
+      planner: gemini_acp_agent
   gemini:
-    pdca:
-      plan: gemini_acp_agent
-      do: gemini_acp_agent
-      check: gemini_acp_agent
-      act: gemini_acp_agent
-    planner: gemini_acp_agent
+    cli:
+      pdca:
+        plan: gemini_acp_agent
+        do: gemini_acp_agent
+        check: gemini_acp_agent
+        act: gemini_acp_agent
+      planner: gemini_acp_agent
   opencode:
-    pdca:
-      plan: opencode_acp_agent
-      do: opencode_acp_agent
-      check: opencode_acp_agent
-      act: opencode_acp_agent
-    planner: opencode_acp_agent
+    cli:
+      pdca:
+        plan: opencode_acp_agent
+        do: opencode_acp_agent
+        check: opencode_acp_agent
+        act: opencode_acp_agent
+      planner: opencode_acp_agent
   acp:
-    pdca:
-      plan: gemini_acp_agent
-      do: opencode_acp_agent
-      check: codex_acp_agent
-      act: codex_acp_agent
-    planner: gemini_acp_agent
+    cli:
+      pdca:
+        plan: gemini_acp_agent
+        do: opencode_acp_agent
+        check: codex_acp_agent
+        act: codex_acp_agent
+      planner: gemini_acp_agent
   copilot:
-    pdca:
-      plan: copilot_acp
-      do: copilot_acp
-      check: copilot_acp
-      act: copilot_acp
-    planner: copilot_acp
+    cli:
+      pdca:
+        plan: copilot_acp
+        do: copilot_acp
+        check: copilot_acp
+        act: copilot_acp
+      planner: copilot_acp
   pool_fallback:
-    pdca:
-      plan: fallback_pool
-      do: fallback_pool
-      check: fallback_pool
-      act: fallback_pool
-    planner: fallback_pool
-budgets:
-  max_iterations: 5
-retention:
-  keep_last: 50
-  keep_days: 30
+    cli:
+      pdca:
+        plan: fallback_pool
+        do: fallback_pool
+        check: fallback_pool
+        act: fallback_pool
+      planner: fallback_pool
 `

@@ -17,7 +17,6 @@ func TestDefaultConfigYAML_IsLoadable(t *testing.T) {
 
 	viper.Reset()
 	t.Cleanup(viper.Reset)
-	viper.Set("config", defaultConfigPath)
 
 	if _, err := loadConfig(repoRoot); err != nil {
 		t.Fatalf("load default config: %v", err)

@@ -33,20 +33,21 @@ func pruneCommand() *cobra.Command {
 			}
 			defer closeFn()
 
-			cfg, err := loadConfig(repoRoot)
+			_, cliCfg, err := loadRuntimeAndCLIConfig(repoRoot)
 			if err != nil {
 				return err
 			}
 
 			policy := run.RetentionPolicy{KeepLast: keepLast, KeepDays: keepDays}
 			if policy.KeepLast <= 0 && policy.KeepDays <= 0 {
+				effective := cliCfg.EffectiveRetention()
 				policy = run.RetentionPolicy{
-					KeepLast: cfg.GetRetention().KeepLast,
-					KeepDays: cfg.GetRetention().KeepDays,
+					KeepLast: effective.KeepLast,
+					KeepDays: effective.KeepDays,
 				}
 			}
 			if policy.KeepLast <= 0 && policy.KeepDays <= 0 {
-				return fmt.Errorf("set --keep-last or --keep-days (or configure retention in .norma/config.yaml)")
+				return fmt.Errorf("set --keep-last or --keep-days (or configure cli.retention in .norma/config.yaml or .norma/cli.yaml)")
 			}
 
 			normaDir := filepath.Join(repoRoot, ".norma")

@@ -9,17 +9,19 @@ import (
 	"github.com/ipfans/fxlogger"
 	"github.com/normahq/norma/internal/adk/agentconfig"
 	"github.com/normahq/norma/internal/adk/agentfactory"
+	"github.com/normahq/norma/internal/adk/mcpregistry"
+	relayagent "github.com/normahq/norma/internal/apps/relay/agent"
 	"github.com/normahq/norma/internal/apps/relay/auth"
 	"github.com/normahq/norma/internal/apps/relay/handlers"
 	"github.com/normahq/norma/internal/apps/relay/tgbotkit"
-	"github.com/normahq/norma/internal/config"
+	runtimeconfig "github.com/normahq/norma/pkg/runtime/config"
 	"github.com/rs/zerolog/log"
 	"github.com/tgbotkit/runtime"
 	"go.uber.org/fx"
 )
 
 // App creates a new fx.App for the relay bot with the provided configuration.
-func App(cfg Config, normaCfg config.Config) *fx.App {
+func App(cfg Config, normaCfg runtimeconfig.NormaConfig) *fx.App {
 	return fx.New(
 		fx.WithLogger(
 			fxlogger.WithZerolog(
@@ -31,7 +33,7 @@ func App(cfg Config, normaCfg config.Config) *fx.App {
 }
 
 // Module returns the fx.Module for the relay bot, initialized with the provided configurations.
-func Module(cfg Config, normaCfg config.Config) fx.Option {
+func Module(cfg Config, normaCfg runtimeconfig.NormaConfig) fx.Option {
 	// Convert relay config to tgbotkit config.
 	tgbotkitCfg := tgbotkit.Config{
 		Token:        cfg.Relay.Telegram.Token,
@@ -52,14 +54,13 @@ func Module(cfg Config, normaCfg config.Config) fx.Option {
 	for k, v := range normaCfg.MCPServers {
 		mcpServers[k] = v
 	}
-
-	// Add relay MCP server to factory if address is configured.
-	// The actual server will be started by InternalMCPManager.
+	mcpReg := mcpregistry.New(mcpServers)
+	// If relay MCP address is configured, pre-register the external relay endpoint.
 	if cfg.Relay.MCP.Address != "" {
-		mcpServers["norma.relay"] = agentconfig.MCPServerConfig{
+		mcpReg.Set("norma.relay", agentconfig.MCPServerConfig{
 			Type: agentconfig.MCPServerTypeHTTP,
 			URL:  fmt.Sprintf("http://%s/mcp", cfg.Relay.MCP.Address),
-		}
+		})
 	}
 
 	return fx.Module("relay",
@@ -68,7 +69,7 @@ func Module(cfg Config, normaCfg config.Config) fx.Option {
 			logger,
 			normaCfg,
 			workingDir,
-			mcpServers,
+			mcpReg,
 		),
 		fx.Provide(
 			fx.Annotate(
@@ -90,25 +91,8 @@ func Module(cfg Config, normaCfg config.Config) fx.Option {
 		),
 		fx.Provide(
 			fx.Annotate(
-				func() map[string]interface{} {
-					// Convert to interface{} to avoid import in session manager
-					m := make(map[string]interface{})
-					for k, v := range normaCfg.Agents {
-						m[k] = v
-					}
-					return m
-				},
-				fx.ResultTags(`name:"relay_agent_configs"`),
-			),
-		),
-		fx.Provide(
-			fx.Annotate(
 				func() string {
-					_, profile, err := normaCfg.ResolveProfile("")
-					if err != nil {
-						return ""
-					}
-					return profile.Relay
+					return cfg.Relay.OrchestratorAgent
 				},
 				fx.ResultTags(`name:"relay_agent_name"`),
 			),
@@ -120,8 +104,12 @@ func Module(cfg Config, normaCfg config.Config) fx.Option {
 			}
 			return auth.NewOwnerStore(normaDir)
 		}),
-		fx.Provide(func(mcpServers map[string]agentconfig.MCPServerConfig) *agentfactory.Factory {
-			return agentfactory.NewFactoryWithMCPServers(normaCfg.Agents, mcpServers)
+		fx.Provide(func(reg *mcpregistry.MapRegistry) *agentfactory.Factory {
+			return agentfactory.New(
+				normaCfg.Agents,
+				reg,
+				agentfactory.WithPermissionHandler(relayagent.DefaultPermissionHandler),
+			)
 		}),
 		tgbotkit.Module,
 		handlers.Module,

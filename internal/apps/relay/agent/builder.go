@@ -6,12 +6,11 @@ import (
 	_ "embed"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 	"text/template"
 
 	"github.com/normahq/norma/internal/adk/agentfactory"
-	"github.com/normahq/norma/internal/config"
+	runtimeconfig "github.com/normahq/norma/pkg/runtime/config"
 	"google.golang.org/adk/agent"
 	"google.golang.org/adk/runner"
 	"google.golang.org/adk/session"
@@ -22,7 +21,7 @@ var relaySystemInstructionTmpl string
 
 type Builder struct {
 	factory  *agentfactory.Factory
-	normaCfg config.Config
+	normaCfg runtimeconfig.NormaConfig
 }
 
 type relayPromptData struct {
@@ -53,7 +52,7 @@ func (b *Builder) buildRelaySystemInstruction(sessionID, agentName, branchName, 
 }
 
 // NewBuilder creates a Builder with the given factory and config.
-func NewBuilder(factory *agentfactory.Factory, normaCfg config.Config) *Builder {
+func NewBuilder(factory *agentfactory.Factory, normaCfg runtimeconfig.NormaConfig) *Builder {
 	return &Builder{
 		factory:  factory,
 		normaCfg: normaCfg,
@@ -75,17 +74,15 @@ type BuiltAgent struct {
 
 func (b *Builder) Build(ctx context.Context, sessionID string, chatID int64, topicID int, agentName, workspaceDir string) (*BuiltAgent, error) {
 	branchName := fmt.Sprintf("norma/relay/%s", sessionID)
-	req := agentfactory.CreationRequest{
+	req := agentfactory.BuildRequest{
+		AgentID:           agentName,
 		Name:              agentName,
 		Description:       b.buildAgentDescription(agentName),
 		WorkingDirectory:  workspaceDir,
-		Stderr:            os.Stderr,
-		Logger:            nil,
 		SystemInstruction: b.buildRelaySystemInstruction(sessionID, agentName, branchName, workspaceDir),
-		PermissionHandler: DefaultPermissionHandler,
 	}
 
-	ag, err := b.factory.CreateAgent(ctx, agentName, req)
+	ag, err := b.factory.Build(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("creating agent %q: %w", agentName, err)
 	}

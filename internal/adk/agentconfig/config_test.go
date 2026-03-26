@@ -18,13 +18,17 @@ func TestConfigValidate(t *testing.T) {
 			name: "valid_generic_acp",
 			cfg: Config{
 				Type: AgentTypeGenericACP,
-				Cmd:  []string{"custom-acp", "--stdio"},
+				GenericACP: &ACPConfig{
+					Cmd: []string{"custom-acp", "--stdio"},
+				},
 			},
 		},
 		{
 			name: "missing_type",
 			cfg: Config{
-				Cmd: []string{"ainvoke"},
+				GenericACP: &ACPConfig{
+					Cmd: []string{"ainvoke"},
+				},
 			},
 			wantErr: "type is required",
 		},
@@ -32,14 +36,17 @@ func TestConfigValidate(t *testing.T) {
 			name: "invalid_type",
 			cfg: Config{
 				Type: "invalid",
-				Cmd:  []string{"ainvoke"},
+				GenericACP: &ACPConfig{
+					Cmd: []string{"ainvoke"},
+				},
 			},
 			wantErr: "type must be one of:",
 		},
 		{
 			name: "generic_acp_requires_cmd",
 			cfg: Config{
-				Type: AgentTypeGenericACP,
+				Type:       AgentTypeGenericACP,
+				GenericACP: &ACPConfig{},
 			},
 			wantErr: "cmd is required for type generic_acp",
 		},
@@ -47,7 +54,9 @@ func TestConfigValidate(t *testing.T) {
 			name: "alias_forbids_cmd",
 			cfg: Config{
 				Type: AgentTypeGeminiACP,
-				Cmd:  []string{"gemini", "--experimental-acp"},
+				GeminiACP: &ACPConfig{
+					Cmd: []string{"gemini", "--experimental-acp"},
+				},
 			},
 			wantErr: "cmd must be omitted for type gemini_acp",
 		},
@@ -55,7 +64,9 @@ func TestConfigValidate(t *testing.T) {
 			name: "copilot_alias_forbids_cmd",
 			cfg: Config{
 				Type: AgentTypeCopilotACP,
-				Cmd:  []string{"copilot", "--acp"},
+				CopilotACP: &ACPConfig{
+					Cmd: []string{"copilot", "--acp"},
+				},
 			},
 			wantErr: "cmd must be omitted for type copilot_acp",
 		},
@@ -63,27 +74,22 @@ func TestConfigValidate(t *testing.T) {
 			name: "cmd_item_must_be_nonempty",
 			cfg: Config{
 				Type: AgentTypeGenericACP,
-				Cmd:  []string{"custom-acp", ""},
+				GenericACP: &ACPConfig{
+					Cmd: []string{"custom-acp", ""},
+				},
 			},
 			wantErr: "cmd[1] must have at least 1 character",
 		},
 		{
 			name: "extra_args_item_must_be_nonempty",
 			cfg: Config{
-				Type:      AgentTypeGenericACP,
-				Cmd:       []string{"custom-acp"},
-				ExtraArgs: []string{"--trace", ""},
+				Type: AgentTypeGenericACP,
+				GenericACP: &ACPConfig{
+					Cmd:       []string{"custom-acp"},
+					ExtraArgs: []string{"--trace", ""},
+				},
 			},
 			wantErr: "extra_args[1] must have at least 1 character",
-		},
-		{
-			name: "timeout_must_be_positive_if_set",
-			cfg: Config{
-				Type:    AgentTypeGenericACP,
-				Cmd:     []string{"custom-acp"},
-				Timeout: -1,
-			},
-			wantErr: "timeout must be at least 1",
 		},
 	}
 
@@ -123,14 +129,22 @@ func TestNormalizeACPConfig(t *testing.T) {
 		{
 			name: "gemini_alias",
 			cfg: Config{
-				Type:      AgentTypeGeminiACP,
-				Model:     "gemini-3-flash-preview",
-				Mode:      "code",
-				ExtraArgs: []string{"--trace"},
+				Type: AgentTypeGeminiACP,
+				GeminiACP: &ACPConfig{
+					Model:     "gemini-3-flash-preview",
+					Mode:      "code",
+					ExtraArgs: []string{"--trace"},
+				},
 			},
 			exec: execPath,
 			want: Config{
-				Type:      AgentTypeGenericACP,
+				Type: AgentTypeGenericACP,
+				GenericACP: &ACPConfig{
+					Cmd:       []string{"gemini", "--experimental-acp", "--model", "gemini-3-flash-preview"},
+					Model:     "gemini-3-flash-preview",
+					Mode:      "code",
+					ExtraArgs: []string{"--trace"},
+				},
 				Cmd:       []string{"gemini", "--experimental-acp", "--model", "gemini-3-flash-preview"},
 				Model:     "gemini-3-flash-preview",
 				Mode:      "code",
@@ -140,12 +154,18 @@ func TestNormalizeACPConfig(t *testing.T) {
 		{
 			name: "opencode_alias",
 			cfg: Config{
-				Type:      AgentTypeOpenCodeACP,
-				ExtraArgs: []string{"--trace"},
+				Type: AgentTypeOpenCodeACP,
+				OpenCodeACP: &ACPConfig{
+					ExtraArgs: []string{"--trace"},
+				},
 			},
 			exec: execPath,
 			want: Config{
-				Type:      AgentTypeGenericACP,
+				Type: AgentTypeGenericACP,
+				GenericACP: &ACPConfig{
+					Cmd:       []string{"opencode", "acp"},
+					ExtraArgs: []string{"--trace"},
+				},
 				Cmd:       []string{"opencode", "acp"},
 				ExtraArgs: []string{"--trace"},
 			},
@@ -153,14 +173,22 @@ func TestNormalizeACPConfig(t *testing.T) {
 		{
 			name: "codex_alias",
 			cfg: Config{
-				Type:      AgentTypeCodexACP,
-				Model:     "gpt-5-codex",
-				Mode:      "code",
-				ExtraArgs: []string{"--trace"},
+				Type: AgentTypeCodexACP,
+				CodexACP: &ACPConfig{
+					Model:     "gpt-5-codex",
+					Mode:      "code",
+					ExtraArgs: []string{"--trace"},
+				},
 			},
 			exec: execPath,
 			want: Config{
-				Type:      AgentTypeGenericACP,
+				Type: AgentTypeGenericACP,
+				GenericACP: &ACPConfig{
+					Cmd:       []string{execPath, "tool", "codex-acp-bridge", "--codex-model", "gpt-5-codex"},
+					Model:     "gpt-5-codex",
+					Mode:      "code",
+					ExtraArgs: []string{"--trace"},
+				},
 				Cmd:       []string{execPath, "tool", "codex-acp-bridge", "--codex-model", "gpt-5-codex"},
 				Model:     "gpt-5-codex",
 				Mode:      "code",
@@ -170,13 +198,20 @@ func TestNormalizeACPConfig(t *testing.T) {
 		{
 			name: "codex_alias_keeps_extra_args_for_manual_debug",
 			cfg: Config{
-				Type:      AgentTypeCodexACP,
-				Model:     "gpt-5-codex",
-				ExtraArgs: []string{"--debug", "--trace"},
+				Type: AgentTypeCodexACP,
+				CodexACP: &ACPConfig{
+					Model:     "gpt-5-codex",
+					ExtraArgs: []string{"--debug", "--trace"},
+				},
 			},
 			exec: execPath,
 			want: Config{
-				Type:      AgentTypeGenericACP,
+				Type: AgentTypeGenericACP,
+				GenericACP: &ACPConfig{
+					Cmd:       []string{execPath, "tool", "codex-acp-bridge", "--codex-model", "gpt-5-codex"},
+					Model:     "gpt-5-codex",
+					ExtraArgs: []string{"--debug", "--trace"},
+				},
 				Cmd:       []string{execPath, "tool", "codex-acp-bridge", "--codex-model", "gpt-5-codex"},
 				Model:     "gpt-5-codex",
 				ExtraArgs: []string{"--debug", "--trace"},
@@ -185,13 +220,20 @@ func TestNormalizeACPConfig(t *testing.T) {
 		{
 			name: "copilot_alias",
 			cfg: Config{
-				Type:      AgentTypeCopilotACP,
-				Model:     "gpt-5-codex",
-				ExtraArgs: []string{"--trace"},
+				Type: AgentTypeCopilotACP,
+				CopilotACP: &ACPConfig{
+					Model:     "gpt-5-codex",
+					ExtraArgs: []string{"--trace"},
+				},
 			},
 			exec: execPath,
 			want: Config{
-				Type:      AgentTypeGenericACP,
+				Type: AgentTypeGenericACP,
+				GenericACP: &ACPConfig{
+					Cmd:       []string{"copilot", "--acp"},
+					Model:     "gpt-5-codex",
+					ExtraArgs: []string{"--trace"},
+				},
 				Cmd:       []string{"copilot", "--acp"},
 				Model:     "gpt-5-codex",
 				ExtraArgs: []string{"--trace"},
@@ -200,20 +242,27 @@ func TestNormalizeACPConfig(t *testing.T) {
 		{
 			name: "codex_alias_empty_exec_path",
 			cfg: Config{
-				Type: AgentTypeCodexACP,
+				Type:     AgentTypeCodexACP,
+				CodexACP: &ACPConfig{},
 			},
 			wantErr: "resolve executable path: empty",
 		},
 		{
 			name: "generic_is_unchanged",
 			cfg: Config{
-				Type:      AgentTypeGenericACP,
-				Cmd:       []string{"custom-acp", "--stdio"},
-				ExtraArgs: []string{"--trace"},
+				Type: AgentTypeGenericACP,
+				GenericACP: &ACPConfig{
+					Cmd:       []string{"custom-acp", "--stdio"},
+					ExtraArgs: []string{"--trace"},
+				},
 			},
 			exec: execPath,
 			want: Config{
-				Type:      AgentTypeGenericACP,
+				Type: AgentTypeGenericACP,
+				GenericACP: &ACPConfig{
+					Cmd:       []string{"custom-acp", "--stdio"},
+					ExtraArgs: []string{"--trace"},
+				},
 				Cmd:       []string{"custom-acp", "--stdio"},
 				ExtraArgs: []string{"--trace"},
 			},
@@ -251,22 +300,30 @@ func TestNormalizeACPConfigs(t *testing.T) {
 
 	got, err := NormalizeACPConfigs(map[string]Config{
 		"plan": {
-			Type:  AgentTypeGeminiACP,
-			Model: "gemini-3-flash-preview",
+			Type: AgentTypeGeminiACP,
+			GeminiACP: &ACPConfig{
+				Model: "gemini-3-flash-preview",
+			},
 		},
 		"do": {
-			Type: AgentTypeOpenCodeACP,
+			Type:        AgentTypeOpenCodeACP,
+			OpenCodeACP: &ACPConfig{},
 		},
 		"check": {
-			Type:  AgentTypeCodexACP,
-			Model: "gpt-5-codex",
+			Type: AgentTypeCodexACP,
+			CodexACP: &ACPConfig{
+				Model: "gpt-5-codex",
+			},
 		},
 		"act": {
-			Type: AgentTypeCopilotACP,
+			Type:       AgentTypeCopilotACP,
+			CopilotACP: &ACPConfig{},
 		},
 		"planner": {
 			Type: AgentTypeGenericACP,
-			Cmd:  []string{"custom-acp"},
+			GenericACP: &ACPConfig{
+				Cmd: []string{"custom-acp"},
+			},
 		},
 	}, execPath)
 	if err != nil {

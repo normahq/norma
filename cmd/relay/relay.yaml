@@ -1,11 +1,14 @@
 # Norma Relay Bot Configuration
-# Environment variables override these settings with NORMA_ prefix
-# Example: NORMA_RELAY_TELEGRAM_TOKEN=my-token
+# Environment variables override these settings with RELAY_ prefix
+# Example: RELAY_TELEGRAM_TOKEN=my-token
 
 relay:
+  # Agent id from runtime agents registry used for main chat orchestration.
+  orchestrator_agent: ""
+
   telegram:
     # Telegram bot token (required)
-    # Set via NORMA_RELAY_TELEGRAM_TOKEN env var
+    # Set via RELAY_TELEGRAM_TOKEN env var
     token: ""
 
     # Receiver mode: polling (default) or webhook

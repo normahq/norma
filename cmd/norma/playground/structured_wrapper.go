@@ -14,6 +14,7 @@ import (
 	acp "github.com/coder/acp-go-sdk"
 	"github.com/normahq/norma/internal/adk/agentconfig"
 	"github.com/normahq/norma/internal/adk/agentfactory"
+	"github.com/normahq/norma/internal/adk/mcpregistry"
 	adkstructured "github.com/normahq/norma/internal/adk/structuredio"
 	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
@@ -103,13 +104,15 @@ func runStructuredPlayground(
 	ctx = logger.WithContext(ctx)
 
 	preconfigured := agentconfig.Config{
-		Type:  agentconfig.AgentTypeOpenCodeACP,
-		Model: strings.TrimSpace(opts.Model),
+		Type: agentconfig.AgentTypeOpenCodeACP,
+		OpenCodeACP: &agentconfig.ACPConfig{
+			Model: strings.TrimSpace(opts.Model),
+		},
 	}
 	logger.Info().
 		Str("repo_root", repoRoot).
 		Str("type", preconfigured.Type).
-		Str("model", preconfigured.Model).
+		Str("model", preconfigured.OpenCodeACP.Model).
 		Msg("starting structured playground")
 
 	executablePath, err := resolveExecutablePath()
@@ -125,18 +128,12 @@ func runStructuredPlayground(
 		return fmt.Errorf("resolve normalized ACP command: %w", err)
 	}
 
-	factory := agentfactory.NewFactory(map[string]agentconfig.Config{
-		"opencode_acp_preconfigured": normalized,
-	})
-	baseAgent, err := factory.CreateAgent(ctx, "opencode_acp_preconfigured", agentfactory.CreationRequest{
-		Name:              "PlaygroundStructuredWrappedBaseAgent",
-		Description:       "Playground base agent for structured wrapper",
-		WorkingDirectory:  repoRoot,
-		SystemInstruction: "It is a good day. Mention this inside one JSON string field of your final response, and do not add any text outside the required JSON object.",
-		Stdout:            io.Discard,
-		Stderr:            lockedStderr,
-		Logger:            &logger,
-		PermissionHandler: func(_ context.Context, req acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error) {
+	factory := agentfactory.New(
+		map[string]agentconfig.Config{
+			"opencode_acp_preconfigured": normalized,
+		},
+		mcpregistry.New(nil),
+		agentfactory.WithPermissionHandler(func(_ context.Context, req acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error) {
 			for _, option := range req.Options {
 				if option.Kind == acp.PermissionOptionKindAllowOnce || option.Kind == acp.PermissionOptionKindAllowAlways {
 					return acp.RequestPermissionResponse{
@@ -145,7 +142,14 @@ func runStructuredPlayground(
 				}
 			}
 			return acp.RequestPermissionResponse{Outcome: acp.NewRequestPermissionOutcomeCancelled()}, nil
-		},
+		}),
+	)
+	baseAgent, err := factory.Build(ctx, agentfactory.BuildRequest{
+		AgentID:           "opencode_acp_preconfigured",
+		Name:              "PlaygroundStructuredWrappedBaseAgent",
+		Description:       "Playground base agent for structured wrapper",
+		WorkingDirectory:  repoRoot,
+		SystemInstruction: "It is a good day. Mention this inside one JSON string field of your final response, and do not add any text outside the required JSON object.",
 	})
 	if err != nil {
 		return fmt.Errorf("create base agent: %w", err)

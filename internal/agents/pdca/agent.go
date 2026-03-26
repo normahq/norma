@@ -30,12 +30,13 @@ import (
 
 // runtime holds PDCA step execution state used by role subagents.
 type runtime struct {
-	cfg         config.Config
-	store       *db.Store
-	tracker     task.Tracker
-	runInput    AgentInput
-	baseBranch  string
-	embeddedMCP *embeddedMCPServers
+	cfg           config.Config
+	maxIterations int
+	store         *db.Store
+	tracker       task.Tracker
+	runInput      AgentInput
+	baseBranch    string
+	embeddedMCP   *embeddedMCPServers
 }
 
 // NewLoopAgent creates and configures the PDCA loop agent with role subagents.
@@ -47,12 +48,13 @@ func NewLoopAgent(ctx context.Context, cfg config.Config, store *db.Store, track
 	}
 
 	rt := &runtime{
-		cfg:         cfg,
-		store:       store,
-		tracker:     tracker,
-		runInput:    runInput,
-		baseBranch:  baseBranch,
-		embeddedMCP: embeddedMCP,
+		cfg:           cfg,
+		maxIterations: maxIterations,
+		store:         store,
+		tracker:       tracker,
+		runInput:      runInput,
+		baseBranch:    baseBranch,
+		embeddedMCP:   embeddedMCP,
 	}
 
 	planAgent, err := rt.createSubAgent(ctx, RolePlan, mcpServers)
@@ -421,7 +423,7 @@ func (a *runtime) runStep(ctx agent.InvocationContext, iteration int, roleName s
 	}
 
 	// Create runner for this step
-	agentCfg, err := resolvedAgentForRole(a.cfg.Agents, a.cfg.RoleIDs, roleName)
+	agentCfg, err := resolvedAgentForRole(a.cfg.Norma.Agents, a.cfg.RoleIDs, roleName)
 	if err != nil {
 		return nil, err
 	}
@@ -556,7 +558,7 @@ func (a *runtime) baseRequest(iteration, index int, role string) contracts.Agent
 			Name:  role,
 		},
 		Budgets: contracts.Budgets{
-			MaxIterations: a.cfg.Budgets.MaxIterations,
+			MaxIterations: a.maxIterations,
 		},
 		StopReasonsAllowed: []string{
 			"budget_exceeded",

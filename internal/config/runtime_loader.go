@@ -1,0 +1,466 @@
+package config
+
+import (
+	"bytes"
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/go-viper/mapstructure/v2"
+	runtimeconfig "github.com/normahq/norma/pkg/runtime/config"
+	"github.com/spf13/viper"
+)
+
+const (
+	// CoreConfigFileName is the fallback config file name.
+	CoreConfigFileName = "config.yaml"
+	runtimeRootKey     = "norma"
+	overridesRootKey   = "profiles"
+)
+
+// RuntimeLoadOptions configures runtime config loading.
+type RuntimeLoadOptions struct {
+	RepoRoot  string
+	ConfigDir string
+	Profile   string
+}
+
+// AppLoadOptions configures app config loading on top of runtime config.
+type AppLoadOptions struct {
+	AppName      string
+	DefaultsYAML []byte
+}
+
+// CLISettings are app-specific settings for norma CLI commands.
+type CLISettings struct {
+	PDCA      PDCAAgentRefs   `mapstructure:"pdca"    validate:"required"`
+	Planner   string          `mapstructure:"planner" validate:"omitempty,min=1"`
+	Budgets   Budgets         `mapstructure:"budgets"`
+	Retention RetentionPolicy `mapstructure:"retention"`
+}
+
+// EffectiveBudgets returns budgets with defaults.
+func (c CLISettings) EffectiveBudgets() Budgets {
+	if c.Budgets.MaxIterations <= 0 {
+		return Budgets{MaxIterations: 5}
+	}
+	return c.Budgets
+}
+
+// EffectiveRetention returns retention with defaults.
+func (c CLISettings) EffectiveRetention() RetentionPolicy {
+	if c.Retention.KeepLast <= 0 && c.Retention.KeepDays <= 0 {
+		return RetentionPolicy{KeepLast: 50, KeepDays: 30}
+	}
+	return c.Retention
+}
+
+type cliConfigDocument struct {
+	Norma runtimeconfig.NormaConfig `mapstructure:"norma"`
+	CLI   CLISettings               `mapstructure:"cli"`
+}
+
+// LoadRuntime loads and validates runtime core config for norma CLI commands.
+func LoadRuntime(opts RuntimeLoadOptions) (Config, error) {
+	cfg, _, err := LoadRuntimeAndCLIConfig(opts)
+	if err != nil {
+		return Config{}, err
+	}
+	return cfg, nil
+}
+
+// LoadRuntimeAndCLIConfig loads runtime config and CLI app settings.
+func LoadRuntimeAndCLIConfig(opts RuntimeLoadOptions) (Config, CLISettings, error) {
+	var doc cliConfigDocument
+	selectedProfile, err := LoadConfigDocument(opts, AppLoadOptions{AppName: "cli"}, &doc)
+	if err != nil {
+		return Config{}, CLISettings{}, err
+	}
+
+	cfg := Config{
+		Norma:   doc.Norma,
+		Profile: strings.TrimSpace(selectedProfile),
+	}
+	if cfg.Profile == "" {
+		cfg.Profile = defaultProfile
+	}
+
+	roleIDs, err := cfg.ResolveRoleIDs(doc.CLI)
+	if err != nil {
+		return Config{}, CLISettings{}, err
+	}
+	cfg.RoleIDs = roleIDs
+
+	return cfg, doc.CLI, nil
+}
+
+// LoadConfigDocument loads and decodes a full app config document into out.
+//
+// The selected file is single-source by priority: <app>.yaml first, then config.yaml.
+// Profile overrides (profiles.<name>) and app env overrides are applied before decode.
+func LoadConfigDocument(runtimeOpts RuntimeLoadOptions, opts AppLoadOptions, out any) (string, error) {
+	if out == nil {
+		return "", fmt.Errorf("output config target is required")
+	}
+
+	appName := strings.TrimSpace(opts.AppName)
+	if appName == "" {
+		return "", fmt.Errorf("app name is required")
+	}
+
+	settings, selectedProfile, err := loadResolvedSettings(runtimeOpts, opts)
+	if err != nil {
+		return "", err
+	}
+
+	runtimeSettings, ok := extractAppSection(settings, runtimeRootKey)
+	if !ok {
+		return "", fmt.Errorf("runtime config key %q is required", runtimeRootKey)
+	}
+	if err := rejectLegacyRuntimeAppKeys(runtimeSettings); err != nil {
+		return "", err
+	}
+	if err := ValidateSettings(runtimeSettings); err != nil {
+		return "", fmt.Errorf("validate runtime config: %w", err)
+	}
+	if err := DecodeSettings(settings, out); err != nil {
+		return "", fmt.Errorf("decode config: %w", err)
+	}
+
+	return selectedProfile, nil
+}
+
+func loadResolvedSettings(runtimeOpts RuntimeLoadOptions, opts AppLoadOptions) (map[string]any, string, error) {
+	appName := strings.TrimSpace(opts.AppName)
+	if appName == "" {
+		return nil, "", fmt.Errorf("app name is required")
+	}
+
+	roots := coreConfigRoots(runtimeOpts.RepoRoot, runtimeOpts.ConfigDir)
+	selectedPath, searchedPaths, err := selectConfigFile(roots, appName)
+	if err != nil {
+		return nil, "", err
+	}
+	if strings.TrimSpace(selectedPath) == "" {
+		return nil, "", fmt.Errorf("runtime config not found; looked for: %s", strings.Join(searchedPaths, ", "))
+	}
+
+	v, err := loadConfigViper(selectedPath, opts.DefaultsYAML)
+	if err != nil {
+		return nil, "", err
+	}
+
+	settings := v.AllSettings()
+	if settings == nil {
+		settings = map[string]any{}
+	}
+	if err := rejectLegacyRootRuntimeKeys(settings); err != nil {
+		return nil, "", err
+	}
+
+	selectedProfile, err := applyProfileOverlay(v, settings, runtimeOpts.Profile)
+	if err != nil {
+		return nil, "", err
+	}
+
+	applyAppEnvOverrides(v, appName)
+
+	settings = v.AllSettings()
+	if settings == nil {
+		settings = map[string]any{}
+	}
+	if err := rejectLegacyRootRuntimeKeys(settings); err != nil {
+		return nil, "", err
+	}
+
+	return settings, selectedProfile, nil
+}
+
+func loadConfigViper(configPath string, defaultsYAML []byte) (*viper.Viper, error) {
+	v := viper.New()
+	v.SetConfigType("yaml")
+
+	if len(defaultsYAML) > 0 {
+		if err := v.ReadConfig(bytes.NewReader(defaultsYAML)); err != nil {
+			return nil, fmt.Errorf("parse yaml in embedded defaults: %w", err)
+		}
+	}
+
+	content, err := os.ReadFile(configPath)
+	if err != nil {
+		return nil, fmt.Errorf("read config file %q: %w", configPath, err)
+	}
+
+	if len(defaultsYAML) > 0 {
+		if err := v.MergeConfig(bytes.NewReader(content)); err != nil {
+			return nil, fmt.Errorf("parse config file %q: %w", configPath, err)
+		}
+	} else {
+		if err := v.ReadConfig(bytes.NewReader(content)); err != nil {
+			return nil, fmt.Errorf("parse config file %q: %w", configPath, err)
+		}
+	}
+
+	return v, nil
+}
+
+func applyProfileOverlay(v *viper.Viper, settings map[string]any, requestedProfile string) (string, error) {
+	selected := strings.TrimSpace(requestedProfile)
+	if selected == "" {
+		selected = defaultProfile
+	}
+
+	profiles, hasProfiles, err := extractTopLevelProfiles(settings)
+	if err != nil {
+		return "", err
+	}
+	if !hasProfiles {
+		return selected, nil
+	}
+
+	rawOverride, ok := profiles[selected]
+	if !ok {
+		return "", fmt.Errorf("top-level profile %q not found", selected)
+	}
+	overrideMap, ok := toStringAnyMap(rawOverride)
+	if !ok {
+		return "", fmt.Errorf("top-level profiles.%s must be an object", selected)
+	}
+	if err := rejectLegacyRuntimeKeysInOverride(selected, overrideMap); err != nil {
+		return "", err
+	}
+	if err := v.MergeConfigMap(overrideMap); err != nil {
+		return "", fmt.Errorf("merge top-level profiles.%s: %w", selected, err)
+	}
+
+	return selected, nil
+}
+
+func selectConfigFile(roots []string, appName string) (string, []string, error) {
+	searched := searchedConfigPaths(roots, appName)
+	for _, path := range searched {
+		if _, err := os.Stat(path); err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				continue
+			}
+			return "", searched, fmt.Errorf("stat config file %q: %w", path, err)
+		}
+		return path, searched, nil
+	}
+	return "", searched, nil
+}
+
+func searchedConfigPaths(roots []string, appName string) []string {
+	paths := make([]string, 0, len(roots)*2)
+	for _, root := range roots {
+		paths = append(paths,
+			filepath.Join(root, appName+".yaml"),
+			filepath.Join(root, CoreConfigFileName),
+		)
+	}
+	return paths
+}
+
+func rejectLegacyRootRuntimeKeys(root map[string]any) error {
+	legacy := []string{"agents", "mcps", "mcp_servers", "profile", "budgets", "retention"}
+	for _, key := range legacy {
+		if _, ok := root[key]; ok {
+			return fmt.Errorf("legacy top-level key %q is no longer supported; move runtime keys under %q and CLI settings under %q", key, runtimeRootKey, "cli")
+		}
+	}
+	return nil
+}
+
+func rejectLegacyRuntimeKeysInOverride(profileName string, override map[string]any) error {
+	legacy := []string{"agents", "mcps", "mcp_servers", "profile", "budgets", "retention", "pdca", "planner"}
+	for _, key := range legacy {
+		if _, ok := override[key]; ok {
+			return fmt.Errorf("legacy runtime key %q in top-level profiles.%s is not supported; nest runtime overrides under %q", key, profileName, runtimeRootKey)
+		}
+	}
+	return nil
+}
+
+func rejectLegacyRuntimeAppKeys(runtimeSettings map[string]any) error {
+	if _, ok := runtimeSettings["mcps"]; ok {
+		return fmt.Errorf("runtime key %q.%s is no longer supported; use %q.%s instead", runtimeRootKey, "mcps", runtimeRootKey, "mcp_servers")
+	}
+	if _, ok := runtimeSettings["profiles"]; ok {
+		return fmt.Errorf("runtime key %q.%s is no longer supported; move workflow settings under %q.%s", runtimeRootKey, "profiles", "cli", "pdca")
+	}
+	if _, ok := runtimeSettings["budgets"]; ok {
+		return fmt.Errorf("runtime key %q.%s is no longer supported; move it to %s.budgets", runtimeRootKey, "budgets", "cli")
+	}
+	if _, ok := runtimeSettings["retention"]; ok {
+		return fmt.Errorf("runtime key %q.%s is no longer supported; move it to %s.retention", runtimeRootKey, "retention", "cli")
+	}
+	return nil
+}
+
+func extractTopLevelProfiles(root map[string]any) (map[string]any, bool, error) {
+	raw, ok := root[overridesRootKey]
+	if !ok || raw == nil {
+		return nil, false, nil
+	}
+	profiles, ok := toStringAnyMap(raw)
+	if !ok {
+		return nil, false, fmt.Errorf("top-level key %q must be an object", overridesRootKey)
+	}
+	if len(profiles) == 0 {
+		return nil, false, nil
+	}
+	return profiles, true, nil
+}
+
+// DecodeSettings decodes a settings map into a target struct using mapstructure tags.
+func DecodeSettings(settings map[string]any, out any) error {
+	decoder, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
+		Result:           out,
+		TagName:          "mapstructure",
+		WeaklyTypedInput: true,
+		DecodeHook: mapstructure.ComposeDecodeHookFunc(
+			mapstructure.StringToSliceHookFunc(","),
+		),
+	})
+	if err != nil {
+		return fmt.Errorf("create settings decoder: %w", err)
+	}
+	if err := decoder.Decode(settings); err != nil {
+		return fmt.Errorf("decode settings: %w", err)
+	}
+	return nil
+}
+
+func coreConfigRoots(repoRoot, configuredRoot string) []string {
+	roots := make([]string, 0, 3)
+
+	if extra := strings.TrimSpace(configuredRoot); extra != "" {
+		if !filepath.IsAbs(extra) && repoRoot != "" {
+			extra = filepath.Join(repoRoot, extra)
+		}
+		roots = append(roots, extra)
+	}
+
+	if repoRoot != "" {
+		roots = append(roots, filepath.Join(repoRoot, ".norma"))
+	}
+
+	if global := globalConfigRoot(); global != "" {
+		roots = append(roots, global)
+	}
+
+	return dedupePaths(roots)
+}
+
+func globalConfigRoot() string {
+	if xdg := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME")); xdg != "" {
+		return filepath.Join(xdg, "norma")
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || strings.TrimSpace(home) == "" {
+		return ""
+	}
+	return filepath.Join(home, ".config", "norma")
+}
+
+func dedupePaths(paths []string) []string {
+	out := make([]string, 0, len(paths))
+	seen := make(map[string]struct{}, len(paths))
+	for _, p := range paths {
+		cleaned := filepath.Clean(strings.TrimSpace(p))
+		if cleaned == "." || cleaned == "" {
+			continue
+		}
+		if _, exists := seen[cleaned]; exists {
+			continue
+		}
+		seen[cleaned] = struct{}{}
+		out = append(out, cleaned)
+	}
+	return out
+}
+
+func applyAppEnvOverrides(v *viper.Viper, appName string) {
+	prefix := strings.ToUpper(strings.TrimSpace(appName))
+	if prefix == "" {
+		return
+	}
+
+	settings := v.AllSettings()
+	if settings == nil {
+		return
+	}
+	appSettings, ok := extractAppSection(settings, appName)
+	if !ok {
+		return
+	}
+
+	envViper := viper.New()
+	envViper.SetEnvPrefix(prefix)
+	envViper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	envViper.AutomaticEnv()
+
+	for _, key := range leafPaths(appSettings, "") {
+		if !envViper.IsSet(key) {
+			continue
+		}
+		v.Set(appName+"."+key, envViper.Get(key))
+	}
+}
+
+func leafPaths(m map[string]any, parent string) []string {
+	paths := make([]string, 0)
+	for key, raw := range m {
+		segment := strings.TrimSpace(key)
+		if segment == "" {
+			continue
+		}
+		fullKey := segment
+		if parent != "" {
+			fullKey = parent + "." + segment
+		}
+
+		nested, ok := toStringAnyMap(raw)
+		if !ok || len(nested) == 0 {
+			paths = append(paths, fullKey)
+			continue
+		}
+
+		paths = append(paths, leafPaths(nested, fullKey)...)
+	}
+	return paths
+}
+
+func extractAppSection(doc map[string]any, appName string) (map[string]any, bool) {
+	raw, ok := doc[appName]
+	if !ok {
+		return nil, false
+	}
+	section, ok := toStringAnyMap(raw)
+	if !ok {
+		return nil, false
+	}
+	return section, true
+}
+
+func toStringAnyMap(value any) (map[string]any, bool) {
+	switch typed := value.(type) {
+	case map[string]any:
+		return typed, true
+	case map[any]any:
+		out := make(map[string]any, len(typed))
+		for k, v := range typed {
+			key, ok := k.(string)
+			if !ok {
+				return nil, false
+			}
+			out[key] = v
+		}
+		return out, true
+	default:
+		return nil, false
+	}
+}

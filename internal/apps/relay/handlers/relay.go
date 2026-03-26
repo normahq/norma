@@ -6,10 +6,11 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/normahq/norma/internal/adk/agentconfig"
 	"github.com/normahq/norma/internal/apps/relay/auth"
 	"github.com/normahq/norma/internal/apps/relay/messenger"
 	relaysession "github.com/normahq/norma/internal/apps/relay/session"
-	"github.com/normahq/norma/internal/config"
+	runtimeconfig "github.com/normahq/norma/pkg/runtime/config"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/tgbotkit/client"
@@ -29,7 +30,7 @@ type RelayHandler struct {
 	tgClient       client.ClientWithResponsesInterface
 	authToken      string
 	relayAgentName string
-	normaCfg       config.Config
+	normaCfg       runtimeconfig.NormaConfig
 	logger         zerolog.Logger
 
 	mu          sync.RWMutex
@@ -48,7 +49,7 @@ type relayHandlerDeps struct {
 	TGClient           client.ClientWithResponsesInterface
 	AuthToken          string `name:"relay_auth_token"`
 	RelayAgentName     string `name:"relay_agent_name"`
-	NormaCfg           config.Config
+	NormaCfg           runtimeconfig.NormaConfig
 	Logger             zerolog.Logger
 	InternalMCPManager *InternalMCPManager `optional:"true"`
 }
@@ -352,6 +353,6 @@ func (h *RelayHandler) ensureOrchestratorSession(ctx context.Context, chatID int
 		Msg("orchestrator session precreated")
 }
 
-func (h *RelayHandler) buildSpinningMessage(agentName string, cfg config.AgentConfig) string {
+func (h *RelayHandler) buildSpinningMessage(agentName string, cfg agentconfig.Config) string {
 	return "Spinning up agent: " + cfg.Description(agentName)
 }

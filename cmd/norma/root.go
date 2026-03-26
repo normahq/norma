@@ -18,7 +18,6 @@ import (
 	plancmd "github.com/normahq/norma/cmd/norma/plan"
 	playgroundcmd "github.com/normahq/norma/cmd/norma/playground"
 	prunecmd "github.com/normahq/norma/cmd/norma/prune"
-	relaycmd "github.com/normahq/norma/cmd/norma/relay"
 	runcmd "github.com/normahq/norma/cmd/norma/run"
 	runscmd "github.com/normahq/norma/cmd/norma/runs"
 	toolcmd "github.com/normahq/norma/cmd/norma/tool"
@@ -30,7 +29,7 @@ import (
 )
 
 var (
-	cfgFile      string
+	configDir    string
 	debug        bool
 	trace        bool
 	profile      string
@@ -49,13 +48,13 @@ var (
 
 // Execute runs the root command.
 func Execute() error {
-	cobra.OnInitialize(initDotEnv, initConfig)
-	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", defaultConfigPath, "config file path")
+	cobra.OnInitialize(initDotEnv)
+	rootCmd.PersistentFlags().StringVar(&configDir, "config-dir", "", "extra config root directory (highest priority)")
 	rootCmd.PersistentFlags().BoolVar(&debug, "debug", false, "enable debug logging")
 	rootCmd.PersistentFlags().BoolVar(&trace, "trace", false, "enable trace logging (overrides --debug)")
 	rootCmd.PersistentFlags().StringVar(&profile, "profile", "", "config profile name")
-	if err := viper.BindPFlag("config", rootCmd.PersistentFlags().Lookup("config")); err != nil {
-		return fmt.Errorf("bind config flag: %w", err)
+	if err := viper.BindPFlag("config_dir", rootCmd.PersistentFlags().Lookup("config-dir")); err != nil {
+		return fmt.Errorf("bind config-dir flag: %w", err)
 	}
 	if err := viper.BindPFlag("profile", rootCmd.PersistentFlags().Lookup("profile")); err != nil {
 		return fmt.Errorf("bind profile flag: %w", err)
@@ -89,7 +88,6 @@ func Execute() error {
 	rootCmd.AddCommand(playgroundcmd.Command())
 	rootCmd.AddCommand(initcmd.Command())
 	rootCmd.AddCommand(prunecmd.Command())
-	rootCmd.AddCommand(relaycmd.Command())
 	return rootCmd.Execute()
 }
 
@@ -119,15 +117,4 @@ func initBeads(ctx context.Context) error {
 
 	log.Info().Str("path", beadsPath).Msg(".beads not found, initializing with prefix 'norma'")
 	return runBeadsInit(ctx, repoRoot)
-}
-
-func initConfig() {
-	path := cfgFile
-	if path == "" {
-		path = defaultConfigPath
-	}
-	viper.SetEnvPrefix("NORMA")
-	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_", "-", "_"))
-	viper.AutomaticEnv()
-	viper.SetConfigFile(path)
 }

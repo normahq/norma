@@ -1,61 +1,76 @@
 profile: default
 
-agents:
-  fl:
-    type: gemini_acp
-    model: gemini-3.1-flash-lite-preview
-  gemini:
-    type: gemini_acp
-    model: gemini-3-flash-preview
-  gemini_plan:
-    type: gemini_acp
-    model: gemini-3-flash-preview
-    mode: plan
-  opencode:
-    type: opencode_acp
-    model: opencode/big-pickle
-  opencode_plan:
-    type: opencode_acp
-    model: opencode/big-pickle
-    mode: plan
-  copilot:
-    type: copilot_acp
-    model: gpt-5-mini
-  copilot_plan:
-    type: copilot_acp
-    mode: plan
-  opencode_minimax:
-    type: opencode_acp
-    model: opencode/minimax-m2.5-free
-  opencode_minimax_plan:
-    type: opencode_acp
-    model: opencode/minimax-m2.5-free
-    mode: plan
-  codex:
-    type: codex_acp
-    model: gpt-5.4
-  gpt:
-    type: codex_acp
-    model: gpt-5.4-mini
+norma:
+  agents:
+    fl:
+      type: gemini_acp
+      gemini_acp:
+        model: gemini-3.1-flash-lite-preview
+    gemini:
+      type: gemini_acp
+      gemini_acp:
+        model: gemini-3-flash-preview
+    gemini_plan:
+      type: gemini_acp
+      gemini_acp:
+        model: gemini-3-flash-preview
+        mode: plan
+    opencode:
+      type: opencode_acp
+      opencode_acp:
+        model: opencode/big-pickle
+    opencode_plan:
+      type: opencode_acp
+      opencode_acp:
+        model: opencode/big-pickle
+        mode: plan
+    copilot:
+      type: copilot_acp
+      copilot_acp:
+        model: gpt-5-mini
+    copilot_plan:
+      type: copilot_acp
+      copilot_acp:
+        mode: plan
+    opencode_minimax:
+      type: opencode_acp
+      opencode_acp:
+        model: opencode/minimax-m2.5-free
+    opencode_minimax_plan:
+      type: opencode_acp
+      opencode_acp:
+        model: opencode/minimax-m2.5-free
+        mode: plan
+    codex:
+      type: codex_acp
+      codex_acp:
+        model: gpt-5.4
+    gpt:
+      type: codex_acp
+      codex_acp:
+        model: gpt-5.4-mini
 
-mcp_servers:
-  playground_ping_pong:
-    type: stdio
-    cmd:
-      - go
-      - run
-      - ./cmd/norma
-    args:
-      - playground
-      - mcp
-      - ping-pong
+  mcp_servers:
+    playground_ping_pong:
+      type: stdio
+      cmd:
+        - go
+        - run
+        - ./cmd/norma
+      args:
+        - playground
+        - mcp
+        - ping-pong
+
+cli:
+  pdca:
+    plan: codex
+    do: opencode
+    check: opencode
+    act: opencode
+  planner: codex
 
 profiles:
   default:
-    pdca:
-      plan: codex
-      do: opencode
-      check: opencode
-      act: opencode
-    planner: codex
-    relay: fl
+    relay:
+      orchestrator_agent: fl

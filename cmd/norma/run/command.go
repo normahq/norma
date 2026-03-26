@@ -30,14 +30,14 @@ func Command() *cobra.Command {
 				return fmt.Errorf("current directory is not a git repository")
 			}
 
-			cfg, err := loadConfig(repoRoot)
+			cfg, cliCfg, err := loadRuntimeAndCLIConfig(repoRoot)
 			if err != nil {
 				return err
 			}
 
 			tracker := task.NewBeadsTracker("")
 			runStore := db.NewStore(storeDB)
-			pdcaFactory := pdca.NewFactory(cfg, runStore, tracker)
+			pdcaFactory := pdca.NewFactory(cfg, cliCfg.EffectiveBudgets().MaxIterations, runStore, tracker)
 			runner, err := run.NewADKRunner(repoRoot, cfg, runStore, tracker, pdcaFactory)
 			if err != nil {
 				return err

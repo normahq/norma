@@ -7,12 +7,13 @@ type Config struct {
 
 // RelayConfig holds the relay-specific configuration.
 type RelayConfig struct {
-	Telegram    TelegramConfig    `mapstructure:"telegram"`
-	Auth        AuthConfig        `mapstructure:"auth"`
-	Logger      LoggerConfig      `mapstructure:"logger"`
-	WorkingDir  string            `mapstructure:"working_dir"`
-	MCP         MCPConfig         `mapstructure:"mcp"`
-	InternalMCP InternalMCPConfig `mapstructure:"internal_mcp"`
+	OrchestratorAgent string            `mapstructure:"orchestrator_agent"`
+	Telegram          TelegramConfig    `mapstructure:"telegram"`
+	Auth              AuthConfig        `mapstructure:"auth"`
+	Logger            LoggerConfig      `mapstructure:"logger"`
+	WorkingDir        string            `mapstructure:"working_dir"`
+	MCP               MCPConfig         `mapstructure:"mcp"`
+	InternalMCP       InternalMCPConfig `mapstructure:"internal_mcp"`
 }
 
 // TelegramConfig holds the Telegram bot configuration.

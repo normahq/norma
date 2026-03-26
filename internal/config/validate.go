@@ -8,7 +8,7 @@ import (
 
 	"github.com/go-playground/validator/v10"
 	"github.com/go-viper/mapstructure/v2"
-	"github.com/normahq/norma/internal/adk/agentconfig"
+	runtimeconfig "github.com/normahq/norma/pkg/runtime/config"
 )
 
 var configValidator = newConfigValidator()
@@ -27,12 +27,11 @@ func newConfigValidator() *validator.Validate {
 
 // ValidateSettings validates raw config settings against the Config struct tags and custom logic.
 func ValidateSettings(settings map[string]any) error {
-	var cfg Config
+	var cfg runtimeconfig.NormaConfig
 	decoder, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
-		Metadata:    nil,
-		Result:      &cfg,
-		TagName:     "mapstructure",
-		ErrorUnused: false,
+		Metadata: nil,
+		Result:   &cfg,
+		TagName:  "mapstructure",
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create decoder: %w", err)
@@ -40,7 +39,6 @@ func ValidateSettings(settings map[string]any) error {
 	if err := decoder.Decode(settings); err != nil {
 		return fmt.Errorf("failed to decode settings: %w", err)
 	}
-
 	return cfg.Validate()
 }
 
@@ -58,18 +56,9 @@ func (c Config) Validate() error {
 		}
 	}
 
-	// 2. Custom validation for Agents
-	for name, agentCfg := range c.Agents {
-		if err := agentCfg.Validate(); err != nil {
-			errs = append(errs, fmt.Sprintf("agent %q: %v", name, err))
-		}
-	}
-
-	// 3. Custom validation for MCPServers
-	for name, mcpCfg := range c.MCPServers {
-		if err := agentconfig.ValidateMCPServerConfig(mcpCfg); err != nil {
-			errs = append(errs, fmt.Sprintf("mcp_server %q: %v", name, err))
-		}
+	// 2. Custom validation for runtime agent-factory config
+	if err := c.Norma.Validate(); err != nil {
+		errs = append(errs, err.Error())
 	}
 
 	if len(errs) == 0 {

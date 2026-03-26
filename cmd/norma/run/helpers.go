@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/normahq/norma/internal/config"
 	"github.com/normahq/norma/internal/db"
@@ -14,16 +13,14 @@ import (
 	"github.com/normahq/norma/internal/task"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/viper"
-	"gopkg.in/yaml.v3"
 )
 
 const (
-	defaultConfigPath = ".norma/config.yaml"
-	statusFailed      = "failed"
-	statusStopped     = "stopped"
-	statusPassed      = "passed"
-	statusDoing       = "doing"
-	statusTodo        = "todo"
+	statusFailed  = "failed"
+	statusStopped = "stopped"
+	statusPassed  = "passed"
+	statusDoing   = "doing"
+	statusTodo    = "todo"
 )
 
 func openDB(ctx context.Context) (*sql.DB, string, func(), error) {
@@ -43,72 +40,19 @@ func openDB(ctx context.Context) (*sql.DB, string, func(), error) {
 	return storeDB, repoRoot, func() { _ = storeDB.Close() }, nil
 }
 
-func resolveConfigPath(repoRoot, configuredPath string) string {
-	path := strings.TrimSpace(configuredPath)
-	if path == "" {
-		path = defaultConfigPath
-	}
-	if !filepath.IsAbs(path) {
-		path = filepath.Join(repoRoot, path)
-	}
-	return path
-}
-
-func loadConfig(repoRoot string) (config.Config, error) {
-	cfg, err := loadRawConfig(repoRoot)
+func loadRuntimeAndCLIConfig(repoRoot string) (config.Config, config.CLISettings, error) {
+	cfg, appCfg, err := config.LoadRuntimeAndCLIConfig(config.RuntimeLoadOptions{
+		RepoRoot:  repoRoot,
+		ConfigDir: viper.GetString("config_dir"),
+		Profile:   viper.GetString("profile"),
+	})
 	if err != nil {
-		return config.Config{}, err
+		return config.Config{}, config.CLISettings{}, err
 	}
-	selectedProfile, roleIDs, err := cfg.ResolveAgentIDs(viper.GetString("profile"))
-	if err != nil {
-		return config.Config{}, err
+	if appCfg.EffectiveBudgets().MaxIterations <= 0 {
+		return config.Config{}, config.CLISettings{}, fmt.Errorf("cli.budgets.max_iterations must be > 0")
 	}
-	cfg.Profile = selectedProfile
-	cfg.RoleIDs = roleIDs
-	if cfg.GetBudgets().MaxIterations <= 0 {
-		return config.Config{}, fmt.Errorf("budgets.max_iterations must be > 0")
-	}
-	return cfg, nil
-}
-
-func loadRawConfig(repoRoot string) (config.Config, error) {
-	path := resolveConfigPath(repoRoot, viper.GetString("config"))
-	rawConfig, err := os.ReadFile(path)
-	if err != nil {
-		return config.Config{}, fmt.Errorf("read config bytes: %w", err)
-	}
-
-	expanded, err := config.ExpandEnv(string(rawConfig))
-	if err != nil {
-		return config.Config{}, fmt.Errorf("expand env vars in config: %w", err)
-	}
-
-	var rawSettings map[string]any
-	if err := yaml.Unmarshal([]byte(expanded), &rawSettings); err != nil {
-		return config.Config{}, fmt.Errorf("parse raw config yaml: %w", err)
-	}
-	if err := config.ValidateSettings(rawSettings); err != nil {
-		return config.Config{}, fmt.Errorf("validate config: %w", err)
-	}
-
-	viper.SetConfigType("yaml")
-	if err := viper.ReadConfig(strings.NewReader(expanded)); err != nil {
-		return config.Config{}, fmt.Errorf("read config: %w", err)
-	}
-	var cfg config.Config
-	if err := viper.Unmarshal(&cfg); err != nil {
-		return config.Config{}, fmt.Errorf("parse config: %w", err)
-	}
-
-	executablePath, err := os.Executable()
-	if err != nil {
-		return config.Config{}, fmt.Errorf("resolve executable path: %w", err)
-	}
-	cfg, err = config.NormalizeAgentAliases(cfg, executablePath)
-	if err != nil {
-		return config.Config{}, err
-	}
-	return cfg, nil
+	return cfg, appCfg, nil
 }
 
 func runTaskByID(ctx context.Context, tracker task.Tracker, runStore *db.Store, runner *run.Runner, id string) error {

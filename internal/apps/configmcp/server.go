@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/normahq/norma/internal/config"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/normahq/norma/internal/config"
 	"github.com/spf13/viper"
 )
 
@@ -300,7 +300,7 @@ func (s *ConfigService) saveConfig(ctx context.Context, _ *mcp.CallToolRequest, 
 }
 
 func LoadConfig(repoRoot string) (config.Config, error) {
-	configPath := filepath.Join(repoRoot, ".norma", "config.yaml")
+	configPath := filepath.Join(repoRoot, ".norma", config.CoreConfigFileName)
 	v := viper.New()
 	v.SetConfigFile(configPath)
 

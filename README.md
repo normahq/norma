@@ -57,6 +57,7 @@ Norma speaks a normalized JSON contract and utilizes the **Agent Control Protoco
 ### 2. Install
 ```bash
 go install github.com/normahq/norma/cmd/norma@latest
+go install github.com/normahq/norma/cmd/relay@latest
 ```
 
 ### 3. Initialize & Configure
@@ -70,59 +71,68 @@ norma init
 
 | Flag | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `--config` | string | `.norma/config.yaml` | Config file path |
+| `--config-dir` | string | `""` | Extra config root directory (highest priority) |
 | `--debug` | bool | `false` | Enable debug logging |
 | `--trace` | bool | `false` | Enable trace logging (overrides --debug) |
 | `--profile` | string | `""` | Config profile name |
 
-The default configuration uses the `gemini_acp` agent. You can customize it in `.norma/config.yaml`:
+The default configuration uses the `gemini_acp` agent. You can customize runtime core in `.norma/config.yaml` (or app-specific `.norma/<app>.yaml`):
 
 ```yaml
-profile: default
-
-agents:
-  gemini_acp_agent:
-    type: gemini_acp
-    model: gemini-3-flash-preview
-  opencode_acp_agent:
-    type: opencode_acp
-    model: opencode/big-pickle
-  copilot_acp:
-    type: copilot_acp
-
+norma:
+  agents:
+    gemini_acp_agent:
+      type: gemini_acp
+      gemini_acp:
+        model: gemini-3-flash-preview
+    opencode_acp_agent:
+      type: opencode_acp
+      opencode_acp:
+        model: opencode/big-pickle
+    copilot_acp:
+      type: copilot_acp
+      copilot_acp:
+        model: gpt-5-codex
+cli:
+  pdca:
+    plan: gemini_acp_agent
+    do: gemini_acp_agent
+    check: gemini_acp_agent
+    act: gemini_acp_agent
+  planner: gemini_acp_agent
+  budgets:
+    max_iterations: 5
+  retention:
+    keep_last: 50
+    keep_days: 30
 profiles:
   default:
-    pdca:
-      plan: gemini_acp_agent
-      do: gemini_acp_agent
-      check: gemini_acp_agent
-      act: gemini_acp_agent
-    planner: gemini_acp_agent
-
+    cli:
+      pdca:
+        plan: gemini_acp_agent
+        do: gemini_acp_agent
+        check: gemini_acp_agent
+        act: gemini_acp_agent
+      planner: gemini_acp_agent
   opencode:
-    pdca:
-      plan: opencode_acp_agent
-      do: opencode_acp_agent
-      check: opencode_acp_agent
-      act: opencode_acp_agent
-    planner: opencode_acp_agent
-
+    cli:
+      pdca:
+        plan: opencode_acp_agent
+        do: opencode_acp_agent
+        check: opencode_acp_agent
+        act: opencode_acp_agent
+      planner: opencode_acp_agent
   copilot:
-    pdca:
-      plan: copilot_acp
-      do: copilot_acp
-      check: copilot_acp
-      act: copilot_acp
-    planner: copilot_acp
-```
-budgets:
-  max_iterations: 5
-retention:
-  keep_last: 50
-  keep_days: 30
+    cli:
+      pdca:
+        plan: copilot_acp
+        do: copilot_acp
+        check: copilot_acp
+        act: copilot_acp
+      planner: copilot_acp
 ```
 
-You can override config values through environment variables with the `NORMA_` prefix.
+App configs can use app-specific environment prefixes (for example `RELAY_*` for relay settings).
 
 ## 📖 Documentation
 

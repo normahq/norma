@@ -115,20 +115,25 @@ Norma supports **pool agents** that provide ordered failover across multiple ACP
 
 ### Configuration
 
-Pool agents are configured with `type: pool` and a `pool` array listing the agent IDs to try in order:
+Pool agents are configured with `type: pool` and a `pool.members` list of agent IDs to try in order:
 
 ```yaml
-agents:
-  primary_agent:
-    type: gemini_acp
-    model: gemini-3-flash-preview
-  fallback_agent:
-    type: opencode_acp
-  my_pool:
-    type: pool
-    pool:
-      - primary_agent
-      - fallback_agent
+norma:
+  agents:
+    primary_agent:
+      type: gemini_acp
+      gemini_acp:
+        model: gemini-3-flash-preview
+    fallback_agent:
+      type: opencode_acp
+      opencode_acp:
+        model: opencode/big-pickle
+    my_pool:
+      type: pool
+      pool:
+        members:
+          - primary_agent
+          - fallback_agent
 ```
 
 ### Behavior
@@ -144,13 +149,13 @@ agents:
 Pool agents can be used anywhere a regular agent is used:
 
 ```yaml
-profiles:
-  default:
-    pdca:
-      plan: my_pool
-      do: my_pool
-      check: my_pool
-      act: my_pool
+cli:
+  pdca:
+    plan: my_pool
+    do: my_pool
+    check: my_pool
+    act: my_pool
+  planner: my_pool
 ```
 
 ### Observability
@@ -173,24 +178,26 @@ Norma supports configuring **MCP (Model Context Protocol) servers** that can be 
 
 ### Configuration
 
-MCP servers are defined in a top-level `mcp_servers` section, and agents reference them by name:
+MCP servers are defined in `norma.mcp_servers`, and agents reference them by name:
 
 ```yaml
-mcp_servers:
-  my_mcp_server:
-    type: stdio
-    cmd: ["npx", "-y", "@example/mcp-server"]
-    args: ["--arg1", "value1"]
-    env:
-      API_KEY: ${API_KEY}
-    working_dir: /path/to/workdir
+norma:
+  mcp_servers:
+    my_mcp_server:
+      type: stdio
+      cmd: ["npx", "-y", "@example/mcp-server"]
+      args: ["--arg1", "value1"]
+      env:
+        API_KEY: ${API_KEY}
+      working_dir: /path/to/workdir
 
-agents:
-  my_agent:
-    type: gemini_acp
-    model: gemini-3-flash-preview
-    mcp_servers:
-      - my_mcp_server
+  agents:
+    my_agent:
+      type: gemini_acp
+      gemini_acp:
+        model: gemini-3-flash-preview
+      mcp_servers:
+        - my_mcp_server
 ```
 
 ### Transport Types

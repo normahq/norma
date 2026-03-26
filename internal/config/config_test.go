@@ -2,39 +2,44 @@ package config
 
 import (
 	"testing"
+
+	"github.com/normahq/norma/internal/adk/agentconfig"
+	runtimeconfig "github.com/normahq/norma/pkg/runtime/config"
 )
 
 const (
-	opencodeACPType     = "opencode_acp"
+	opencodeACPType    = "opencode_acp"
 	opencodeACPAgentID = "opencode_acp_agent"
 )
 
-func TestResolveAgentIDs_ResolvesPDCARolesFromGlobalAgents(t *testing.T) {
+func TestResolveRoleIDs_ResolvesPDCARolesFromGlobalAgents(t *testing.T) {
 	t.Parallel()
 
 	cfg := Config{
-		Agents: map[string]AgentConfig{
-			opencodeACPAgentID: {Type: opencodeACPType, Model: "opencode/big-pickle"},
-		},
-		Profiles: map[string]ProfileConfig{
-			"default": {
-				PDCA: PDCAAgentRefs{
-					Plan:  opencodeACPAgentID,
-					Do:    opencodeACPAgentID,
-					Check: opencodeACPAgentID,
-					Act:   opencodeACPAgentID,
+		Norma: runtimeconfig.NormaConfig{
+			Agents: map[string]AgentConfig{
+				opencodeACPAgentID: {
+					Type: opencodeACPType,
+					OpenCodeACP: &agentconfig.ACPConfig{
+						Model: "opencode/big-pickle",
+					},
 				},
-				Planner: opencodeACPAgentID,
 			},
 		},
+		Profile: "default",
 	}
 
-	profile, agentIDs, err := cfg.ResolveAgentIDs("")
+	agentIDs, err := cfg.ResolveRoleIDs(CLISettings{
+		PDCA: PDCAAgentRefs{
+			Plan:  opencodeACPAgentID,
+			Do:    opencodeACPAgentID,
+			Check: opencodeACPAgentID,
+			Act:   opencodeACPAgentID,
+		},
+		Planner: opencodeACPAgentID,
+	})
 	if err != nil {
-		t.Fatalf("ResolveAgentIDs returned error: %v", err)
-	}
-	if profile != "default" {
-		t.Fatalf("profile = %q, want %q", profile, "default")
+		t.Fatalf("ResolveRoleIDs returned error: %v", err)
 	}
 	if agentIDs["plan"] != opencodeACPAgentID {
 		t.Fatalf("plan agent ID = %q, want %q", agentIDs["plan"], opencodeACPAgentID)
@@ -53,28 +58,28 @@ func TestResolveAgentIDs_ResolvesPDCARolesFromGlobalAgents(t *testing.T) {
 	}
 }
 
-func TestResolveAgentIDs_ReturnsErrorForUndefinedAgentReference(t *testing.T) {
+func TestResolveRoleIDs_ReturnsErrorForUndefinedAgentReference(t *testing.T) {
 	t.Parallel()
 
 	cfg := Config{
-		Agents: map[string]AgentConfig{
-			"defined": {Type: "gemini_acp"},
-		},
-		Profiles: map[string]ProfileConfig{
-			"default": {
-				PDCA: PDCAAgentRefs{
-					Plan:  "defined",
-					Do:    "missing",
-					Check: "defined",
-					Act:   "defined",
-				},
+		Norma: runtimeconfig.NormaConfig{
+			Agents: map[string]AgentConfig{
+				"defined": {Type: "gemini_acp", GeminiACP: &agentconfig.ACPConfig{Model: "gemini-3-flash-preview"}},
 			},
 		},
+		Profile: "default",
 	}
 
-	_, _, err := cfg.ResolveAgentIDs("")
+	_, err := cfg.ResolveRoleIDs(CLISettings{
+		PDCA: PDCAAgentRefs{
+			Plan:  "defined",
+			Do:    "missing",
+			Check: "defined",
+			Act:   "defined",
+		},
+	})
 	if err == nil {
-		t.Fatal("ResolveAgentIDs returned nil error, want error")
+		t.Fatal("ResolveRoleIDs returned nil error, want error")
 	}
 }
 

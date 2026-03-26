@@ -22,19 +22,21 @@ import (
 
 // Factory builds and finalizes PDCA ADK agents.
 type Factory struct {
-	cfg     config.Config
-	store   *db.Store
-	tracker task.Tracker
+	cfg           config.Config
+	maxIterations int
+	store         *db.Store
+	tracker       task.Tracker
 }
 
 const actDecisionClose = "close"
 
 // NewFactory constructs a PDCA agent factory.
-func NewFactory(cfg config.Config, store *db.Store, tracker task.Tracker) *Factory {
+func NewFactory(cfg config.Config, maxIterations int, store *db.Store, tracker task.Tracker) *Factory {
 	return &Factory{
-		cfg:     cfg,
-		store:   store,
-		tracker: tracker,
+		cfg:           cfg,
+		maxIterations: maxIterations,
+		store:         store,
+		tracker:       tracker,
 	}
 }
 
@@ -71,7 +73,7 @@ func (w *Factory) Build(ctx context.Context, meta runpkg.RunMeta, task runpkg.Ta
 	}
 
 	// Create the pdca loop agent with plan/do/check/act as direct subagents.
-	la, err := NewLoopAgent(ctx, w.cfg, w.store, w.tracker, input, input.BaseBranch, w.cfg.Budgets.MaxIterations)
+	la, err := NewLoopAgent(ctx, w.cfg, w.store, w.tracker, input, input.BaseBranch, w.maxIterations)
 	if err != nil {
 		return runpkg.AgentBuild{}, fmt.Errorf("create loop agent: %w", err)
 	}

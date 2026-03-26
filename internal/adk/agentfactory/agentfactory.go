@@ -4,132 +4,199 @@ package agentfactory
 import (
 	"context"
 	"fmt"
-	"io"
+	"os"
+	"reflect"
+	"sort"
 	"strings"
-	"sync"
 
-	"github.com/coder/acp-go-sdk"
+	"github.com/go-playground/validator/v10"
 	"github.com/normahq/norma/internal/adk/acpagent"
 	"github.com/normahq/norma/internal/adk/agentconfig"
+	"github.com/normahq/norma/internal/adk/mcpregistry"
 	"github.com/normahq/norma/internal/adk/poolagent"
 	"github.com/rs/zerolog"
-
 	"google.golang.org/adk/agent"
 )
 
-// CreationRequest defines the parameters for creating a new agent.
-type CreationRequest struct {
-	Name              string
-	Description       string
-	SystemInstruction string
-	WorkingDirectory  string
-	Stdout            io.Writer
-	Stderr            io.Writer
-	Logger            *zerolog.Logger
-	PermissionHandler func(context.Context, acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error)
-	MCPServers        map[string]agentconfig.MCPServerConfig
+// BuildRequest defines the parameters for building a new agent instance.
+type BuildRequest struct {
+	AgentID           string `json:"agent_id" validate:"required,min=1"`
+	Name              string `json:"name,omitempty"`
+	Description       string `json:"description,omitempty"`
+	SystemInstruction string `json:"system_instruction,omitempty"`
+	WorkingDirectory  string `json:"working_directory" validate:"required,min=1"`
 }
 
-// constructor is a function that creates a new agent instance.
-type constructor func(ctx context.Context, cfg agentconfig.Config, req CreationRequest, registry map[string]agentconfig.Config) (agent.Agent, error)
+var buildRequestValidator = newBuildRequestValidator()
+
+func newBuildRequestValidator() *validator.Validate {
+	v := validator.New()
+	v.RegisterTagNameFunc(func(fld reflect.StructField) string {
+		name := strings.SplitN(fld.Tag.Get("json"), ",", 2)[0]
+		if name == "" || name == "-" {
+			return fld.Name
+		}
+		return name
+	})
+	return v
+}
+
+// Validate validates the build request.
+func (r BuildRequest) Validate() error {
+	errs := make([]string, 0)
+	if err := buildRequestValidator.Struct(r); err != nil {
+		if invErr, ok := err.(*validator.InvalidValidationError); ok {
+			return fmt.Errorf("validate build request: %w", invErr)
+		}
+		for _, validationErr := range err.(validator.ValidationErrors) {
+			errs = append(errs, formatValidationError(validationErr))
+		}
+	}
+	if r.AgentID != "" && strings.TrimSpace(r.AgentID) == "" {
+		errs = append(errs, "agent_id is required")
+	}
+	if r.WorkingDirectory != "" && strings.TrimSpace(r.WorkingDirectory) == "" {
+		errs = append(errs, "working_directory is required")
+	}
+	if len(errs) == 0 {
+		return nil
+	}
+	sort.Strings(errs)
+	return fmt.Errorf("build request validation failed: %s", strings.Join(errs, "; "))
+}
+
+func formatValidationError(err validator.FieldError) string {
+	field := err.Field()
+	switch err.Tag() {
+	case "required":
+		return field + " is required"
+	case "min":
+		return field + " must be at least " + err.Param()
+	default:
+		return field + " failed validation rule " + err.Tag()
+	}
+}
+
+// Option configures factory behavior.
+type Option func(*Factory)
+
+// WithPermissionHandler configures a default ACP permission callback for all built agents.
+func WithPermissionHandler(handler acpagent.PermissionHandler) Option {
+	return func(f *Factory) {
+		f.permissionHandler = handler
+	}
+}
+
+// constructor creates a new agent instance.
+type constructor func(ctx context.Context, cfg agentconfig.Config, req BuildRequest, f *Factory, resolvedMCP map[string]agentconfig.MCPServerConfig) (agent.Agent, error)
 
 // Factory is a registry of agent configurations.
 type Factory struct {
-	mu         sync.RWMutex
-	registry   map[string]agentconfig.Config
-	mcpServers map[string]agentconfig.MCPServerConfig
+	registry          map[string]agentconfig.Config
+	mcpRegistry       mcpregistry.Reader
+	permissionHandler acpagent.PermissionHandler
+	executablePath    string
 }
 
-// NewFactory creates a new Factory from a map of agent configurations.
-func NewFactory(agents map[string]agentconfig.Config) *Factory {
-	return &Factory{
-		registry: agents,
+// New creates a new Factory from agent configurations and an MCP registry.
+func New(agents map[string]agentconfig.Config, mcp mcpregistry.Reader, opts ...Option) *Factory {
+	registry := make(map[string]agentconfig.Config, len(agents))
+	for id, cfg := range agents {
+		registry[id] = cfg
 	}
-}
-
-// NewFactoryWithMCPServers creates a new Factory from a map of agent configurations and MCP servers.
-func NewFactoryWithMCPServers(agents map[string]agentconfig.Config, mcpServers map[string]agentconfig.MCPServerConfig) *Factory {
-	return &Factory{
-		registry:   agents,
-		mcpServers: mcpServers,
+	f := &Factory{
+		registry:    registry,
+		mcpRegistry: mcp,
 	}
-}
-
-// AddMCPServer adds an MCP server configuration to the factory.
-func (f *Factory) AddMCPServer(name string, cfg agentconfig.MCPServerConfig) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.mcpServers == nil {
-		f.mcpServers = make(map[string]agentconfig.MCPServerConfig)
+	if exePath, err := os.Executable(); err == nil {
+		f.executablePath = exePath
 	}
-	f.mcpServers[name] = cfg
+	for _, opt := range opts {
+		if opt != nil {
+			opt(f)
+		}
+	}
+	return f
 }
 
-// GetMCPServer returns the MCP server configuration for the given name.
-func (f *Factory) GetMCPServer(name string) (agentconfig.MCPServerConfig, bool) {
-	f.mu.RLock()
-	defer f.mu.RUnlock()
-	cfg, ok := f.mcpServers[name]
-	return cfg, ok
-}
-
-// GetAgentConfig returns the agent configuration for the given name.
-// It returns an error if the agent is not found.
-func (f *Factory) GetAgentConfig(name string) (agentconfig.Config, error) {
-	f.mu.RLock()
-	defer f.mu.RUnlock()
-	cfg, ok := f.registry[name]
+// GetAgentConfig returns the configuration for agentID.
+func (f *Factory) GetAgentConfig(agentID string) (agentconfig.Config, error) {
+	cfg, ok := f.registry[agentID]
 	if !ok {
-		return agentconfig.Config{}, fmt.Errorf("agent %q not found in registry", name)
+		return agentconfig.Config{}, fmt.Errorf("agent %q not found in registry", agentID)
 	}
 	return cfg, nil
 }
 
-// ValidateAgent checks if an agent with the given name can be created.
-// It returns an error if the agent is not found or its type is unsupported.
-func (f *Factory) ValidateAgent(name string) error {
-	cfg, err := f.GetAgentConfig(name)
+// ValidateAgent checks if an agent with agentID can be built.
+func (f *Factory) ValidateAgent(agentID string) error {
+	cfg, err := f.GetAgentConfig(agentID)
 	if err != nil {
 		return err
 	}
-	// Check if the type is supported
+	cfg, err = agentconfig.NormalizeACPConfig(cfg, f.executablePath)
+	if err != nil {
+		return fmt.Errorf("normalize agent %q: %w", agentID, err)
+	}
 	if _, ok := constructors[cfg.Type]; !ok {
 		return fmt.Errorf("agent type %q is not supported", cfg.Type)
 	}
 	return nil
 }
 
-// CreateAgent creates an agent.Agent instance by name and creation request.
-// It returns an error if the agent is not found or its type is unsupported.
-func (f *Factory) CreateAgent(ctx context.Context, name string, req CreationRequest) (agent.Agent, error) {
-	if strings.TrimSpace(req.WorkingDirectory) == "" {
-		return nil, fmt.Errorf("working directory is required")
+// Build creates an agent.Agent instance from request.
+func (f *Factory) Build(ctx context.Context, req BuildRequest) (agent.Agent, error) {
+	if err := req.Validate(); err != nil {
+		return nil, err
 	}
+	req.AgentID = strings.TrimSpace(req.AgentID)
+	req.WorkingDirectory = strings.TrimSpace(req.WorkingDirectory)
 
-	f.mu.RLock()
-	cfg, ok := f.registry[name]
-	mcpServers := f.mcpServers
-	f.mu.RUnlock()
-
+	cfg, ok := f.registry[req.AgentID]
 	if !ok {
-		return nil, fmt.Errorf("agent %q not found or unsupported", name)
+		return nil, fmt.Errorf("agent %q not found or unsupported", req.AgentID)
 	}
-
-	if req.MCPServers == nil {
-		req.MCPServers = mcpServers
+	cfg, err := agentconfig.NormalizeACPConfig(cfg, f.executablePath)
+	if err != nil {
+		return nil, fmt.Errorf("normalize agent %q: %w", req.AgentID, err)
 	}
-
 	create, ok := constructors[cfg.Type]
 	if !ok {
-		return nil, fmt.Errorf("unsupported agent type %q for agent %q", cfg.Type, name)
+		return nil, fmt.Errorf("unsupported agent type %q for agent %q", cfg.Type, req.AgentID)
 	}
 
-	ag, err := create(ctx, cfg, req, f.registry)
+	resolvedMCP, err := f.resolveMCPServers(req.AgentID, cfg.MCPServers)
 	if err != nil {
-		return nil, fmt.Errorf("create agent %q: %w", name, err)
+		return nil, err
 	}
 
+	ag, err := create(ctx, cfg, req, f, resolvedMCP)
+	if err != nil {
+		return nil, fmt.Errorf("build agent %q: %w", req.AgentID, err)
+	}
 	return ag, nil
+}
+
+func (f *Factory) resolveMCPServers(agentID string, ids []string) (map[string]agentconfig.MCPServerConfig, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	resolved := make(map[string]agentconfig.MCPServerConfig, len(ids))
+	for i, id := range ids {
+		trimmed := strings.TrimSpace(id)
+		if trimmed == "" {
+			return nil, fmt.Errorf("agent %q has empty mcp_servers[%d]", agentID, i)
+		}
+		if f.mcpRegistry == nil {
+			return nil, fmt.Errorf("agent %q references unknown mcp server %q", agentID, trimmed)
+		}
+		cfg, ok := f.mcpRegistry.Get(trimmed)
+		if !ok {
+			return nil, fmt.Errorf("agent %q references unknown mcp server %q", agentID, trimmed)
+		}
+		resolved[trimmed] = cfg
+	}
+	return resolved, nil
 }
 
 // constructors registry.
@@ -142,78 +209,100 @@ var newACPAgent = func(cfg acpagent.Config) (agent.Agent, error) {
 	return acpagent.New(cfg)
 }
 
-var acpConstructor = func(ctx context.Context, cfg agentconfig.Config, req CreationRequest, _ map[string]agentconfig.Config) (agent.Agent, error) {
+func loggerFromContext(ctx context.Context) *zerolog.Logger {
+	if ctx == nil {
+		l := zerolog.Nop()
+		return &l
+	}
+	ctxLogger := zerolog.Ctx(ctx)
+	if ctxLogger == nil || ctxLogger == zerolog.DefaultContextLogger || ctxLogger.GetLevel() == zerolog.Disabled {
+		l := zerolog.Nop()
+		return &l
+	}
+	l := ctxLogger.With().Logger()
+	return &l
+}
+
+func effectiveName(req BuildRequest) string {
+	name := strings.TrimSpace(req.Name)
+	if name != "" {
+		return name
+	}
+	return req.AgentID
+}
+
+func effectiveDescription(req BuildRequest, cfg agentconfig.Config) string {
+	description := strings.TrimSpace(req.Description)
+	if description != "" {
+		return description
+	}
+	return cfg.Description(req.AgentID)
+}
+
+func effectiveSystemInstruction(req BuildRequest, cfg agentconfig.Config) string {
+	override := strings.TrimSpace(req.SystemInstruction)
+	if override != "" {
+		return override
+	}
+	return strings.TrimSpace(cfg.SystemInstruction)
+}
+
+var acpConstructor = func(ctx context.Context, cfg agentconfig.Config, req BuildRequest, f *Factory, resolvedMCP map[string]agentconfig.MCPServerConfig) (agent.Agent, error) {
 	cmd, err := ResolveACPCommand(cfg)
 	if err != nil {
 		return nil, err
 	}
-	loggerCtx := ctx
-	if loggerCtx == nil {
-		loggerCtx = context.Background()
-	}
-	logger := req.Logger
-	if logger == nil {
-		logger = zerolog.Ctx(loggerCtx)
-	}
 
 	return newACPAgent(acpagent.Config{
 		Context:            ctx,
-		Name:               req.Name,
-		Description:        req.Description,
+		Name:               effectiveName(req),
+		Description:        effectiveDescription(req, cfg),
 		Model:              cfg.Model,
 		Mode:               cfg.Mode,
-		SystemInstructions: req.SystemInstruction,
+		SystemInstructions: effectiveSystemInstruction(req, cfg),
 		Command:            cmd,
 		WorkingDir:         req.WorkingDirectory,
-		Stderr:             req.Stderr,
-		PermissionHandler:  req.PermissionHandler,
-		Logger:             logger,
-		MCPServers:         req.MCPServers,
+		PermissionHandler:  f.permissionHandler,
+		Logger:             loggerFromContext(ctx),
+		MCPServers:         resolvedMCP,
 	})
 }
 
-var poolConstructor = func(ctx context.Context, cfg agentconfig.Config, req CreationRequest, registry map[string]agentconfig.Config) (agent.Agent, error) {
-	members, err := validatePoolMembers(req.Name, cfg.Pool, registry)
+var poolConstructor = func(ctx context.Context, cfg agentconfig.Config, req BuildRequest, f *Factory, _ map[string]agentconfig.MCPServerConfig) (agent.Agent, error) {
+	members, err := validatePoolMembers(req.AgentID, cfg.Pool, f.registry)
 	if err != nil {
 		return nil, err
 	}
 
 	poolMembers := make([]poolagent.MemberConfig, len(members))
 	for i, m := range members {
-		poolMembers[i] = poolagent.MemberConfig{
-			Name: m.Name,
-			Cfg:  m.Cfg,
-		}
+		poolMembers[i] = poolagent.MemberConfig{Name: m.Name, Cfg: m.Cfg}
 	}
 
 	poolReq := poolagent.AgentRequest{
-		Name:              req.Name,
-		Description:       req.Description,
-		SystemInstruction: req.SystemInstruction,
+		Name:              effectiveName(req),
+		Description:       effectiveDescription(req, cfg),
+		SystemInstruction: effectiveSystemInstruction(req, cfg),
 		WorkingDirectory:  req.WorkingDirectory,
 	}
 
-	creator := &factoryAgentCreator{registry: registry, req: req}
-
-	return poolagent.NewPoolAgent(ctx, req.Name, poolMembers, poolReq, creator)
+	creator := &factoryAgentCreator{factory: f}
+	return poolagent.NewPoolAgent(ctx, req.AgentID, poolMembers, poolReq, creator)
 }
 
 type factoryAgentCreator struct {
-	registry map[string]agentconfig.Config
-	req      CreationRequest
+	factory *Factory
 }
 
 func (f *factoryAgentCreator) CreateAgent(ctx context.Context, name string, req poolagent.AgentRequest) (agent.Agent, error) {
-	fullReq := CreationRequest{
+	buildReq := BuildRequest{
+		AgentID:           name,
 		Name:              req.Name,
 		Description:       req.Description,
 		SystemInstruction: req.SystemInstruction,
 		WorkingDirectory:  req.WorkingDirectory,
-		Stderr:            f.req.Stderr,
-		Logger:            f.req.Logger,
-		MCPServers:        f.req.MCPServers,
 	}
-	return NewFactoryWithMCPServers(f.registry, f.req.MCPServers).CreateAgent(ctx, name, fullReq)
+	return f.factory.Build(ctx, buildReq)
 }
 
 type poolMemberConfig struct {
@@ -225,7 +314,6 @@ func validatePoolMembers(poolName string, pool []string, registry map[string]age
 	if len(pool) == 0 {
 		return nil, fmt.Errorf("pool agent requires pool members")
 	}
-
 	members := make([]poolMemberConfig, 0, len(pool))
 	for i, memberName := range pool {
 		memberName = strings.TrimSpace(memberName)
@@ -242,10 +330,7 @@ func validatePoolMembers(poolName string, pool []string, registry map[string]age
 		if agentconfig.IsPoolType(memberCfg.Type) {
 			return nil, fmt.Errorf("pool cannot contain nested pool %q", memberName)
 		}
-		members = append(members, poolMemberConfig{
-			Name: memberName,
-			Cfg:  memberCfg,
-		})
+		members = append(members, poolMemberConfig{Name: memberName, Cfg: memberCfg})
 	}
 	return members, nil
 }
@@ -256,14 +341,23 @@ func ResolveACPCommand(cfg agentconfig.Config) ([]string, error) {
 		return nil, fmt.Errorf("unknown acp agent type %q", cfg.Type)
 	}
 
-	if len(cfg.Cmd) == 0 {
+	cmd := cfg.Cmd
+	extraArgs := cfg.ExtraArgs
+	model := cfg.Model
+	if len(cmd) == 0 && cfg.GenericACP != nil {
+		cmd = cfg.GenericACP.Cmd
+		extraArgs = cfg.GenericACP.ExtraArgs
+		if model == "" {
+			model = cfg.GenericACP.Model
+		}
+	}
+	if len(cmd) == 0 {
 		return nil, fmt.Errorf("generic_acp agent requires cmd")
 	}
-	cmd := cfg.Cmd
 
-	res := resolveTemplatedCmd(cmd, cfg.Model)
-	if len(cfg.ExtraArgs) > 0 {
-		res = append(res, resolveTemplatedCmd(cfg.ExtraArgs, cfg.Model)...)
+	res := resolveTemplatedCmd(cmd, model)
+	if len(extraArgs) > 0 {
+		res = append(res, resolveTemplatedCmd(extraArgs, model)...)
 	}
 	return res, nil
 }

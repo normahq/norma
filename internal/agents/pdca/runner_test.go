@@ -49,7 +49,9 @@ func (r *failingMapRole) MapResponse(_ []byte) (contracts.RawAgentResponse, erro
 func TestNewRunner(t *testing.T) {
 	cfg := config.AgentConfig{
 		Type: config.AgentTypeGenericACP,
-		Cmd:  []string{"custom-acp", "--stdio"},
+		GenericACP: &agentconfig.ACPConfig{
+			Cmd: []string{"custom-acp", "--stdio"},
+		},
 	}
 
 	runner, err := NewRunner(cfg, &dummyRole{}, nil)
@@ -60,7 +62,9 @@ func TestNewRunner(t *testing.T) {
 func TestNewRunnerCarriesMCPServers(t *testing.T) {
 	cfg := config.AgentConfig{
 		Type: config.AgentTypeGenericACP,
-		Cmd:  []string{"custom-acp", "--stdio"},
+		GenericACP: &agentconfig.ACPConfig{
+			Cmd: []string{"custom-acp", "--stdio"},
+		},
 	}
 	mcpServers := map[string]agentconfig.MCPServerConfig{
 		tasksMCPServerName: {
@@ -85,7 +89,9 @@ func TestAinvokeRunner_Run(t *testing.T) {
 
 	cfg := config.AgentConfig{
 		Type: config.AgentTypeGenericACP,
-		Cmd:  helperACPCommand(t, `{"status":"ok","summary":{"text":"success"},"progress":{"title":"done","details":[]}}`),
+		GenericACP: &agentconfig.ACPConfig{
+			Cmd: helperACPCommand(t, `{"status":"ok","summary":{"text":"success"},"progress":{"title":"done","details":[]}}`),
+		},
 	}
 
 	runner, err := NewRunner(cfg, &dummyRole{}, nil)
@@ -124,7 +130,9 @@ func TestAinvokeRunner_RunHandlesChunkedStructuredOutput(t *testing.T) {
 		`{"status":"ok","summary":{"text":"success"},"progress":{"title":"done","details":[]}}`
 	cfg := config.AgentConfig{
 		Type: config.AgentTypeGenericACP,
-		Cmd:  helperACPCommandChunked(t, response, 9),
+		GenericACP: &agentconfig.ACPConfig{
+			Cmd: helperACPCommandChunked(t, response, 9),
+		},
 	}
 
 	runner, err := NewRunner(cfg, &dummyRole{}, nil)
@@ -157,7 +165,9 @@ func TestAinvokeRunner_RunRejectsTrailingContentAfterMarkdownFence(t *testing.T)
 		"\n```\nextra"
 	cfg := config.AgentConfig{
 		Type: config.AgentTypeGenericACP,
-		Cmd:  helperACPCommandChunked(t, response, 7),
+		GenericACP: &agentconfig.ACPConfig{
+			Cmd: helperACPCommandChunked(t, response, 7),
+		},
 	}
 
 	runner, err := NewRunner(cfg, &dummyRole{}, nil)
@@ -178,7 +188,9 @@ func TestAinvokeRunner_RunWritesErrorToStderr(t *testing.T) {
 	// Here we simulate a connection failure (binary not found).
 	cfg := config.AgentConfig{
 		Type: config.AgentTypeGenericACP,
-		Cmd:  []string{"/non/existent/binary"},
+		GenericACP: &agentconfig.ACPConfig{
+			Cmd: []string{"/non/existent/binary"},
+		},
 	}
 
 	runner, err := NewRunner(cfg, &dummyRole{}, nil)
@@ -196,7 +208,9 @@ func TestAinvokeRunner_RunWritesErrorToStderr(t *testing.T) {
 func TestAinvokeRunner_RunReturnsErrorWhenResponseMappingFails(t *testing.T) {
 	cfg := config.AgentConfig{
 		Type: config.AgentTypeGenericACP,
-		Cmd:  helperACPCommand(t, "{}"),
+		GenericACP: &agentconfig.ACPConfig{
+			Cmd: helperACPCommand(t, "{}"),
+		},
 	}
 
 	runner, err := NewRunner(cfg, &failingMapRole{}, nil)
@@ -214,7 +228,9 @@ func TestAinvokeRunner_RunReturnsErrorWhenResponseMappingFails(t *testing.T) {
 func TestAinvokeRunner_RunWritesErrorEventLogOnPromptFailure(t *testing.T) {
 	cfg := config.AgentConfig{
 		Type: config.AgentTypeGenericACP,
-		Cmd:  helperACPCommandWithPromptError(t, "prompt failed"),
+		GenericACP: &agentconfig.ACPConfig{
+			Cmd: helperACPCommandWithPromptError(t, "prompt failed"),
+		},
 	}
 
 	runner, err := NewRunner(cfg, &dummyRole{}, nil)
@@ -432,7 +448,9 @@ func TestAinvokeRunner_RunPreservesPlanOutput(t *testing.T) {
 
 	cfg := config.AgentConfig{
 		Type: config.AgentTypeGenericACP,
-		Cmd:  helperACPCommand(t, `{"status":"ok","summary":{"text":"success"},"progress":{"title":"done","details":[]}}`),
+		GenericACP: &agentconfig.ACPConfig{
+			Cmd: helperACPCommand(t, `{"status":"ok","summary":{"text":"success"},"progress":{"title":"done","details":[]}}`),
+		},
 	}
 
 	runner, err := NewRunner(cfg, &roleWithPlanOutput{}, nil)

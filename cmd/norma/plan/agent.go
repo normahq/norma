@@ -13,11 +13,11 @@ import (
 	acp "github.com/coder/acp-go-sdk"
 	"github.com/normahq/norma/internal/adk/agentconfig"
 	"github.com/normahq/norma/internal/adk/agentfactory"
+	"github.com/normahq/norma/internal/adk/mcpregistry"
 	"github.com/normahq/norma/internal/agents/planner"
 	"github.com/normahq/norma/internal/apps/tasksmcp"
 	"github.com/normahq/norma/internal/config"
 	"github.com/normahq/norma/internal/task"
-	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 	adkagent "google.golang.org/adk/agent"
 	"google.golang.org/adk/runner"
@@ -334,6 +334,7 @@ func createPlannerAgentWithOptions(
 	if stderr == nil {
 		stderr = io.Discard
 	}
+	_ = stderr
 
 	// Start embedded tasks MCP server over HTTP
 	taskServer, err := startEmbeddedTaskServer(ctx, workingDir)
@@ -347,15 +348,16 @@ func createPlannerAgentWithOptions(
 		return nil, nil, err
 	}
 
-	factory := agentfactory.NewFactoryWithMCPServers(registry, plannerMCP)
-	baseAgent, err := factory.CreateAgent(ctx, plannerID, agentfactory.CreationRequest{
-		Name:              plannerID,
-		Description:       "Norma planner base runtime",
-		WorkingDirectory:  workingDir,
-		Stderr:            stderr,
-		Logger:            zerolog.Ctx(ctx),
-		PermissionHandler: options.PermissionHandler,
-		MCPServers:        plannerMCP,
+	factory := agentfactory.New(
+		registry,
+		mcpregistry.New(plannerMCP),
+		agentfactory.WithPermissionHandler(options.PermissionHandler),
+	)
+	baseAgent, err := factory.Build(ctx, agentfactory.BuildRequest{
+		AgentID:          plannerID,
+		Name:             plannerID,
+		Description:      "Norma planner base runtime",
+		WorkingDirectory: workingDir,
 	})
 	if err != nil {
 		_ = taskServer.Close()
@@ -429,7 +431,7 @@ func formatPlannerRunError(err error) string {
 
 	upper := strings.ToUpper(message)
 	if strings.Contains(upper, "RESOURCE_EXHAUSTED") || strings.Contains(message, "429") {
-		return "Planner model quota/rate limit exceeded.\n\n" + message + "\n\nTry again later or switch planner model/provider in .norma/config.yaml."
+		return "Planner model quota/rate limit exceeded.\n\n" + message + "\n\nTry again later or switch planner model/provider in .norma/config.yaml or .norma/cli.yaml."
 	}
 	return "Planner run failed.\n\n" + message
 }

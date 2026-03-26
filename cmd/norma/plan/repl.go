@@ -72,7 +72,7 @@ func plannerREPLConfig(cmd *cobra.Command, repoRoot string, cfg config.Config, p
 			permissionHandler acprepl.PermissionHandler,
 			stderr io.Writer,
 		) (adkagent.Agent, func() error, error) {
-			return createPlannerAgentWithOptions(ctx, repoRoot, cfg.Agents, cfg.MCPServers, plannerID, plannerAgentCreateOptions{
+			return createPlannerAgentWithOptions(ctx, repoRoot, cfg.Norma.Agents, cfg.Norma.MCPServers, plannerID, plannerAgentCreateOptions{
 				Stderr:            stderr,
 				PermissionHandler: permissionHandler,
 			})

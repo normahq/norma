@@ -5,13 +5,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"io"
 	"os"
 	"testing"
 
 	acp "github.com/coder/acp-go-sdk"
 	"github.com/normahq/norma/internal/adk/acpagent"
 	"github.com/normahq/norma/internal/adk/agentconfig"
+	"github.com/normahq/norma/internal/adk/mcpregistry"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/adk/agent"
@@ -21,41 +21,46 @@ func TestFactory_CreateAgent(t *testing.T) {
 	agents := map[string]agentconfig.Config{
 		"test-acp": {
 			Type: agentconfig.AgentTypeGenericACP,
-			Cmd:  helperACPCommand(t),
+			GenericACP: &agentconfig.ACPConfig{
+				Cmd: helperACPCommand(t),
+			},
 		},
 	}
-	f := NewFactory(agents)
+	f := New(agents, mcpregistry.New(nil))
 
 	t.Run("Create ACP Agent", func(t *testing.T) {
-		req := CreationRequest{
+		req := BuildRequest{
+			AgentID:          "test-acp",
 			Name:             "TestACP",
 			Description:      "Test Description",
 			WorkingDirectory: t.TempDir(),
 		}
-		ag, err := f.CreateAgent(context.Background(), "test-acp", req)
+		ag, err := f.Build(context.Background(), req)
 		assert.NoError(t, err)
 		assert.NotNil(t, ag)
 	})
 
 	t.Run("Unknown Agent", func(t *testing.T) {
-		req := CreationRequest{
+		req := BuildRequest{
+			AgentID:          "unknown",
 			Name:             "Unknown",
 			WorkingDirectory: t.TempDir(),
 		}
-		ag, err := f.CreateAgent(context.Background(), "unknown", req)
+		ag, err := f.Build(context.Background(), req)
 		assert.Error(t, err)
 		assert.Nil(t, ag)
 		assert.Contains(t, err.Error(), "not found")
 	})
 
 	t.Run("Missing working directory", func(t *testing.T) {
-		req := CreationRequest{
-			Name: "TestACP",
+		req := BuildRequest{
+			AgentID: "test-acp",
+			Name:    "TestACP",
 		}
-		ag, err := f.CreateAgent(context.Background(), "test-acp", req)
+		ag, err := f.Build(context.Background(), req)
 		assert.Error(t, err)
 		assert.Nil(t, ag)
-		assert.Contains(t, err.Error(), "working directory is required")
+		assert.Contains(t, err.Error(), "working_directory is required")
 	})
 }
 
@@ -129,26 +134,32 @@ func TestResolveACPCommand(t *testing.T) {
 			name: "ACP Exec with cmd",
 			cfg: agentconfig.Config{
 				Type: agentconfig.AgentTypeGenericACP,
-				Cmd:  []string{"custom-acp", "server"},
+				GenericACP: &agentconfig.ACPConfig{
+					Cmd: []string{"custom-acp", "server"},
+				},
 			},
 			want: []string{"custom-acp", "server"},
 		},
 		{
 			name: "ACP Exec with templated extra args",
 			cfg: agentconfig.Config{
-				Type:      agentconfig.AgentTypeGenericACP,
-				Cmd:       []string{"custom-acp", "--model", "{{.Model}}"},
-				Model:     "gpt-5.4",
-				ExtraArgs: []string{"--trace", "--model={{.Model}}"},
+				Type: agentconfig.AgentTypeGenericACP,
+				GenericACP: &agentconfig.ACPConfig{
+					Cmd:       []string{"custom-acp", "--model", "{{.Model}}"},
+					Model:     "gpt-5.4",
+					ExtraArgs: []string{"--trace", "--model={{.Model}}"},
+				},
 			},
 			want: []string{"custom-acp", "--model", "gpt-5.4", "--trace", "--model=gpt-5.4"},
 		},
 		{
 			name: "ACP Exec appends extra args after normalized codex bridge command",
 			cfg: agentconfig.Config{
-				Type:      agentconfig.AgentTypeGenericACP,
-				Cmd:       []string{"/tmp/norma", "tool", "codex-acp-bridge", "--codex-model", "gpt-5-codex"},
-				ExtraArgs: []string{"--debug", "--trace"},
+				Type: agentconfig.AgentTypeGenericACP,
+				GenericACP: &agentconfig.ACPConfig{
+					Cmd:       []string{"/tmp/norma", "tool", "codex-acp-bridge", "--codex-model", "gpt-5-codex"},
+					ExtraArgs: []string{"--debug", "--trace"},
+				},
 			},
 			want: []string{"/tmp/norma", "tool", "codex-acp-bridge", "--codex-model", "gpt-5-codex", "--debug", "--trace"},
 		},
@@ -199,13 +210,15 @@ func TestACPConstructor_PropagatesContextLogger(t *testing.T) {
 
 	_, err := acpConstructor(ctx, agentconfig.Config{
 		Type: agentconfig.AgentTypeGenericACP,
-		Cmd:  []string{"fake-acp", "serve"},
-	}, CreationRequest{
+		GenericACP: &agentconfig.ACPConfig{
+			Cmd: []string{"fake-acp", "serve"},
+		},
+	}, BuildRequest{
+		AgentID:          "test-acp",
 		Name:             "test-acp",
 		Description:      "test",
 		WorkingDirectory: t.TempDir(),
-		Stderr:           io.Discard,
-	}, nil)
+	}, New(map[string]agentconfig.Config{}, nil), nil)
 	if err != nil {
 		t.Fatalf("acpConstructor() error = %v", err)
 	}

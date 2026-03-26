@@ -1,11 +1,11 @@
 # Norma Relay (V1)
 
-`norma relay serve` is a standalone Telegram relay server that binds Telegram chats/topics to ADK agents created by Norma's agent factory.
+`relay serve` is a standalone Telegram relay server that binds Telegram chats/topics to ADK agents created by Norma's agent factory.
 
 ## Summary
 
 - Runtime stack: `tgbotkit/runtime` + Google ADK runners.
-- Main agent: profile-scoped relay orchestrator (`profiles.<profile>.relay`).
+- Main agent: relay app key `relay.orchestrator_agent` (profile overrides via `profiles.<profile>.relay.orchestrator_agent`).
 - Subagents: one session per Telegram topic (`message_thread_id`) with dedicated git worktree.
 - Output streaming: dual `sendMessageDraft` channels.
   - Response channel: MarkdownV2 escaped text.
@@ -27,9 +27,10 @@ Internal MCP v1 scope is config + lifecycle plumbing; server implementations can
 
 Relay config is merged from:
 
-1. Embedded defaults (`cmd/norma/relay/relay.yaml`)
-2. Optional `.norma/relay.yaml`
-3. Environment variables (`NORMA_*`)
+1. Embedded defaults (`cmd/relay/relay.yaml`)
+2. Runtime config in `.norma/relay.yaml` or `.norma/config.yaml` (`relay.*`)
+3. Profile app overrides in the same file (`profiles.<name>.relay.*`)
+4. Environment variables (`RELAY_*`) via Viper env mapping
 
 ### Telegram settings
 
@@ -43,6 +44,7 @@ Relay config is merged from:
 - `relay.auth.owner_token`: generated at runtime per server start
 - `relay.mcp.address`: optional relay MCP HTTP endpoint
 - `relay.internal_mcp.servers`: internal MCP server IDs to start with lifecycle
+- Relay is Beads-independent by default and does not auto-start bundled `norma.tasks` MCP.
 
 ## Session Model
 

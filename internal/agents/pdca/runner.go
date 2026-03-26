@@ -10,6 +10,7 @@ import (
 
 	"github.com/normahq/norma/internal/adk/agentconfig"
 	"github.com/normahq/norma/internal/adk/agentfactory"
+	"github.com/normahq/norma/internal/adk/mcpregistry"
 	"github.com/normahq/norma/internal/adk/structuredio"
 	"github.com/normahq/norma/internal/agents/pdca/contracts"
 	"github.com/normahq/norma/internal/config"
@@ -57,6 +58,9 @@ type requestFields struct {
 }
 
 func (r *adkRunner) Run(ctx context.Context, req []byte, stdout, stderr, eventsLog io.Writer) ([]byte, []byte, int, error) {
+	_ = stdout
+	_ = stderr
+
 	var fields requestFields
 	if err := json.Unmarshal(req, &fields); err != nil {
 		return nil, nil, 0, fmt.Errorf("unmarshal request fields: %w", err)
@@ -94,22 +98,14 @@ func (r *adkRunner) Run(ctx context.Context, req []byte, stdout, stderr, eventsL
 	agentRegistry := map[string]agentconfig.Config{
 		r.role.Name(): r.cfg,
 	}
-	factory := agentfactory.NewFactory(agentRegistry)
-	if len(r.mcpServers) > 0 {
-		factory = agentfactory.NewFactoryWithMCPServers(agentRegistry, r.mcpServers)
-	}
-
-	creationReq := agentfactory.CreationRequest{
+	factory := agentfactory.New(agentRegistry, mcpregistry.New(r.mcpServers))
+	innerAgent, err := factory.Build(l.WithContext(ctx), agentfactory.BuildRequest{
+		AgentID:           r.role.Name(),
 		Name:              "Norma" + toPascal(r.role.Name()) + "Agent",
 		Description:       "Norma " + r.role.Name() + " agent",
 		SystemInstruction: systemInstruction,
 		WorkingDirectory:  workingDir,
-		Stdout:            stdout,
-		Stderr:            stderr,
-		Logger:            &l,
-	}
-
-	innerAgent, err := factory.CreateAgent(ctx, r.role.Name(), creationReq)
+	})
 	if err != nil {
 		return nil, nil, 1, fmt.Errorf("create inner agent: %w", err)
 	}
