@@ -14,6 +14,7 @@ import (
 	"github.com/normahq/norma/internal/apps/relay/auth"
 	"github.com/normahq/norma/internal/apps/relay/handlers"
 	"github.com/normahq/norma/internal/apps/relay/tgbotkit"
+	"github.com/normahq/norma/internal/git"
 	runtimeconfig "github.com/normahq/norma/pkg/runtime/config"
 	"github.com/rs/zerolog/log"
 	"github.com/tgbotkit/runtime"
@@ -70,6 +71,28 @@ func Module(cfg Config, normaCfg runtimeconfig.NormaConfig) fx.Option {
 			normaCfg,
 			workingDir,
 			mcpReg,
+		),
+		fx.Provide(
+			fx.Annotate(
+				func() (bool, error) {
+					mode, enabled, err := ResolveWorkspaceEnabled(
+						context.Background(),
+						cfg.Relay.Workspace.Mode,
+						workingDir,
+						git.Available,
+					)
+					if err != nil {
+						return false, err
+					}
+					logger.Info().
+						Str("workspace_mode", string(mode)).
+						Bool("workspace_enabled", enabled).
+						Str("working_dir", workingDir).
+						Msg("relay workspace mode resolved")
+					return enabled, nil
+				},
+				fx.ResultTags(`name:"relay_workspace_enabled"`),
+			),
 		),
 		fx.Provide(
 			fx.Annotate(

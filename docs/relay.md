@@ -43,6 +43,10 @@ Relay config is merged from:
 
 - `relay.auth.owner_token`: generated at runtime per server start
 - `relay.mcp.address`: optional relay MCP HTTP endpoint
+- `relay.workspace.mode`: `on|off|auto` (default `on`)
+  - `on`: always use Git worktrees per session
+  - `off`: run agents directly in relay `working_dir` (no `norma.workspace` MCP)
+  - `auto`: enable worktrees only when `working_dir` is a Git repo, otherwise fallback to `off`
 - `relay.internal_mcp.servers`: internal MCP server IDs to start with lifecycle
 - Relay is Beads-independent by default and does not auto-start bundled `norma.tasks` MCP.
 
@@ -131,7 +135,7 @@ Both paths create:
 
 - A new Telegram forum topic
 - A topic-bound ADK session
-- A dedicated worktree at `.norma/relay-workspaces/topic-<chat>-<topic>`
+- A dedicated Git worktree when `relay.workspace.mode` resolves to enabled
 
 ## Relay MCP API (V1)
 

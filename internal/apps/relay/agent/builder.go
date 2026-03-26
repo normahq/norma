@@ -11,6 +11,7 @@ import (
 
 	"github.com/normahq/norma/internal/adk/agentfactory"
 	runtimeconfig "github.com/normahq/norma/pkg/runtime/config"
+	"go.uber.org/fx"
 	"google.golang.org/adk/agent"
 	"google.golang.org/adk/runner"
 	"google.golang.org/adk/session"
@@ -20,22 +21,25 @@ import (
 var relaySystemInstructionTmpl string
 
 type Builder struct {
-	factory  *agentfactory.Factory
-	normaCfg runtimeconfig.NormaConfig
+	factory          *agentfactory.Factory
+	normaCfg         runtimeconfig.NormaConfig
+	workspaceEnabled bool
 }
 
 type relayPromptData struct {
 	SessionID         string
 	BranchName        string
 	WorkspaceDir      string
+	WorkspaceEnabled  bool
 	AgentInstructions string
 }
 
 func (b *Builder) buildRelaySystemInstruction(sessionID, agentName, branchName, workspaceDir string) string {
 	data := relayPromptData{
-		SessionID:    sessionID,
-		BranchName:   branchName,
-		WorkspaceDir: workspaceDir,
+		SessionID:        sessionID,
+		BranchName:       branchName,
+		WorkspaceDir:     workspaceDir,
+		WorkspaceEnabled: b.workspaceEnabled,
 	}
 
 	agentCfg, ok := b.normaCfg.Agents[agentName]
@@ -51,11 +55,20 @@ func (b *Builder) buildRelaySystemInstruction(sessionID, agentName, branchName, 
 	return buf.String()
 }
 
+type BuilderParams struct {
+	fx.In
+
+	Factory          *agentfactory.Factory
+	NormaCfg         runtimeconfig.NormaConfig
+	WorkspaceEnabled bool `name:"relay_workspace_enabled"`
+}
+
 // NewBuilder creates a Builder with the given factory and config.
-func NewBuilder(factory *agentfactory.Factory, normaCfg runtimeconfig.NormaConfig) *Builder {
+func NewBuilder(params BuilderParams) *Builder {
 	return &Builder{
-		factory:  factory,
-		normaCfg: normaCfg,
+		factory:          params.Factory,
+		normaCfg:         params.NormaCfg,
+		workspaceEnabled: params.WorkspaceEnabled,
 	}
 }
 

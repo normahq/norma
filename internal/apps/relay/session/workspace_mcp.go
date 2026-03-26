@@ -24,6 +24,9 @@ func NewWorkspaceMCPServer(manager *Manager) workspacemcp.WorkspaceService {
 
 func (s *workspaceMCPServer) Import(ctx context.Context, sessionID string) error {
 	s.logger.Info().Str("session_id", sessionID).Msg("MCP: Import called")
+	if !s.manager.workspaceEnabled {
+		return fmt.Errorf("workspace mode is disabled")
+	}
 
 	ts, err := s.findBySessionID(sessionID)
 	if err != nil {
@@ -42,6 +45,9 @@ func (s *workspaceMCPServer) Import(ctx context.Context, sessionID string) error
 
 func (s *workspaceMCPServer) Export(ctx context.Context, sessionID string, commitMessage string) error {
 	s.logger.Info().Str("session_id", sessionID).Str("message", commitMessage).Msg("MCP: Export called")
+	if !s.manager.workspaceEnabled {
+		return fmt.Errorf("workspace mode is disabled")
+	}
 
 	ts, err := s.findBySessionID(sessionID)
 	if err != nil {

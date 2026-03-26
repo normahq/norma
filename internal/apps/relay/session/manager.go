@@ -17,11 +17,12 @@ const sessionIDPrefix = "relay"
 
 // Manager manages per-topic ADK agent sessions (in-memory only, no persistence).
 type Manager struct {
-	agentBuilder *agent.Builder
-	workingDir   string
-	tgClient     client.ClientWithResponsesInterface
-	workspaces   *agent.WorkspaceManager
-	logger       zerolog.Logger
+	agentBuilder     *agent.Builder
+	workingDir       string
+	tgClient         client.ClientWithResponsesInterface
+	workspaces       *agent.WorkspaceManager
+	workspaceEnabled bool
+	logger           zerolog.Logger
 
 	rootCtx    context.Context
 	rootCancel context.CancelFunc
@@ -34,11 +35,12 @@ type Manager struct {
 type ManagerParams struct {
 	fx.In
 
-	LC           fx.Lifecycle
-	AgentBuilder *agent.Builder
-	WorkingDir   string
-	TGClient     client.ClientWithResponsesInterface
-	Logger       zerolog.Logger
+	LC               fx.Lifecycle
+	AgentBuilder     *agent.Builder
+	WorkingDir       string
+	WorkspaceEnabled bool `name:"relay_workspace_enabled"`
+	TGClient         client.ClientWithResponsesInterface
+	Logger           zerolog.Logger
 }
 
 // NewManager creates a session Manager.
@@ -46,14 +48,15 @@ func NewManager(p ManagerParams) (*Manager, error) {
 	rootCtx, rootCancel := context.WithCancel(context.Background())
 
 	m := &Manager{
-		agentBuilder: p.AgentBuilder,
-		workingDir:   p.WorkingDir,
-		tgClient:     p.TGClient,
-		workspaces:   agent.NewWorkspaceManager(p.WorkingDir),
-		logger:       p.Logger.With().Str("component", "relay.session_manager").Logger(),
-		rootCtx:      rootCtx,
-		rootCancel:   rootCancel,
-		sessions:     make(map[string]*TopicSession),
+		agentBuilder:     p.AgentBuilder,
+		workingDir:       p.WorkingDir,
+		tgClient:         p.TGClient,
+		workspaces:       agent.NewWorkspaceManager(p.WorkingDir),
+		workspaceEnabled: p.WorkspaceEnabled,
+		logger:           p.Logger.With().Str("component", "relay.session_manager").Logger(),
+		rootCtx:          rootCtx,
+		rootCancel:       rootCancel,
+		sessions:         make(map[string]*TopicSession),
 	}
 
 	p.LC.Append(fx.Hook{
@@ -105,18 +108,25 @@ func (m *Manager) CreateSession(ctx context.Context, chatID int64, topicID int, 
 	}
 	m.mu.Unlock()
 
-	branchName := m.SessionBranchName(sessionID)
-	workspaceDir, err := m.workspaces.EnsureWorkspace(ctx, sessionID, branchName, "")
-	if err != nil {
-		m.logger.Error().Err(err).Str("session_id", sessionID).Msg("failed to create workspace")
-		return fmt.Errorf("create workspace: %w", err)
+	branchName := ""
+	workspaceDir := m.workingDir
+	if m.workspaceEnabled {
+		branchName = m.SessionBranchName(sessionID)
+		var err error
+		workspaceDir, err = m.workspaces.EnsureWorkspace(ctx, sessionID, branchName, "")
+		if err != nil {
+			m.logger.Error().Err(err).Str("session_id", sessionID).Msg("failed to create workspace")
+			return fmt.Errorf("create workspace: %w", err)
+		}
+		m.logger.Debug().Str("session_id", sessionID).Str("workspace", workspaceDir).Msg("workspace created")
 	}
-	m.logger.Debug().Str("session_id", sessionID).Str("workspace", workspaceDir).Msg("workspace created")
 
 	built, err := m.agentBuilder.Build(m.rootCtx, sessionID, chatID, topicID, agentName, workspaceDir)
 	if err != nil {
 		m.logger.Error().Err(err).Str("session_id", sessionID).Str("agent", agentName).Msg("failed to build agent")
-		_ = m.workspaces.CleanupWorkspace(ctx, workspaceDir)
+		if m.workspaceEnabled {
+			_ = m.workspaces.CleanupWorkspace(ctx, workspaceDir)
+		}
 		return err
 	}
 
@@ -260,17 +270,24 @@ func (m *Manager) EnsureSession(ctx context.Context, chatID int64, topicID int, 
 		return ts, nil
 	}
 
-	branchName := m.SessionBranchName(sessionID)
-	workspaceDir, err := m.workspaces.EnsureWorkspace(ctx, sessionID, branchName, "")
-	if err != nil {
-		m.logger.Error().Err(err).Str("session_id", sessionID).Msg("failed to create workspace")
-		return nil, fmt.Errorf("create workspace: %w", err)
+	branchName := ""
+	workspaceDir := m.workingDir
+	if m.workspaceEnabled {
+		branchName = m.SessionBranchName(sessionID)
+		var err error
+		workspaceDir, err = m.workspaces.EnsureWorkspace(ctx, sessionID, branchName, "")
+		if err != nil {
+			m.logger.Error().Err(err).Str("session_id", sessionID).Msg("failed to create workspace")
+			return nil, fmt.Errorf("create workspace: %w", err)
+		}
 	}
 
 	built, err := m.agentBuilder.Build(m.rootCtx, sessionID, chatID, topicID, agentName, workspaceDir)
 	if err != nil {
 		m.logger.Error().Err(err).Str("session_id", sessionID).Str("agent", agentName).Msg("failed to build agent")
-		_ = m.workspaces.CleanupWorkspace(ctx, workspaceDir)
+		if m.workspaceEnabled {
+			_ = m.workspaces.CleanupWorkspace(ctx, workspaceDir)
+		}
 		return nil, err
 	}
 
@@ -388,7 +405,7 @@ func (m *Manager) closeTopicSession(ts *TopicSession) error {
 			firstErr = err
 		}
 	}
-	if ts.workspaceDir != "" {
+	if m.workspaceEnabled && ts.workspaceDir != "" {
 		if err := m.workspaces.CleanupWorkspace(m.rootCtx, ts.workspaceDir); err != nil && firstErr == nil {
 			firstErr = err
 		}
@@ -413,6 +430,10 @@ func (m *Manager) closeTopic(ctx context.Context, chatID int64, topicID int) {
 }
 
 func (m *Manager) CommitWorkspace(ctx context.Context, chatID int64, topicID int) error {
+	if !m.workspaceEnabled {
+		return fmt.Errorf("workspace mode is disabled")
+	}
+
 	sessionID := m.sessionID(chatID, topicID)
 
 	m.mu.RLock()

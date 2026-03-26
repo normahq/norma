@@ -13,16 +13,18 @@ Context:
 
 Session:
 - ID: {{.SessionID}}
-
+{{if .WorkspaceEnabled}}
 Workspace:
 - Branch: {{.BranchName}}
 - Path: {{.WorkspaceDir}}
+{{end}}
 
 Built-in MCP Servers:
 - norma.config — read/write Norma configuration
 - norma.state — persistent session state storage
 - norma.relay — spawn and manage subagent sessions
-- norma.workspace — import/export workspace changes with master{{if .AgentInstructions}}
+{{if .WorkspaceEnabled}}- norma.workspace — import/export workspace changes with master
+{{end}}{{if .AgentInstructions}}
 
 Agent-specific instructions:
 {{.AgentInstructions}}{{end}}

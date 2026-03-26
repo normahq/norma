@@ -21,36 +21,39 @@ import (
 
 // InternalMCPManager controls startup/shutdown of internal MCP servers configured for relay.
 type InternalMCPManager struct {
-	serverIDs      []string
-	started        bool
-	mu             sync.RWMutex
-	logger         zerolog.Logger
-	registry       mcpregistry.Registry
-	workingDir     string
-	sessionManager *session.Manager
-	cleanups       []func() error
+	serverIDs        []string
+	workspaceEnabled bool
+	started          bool
+	mu               sync.RWMutex
+	logger           zerolog.Logger
+	registry         mcpregistry.Registry
+	workingDir       string
+	sessionManager   *session.Manager
+	cleanups         []func() error
 }
 
 type internalMCPParams struct {
 	fx.In
 
-	LC             fx.Lifecycle
-	ServerIDs      []string `name:"relay_internal_mcp_servers"`
-	Logger         zerolog.Logger
-	Registry       *mcpregistry.MapRegistry
-	WorkingDir     string
-	SessionManager *session.Manager
-	RelayMCPAddr   string `name:"relay_mcp_addr" optional:"true"`
+	LC               fx.Lifecycle
+	ServerIDs        []string `name:"relay_internal_mcp_servers"`
+	WorkspaceEnabled bool     `name:"relay_workspace_enabled"`
+	Logger           zerolog.Logger
+	Registry         *mcpregistry.MapRegistry
+	WorkingDir       string
+	SessionManager   *session.Manager
+	RelayMCPAddr     string `name:"relay_mcp_addr" optional:"true"`
 }
 
 // NewInternalMCPManager creates an internal MCP lifecycle manager.
 func NewInternalMCPManager(params internalMCPParams) *InternalMCPManager {
 	manager := &InternalMCPManager{
-		serverIDs:      append([]string(nil), params.ServerIDs...),
-		logger:         params.Logger.With().Str("component", "relay.internal_mcp").Logger(),
-		registry:       params.Registry,
-		workingDir:     params.WorkingDir,
-		sessionManager: params.SessionManager,
+		serverIDs:        append([]string(nil), params.ServerIDs...),
+		workspaceEnabled: params.WorkspaceEnabled,
+		logger:           params.Logger.With().Str("component", "relay.internal_mcp").Logger(),
+		registry:         params.Registry,
+		workingDir:       params.WorkingDir,
+		sessionManager:   params.SessionManager,
 	}
 
 	params.LC.Append(fx.Hook{
@@ -157,18 +160,22 @@ func (m *InternalMCPManager) ensureBundledServers(ctx context.Context, relayMCPA
 	}
 
 	// norma.workspace
-	if _, ok := m.registry.Get("norma.workspace"); !ok {
-		svc := session.NewWorkspaceMCPServer(m.sessionManager)
-		res, err := workspacemcp.StartHTTPServer(ctx, svc, "127.0.0.1:0")
-		if err != nil {
-			return fmt.Errorf("starting bundled workspace MCP: %w", err)
+	if m.workspaceEnabled {
+		if _, ok := m.registry.Get("norma.workspace"); !ok {
+			svc := session.NewWorkspaceMCPServer(m.sessionManager)
+			res, err := workspacemcp.StartHTTPServer(ctx, svc, "127.0.0.1:0")
+			if err != nil {
+				return fmt.Errorf("starting bundled workspace MCP: %w", err)
+			}
+			m.logger.Info().Str("addr", res.Addr).Msg("bundled norma.workspace server started")
+			m.registry.Set("norma.workspace", agentconfig.MCPServerConfig{
+				Type: agentconfig.MCPServerTypeHTTP,
+				URL:  fmt.Sprintf("http://%s/mcp", res.Addr),
+			})
+			m.addCleanup(res.Close)
 		}
-		m.logger.Info().Str("addr", res.Addr).Msg("bundled norma.workspace server started")
-		m.registry.Set("norma.workspace", agentconfig.MCPServerConfig{
-			Type: agentconfig.MCPServerTypeHTTP,
-			URL:  fmt.Sprintf("http://%s/mcp", res.Addr),
-		})
-		m.addCleanup(res.Close)
+	} else {
+		m.logger.Info().Msg("workspace mode disabled; skipping bundled norma.workspace server")
 	}
 
 	return nil

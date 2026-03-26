@@ -27,6 +27,13 @@ relay:
     level: "info"
     pretty: true
 
+  workspace:
+    # Workspace mode:
+    # - on: always use git worktrees per session
+    # - off: run agents in relay working_dir directly
+    # - auto: use worktrees only when working_dir is a git repo
+    mode: "on"
+
   # Internal MCP servers to start with relay lifecycle.
   # Server implementations are wired incrementally.
   internal_mcp:

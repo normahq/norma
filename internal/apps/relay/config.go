@@ -12,6 +12,7 @@ type RelayConfig struct {
 	Auth              AuthConfig        `mapstructure:"auth"`
 	Logger            LoggerConfig      `mapstructure:"logger"`
 	WorkingDir        string            `mapstructure:"working_dir"`
+	Workspace         WorkspaceConfig   `mapstructure:"workspace"`
 	MCP               MCPConfig         `mapstructure:"mcp"`
 	InternalMCP       InternalMCPConfig `mapstructure:"internal_mcp"`
 }
@@ -39,6 +40,11 @@ type LoggerConfig struct {
 // MCPConfig holds the MCP server configuration.
 type MCPConfig struct {
 	Address string `mapstructure:"address"`
+}
+
+// WorkspaceConfig controls relay Git workspace behavior.
+type WorkspaceConfig struct {
+	Mode string `mapstructure:"mode"`
 }
 
 // InternalMCPConfig contains startup configuration for internal MCP servers.
