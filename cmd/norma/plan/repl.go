@@ -6,9 +6,9 @@ import (
 	"io"
 	"os"
 
-	"github.com/metalagman/norma/internal/apps/acprepl"
-	"github.com/metalagman/norma/internal/config"
-	"github.com/metalagman/norma/internal/git"
+	"github.com/normahq/norma/internal/apps/acprepl"
+	"github.com/normahq/norma/internal/config"
+	"github.com/normahq/norma/internal/git"
 	"github.com/spf13/cobra"
 	adkagent "google.golang.org/adk/agent"
 )

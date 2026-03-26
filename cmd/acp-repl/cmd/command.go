@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/metalagman/norma/internal/apps/acprepl"
-	"github.com/metalagman/norma/internal/logging"
+	"github.com/normahq/norma/internal/apps/acprepl"
+	"github.com/normahq/norma/internal/logging"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )

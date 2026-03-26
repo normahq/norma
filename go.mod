@@ -1,4 +1,4 @@
-module github.com/metalagman/norma
+module github.com/normahq/norma
 
 go 1.25.5
 

@@ -6,8 +6,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/metalagman/norma/internal/apps/codexacpbridge"
-	"github.com/metalagman/norma/internal/logging"
+	"github.com/normahq/norma/internal/apps/codexacpbridge"
+	"github.com/normahq/norma/internal/logging"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )

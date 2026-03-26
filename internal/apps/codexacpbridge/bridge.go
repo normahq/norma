@@ -10,8 +10,8 @@ import (
 	"strings"
 
 	acp "github.com/coder/acp-go-sdk"
-	"github.com/metalagman/norma/internal/apps/appio"
-	"github.com/metalagman/norma/internal/logging"
+	"github.com/normahq/norma/internal/apps/appio"
+	"github.com/normahq/norma/internal/logging"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/rs/zerolog"
 )

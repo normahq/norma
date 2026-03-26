@@ -8,7 +8,7 @@ import (
 
 	"github.com/go-playground/validator/v10"
 	"github.com/go-viper/mapstructure/v2"
-	"github.com/metalagman/norma/internal/adk/agentconfig"
+	"github.com/normahq/norma/internal/adk/agentconfig"
 )
 
 var configValidator = newConfigValidator()

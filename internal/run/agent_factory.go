@@ -3,7 +3,7 @@ package run
 import (
 	"context"
 
-	"github.com/metalagman/norma/internal/task"
+	"github.com/normahq/norma/internal/task"
 	"google.golang.org/adk/agent"
 	"google.golang.org/adk/session"
 	"google.golang.org/genai"

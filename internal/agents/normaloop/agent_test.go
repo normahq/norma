@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/metalagman/norma/internal/db"
-	runpkg "github.com/metalagman/norma/internal/run"
-	"github.com/metalagman/norma/internal/task"
+	"github.com/normahq/norma/internal/db"
+	runpkg "github.com/normahq/norma/internal/run"
+	"github.com/normahq/norma/internal/task"
 	"github.com/rs/zerolog"
 
 	"google.golang.org/adk/agent"

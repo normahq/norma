@@ -8,9 +8,9 @@ import (
 	"strings"
 
 	acp "github.com/coder/acp-go-sdk"
-	"github.com/metalagman/norma/internal/adk/acpagent"
-	"github.com/metalagman/norma/internal/apps/appio"
-	"github.com/metalagman/norma/internal/logging"
+	"github.com/normahq/norma/internal/adk/acpagent"
+	"github.com/normahq/norma/internal/apps/appio"
+	"github.com/normahq/norma/internal/logging"
 )
 
 // RunConfig describes how ACP inspection should run.

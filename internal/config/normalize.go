@@ -3,7 +3,7 @@ package config
 import (
 	"fmt"
 
-	"github.com/metalagman/norma/internal/adk/agentconfig"
+	"github.com/normahq/norma/internal/adk/agentconfig"
 )
 
 // NormalizeAgentAliases canonicalizes alias agent types in config to generic runtimes.

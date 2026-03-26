@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/metalagman/norma/internal/apps/codexacpbridge"
-	"github.com/metalagman/norma/internal/logging"
+	"github.com/normahq/norma/internal/apps/codexacpbridge"
+	"github.com/normahq/norma/internal/logging"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )

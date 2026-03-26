@@ -6,9 +6,9 @@ import (
 	"io"
 	"sync"
 
-	"github.com/metalagman/norma/internal/adk/agentconfig"
-	"github.com/metalagman/norma/internal/apps/relay/agent"
-	"github.com/metalagman/norma/internal/git"
+	"github.com/normahq/norma/internal/adk/agentconfig"
+	"github.com/normahq/norma/internal/apps/relay/agent"
+	"github.com/normahq/norma/internal/git"
 	"github.com/rs/zerolog"
 	"github.com/tgbotkit/client"
 	"go.uber.org/fx"

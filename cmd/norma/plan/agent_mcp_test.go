@@ -3,8 +3,8 @@ package plancmd
 import (
 	"testing"
 
-	"github.com/metalagman/norma/internal/adk/agentconfig"
-	"github.com/metalagman/norma/internal/config"
+	"github.com/normahq/norma/internal/adk/agentconfig"
+	"github.com/normahq/norma/internal/config"
 )
 
 func TestPlannerMCPServersAddsTasksServerAndMergesConfigured(t *testing.T) {

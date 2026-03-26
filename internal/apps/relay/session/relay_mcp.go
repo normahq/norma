@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/metalagman/norma/internal/apps/relaymcp"
+	"github.com/normahq/norma/internal/apps/relaymcp"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )

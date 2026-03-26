@@ -8,11 +8,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/metalagman/norma/internal/adk/agentconfig"
-	"github.com/metalagman/norma/internal/adk/agentfactory"
-	"github.com/metalagman/norma/internal/adk/structuredio"
-	"github.com/metalagman/norma/internal/agents/pdca/contracts"
-	"github.com/metalagman/norma/internal/config"
+	"github.com/normahq/norma/internal/adk/agentconfig"
+	"github.com/normahq/norma/internal/adk/agentfactory"
+	"github.com/normahq/norma/internal/adk/structuredio"
+	"github.com/normahq/norma/internal/agents/pdca/contracts"
+	"github.com/normahq/norma/internal/config"
 	"github.com/rs/zerolog/log"
 
 	"google.golang.org/adk/agent"

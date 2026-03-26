@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/metalagman/norma/internal/apps/relay/auth"
-	"github.com/metalagman/norma/internal/apps/relay/messenger"
+	"github.com/normahq/norma/internal/apps/relay/auth"
+	"github.com/normahq/norma/internal/apps/relay/messenger"
 	"github.com/rs/zerolog/log"
 	"github.com/tgbotkit/client"
 	"github.com/tgbotkit/runtime/events"

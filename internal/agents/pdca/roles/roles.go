@@ -4,11 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/metalagman/norma/internal/agents/pdca/contracts"
-	"github.com/metalagman/norma/internal/agents/pdca/roles/act"
-	"github.com/metalagman/norma/internal/agents/pdca/roles/check"
-	"github.com/metalagman/norma/internal/agents/pdca/roles/do"
-	"github.com/metalagman/norma/internal/agents/pdca/roles/plan"
+	"github.com/normahq/norma/internal/agents/pdca/contracts"
+	"github.com/normahq/norma/internal/agents/pdca/roles/act"
+	"github.com/normahq/norma/internal/agents/pdca/roles/check"
+	"github.com/normahq/norma/internal/agents/pdca/roles/do"
+	"github.com/normahq/norma/internal/agents/pdca/roles/plan"
 )
 
 const (

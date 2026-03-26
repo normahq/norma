@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/metalagman/norma/internal/agents/pdca/contracts"
+	"github.com/normahq/norma/internal/agents/pdca/contracts"
 )
 
 func TestDoRoleMapRequestRefinesDefaultsToEmptySlice(t *testing.T) {

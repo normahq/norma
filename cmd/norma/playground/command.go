@@ -1,8 +1,8 @@
 package playgroundcmd
 
 import (
-	acpcmd "github.com/metalagman/norma/cmd/norma/playground/acp"
-	mcpcmd "github.com/metalagman/norma/cmd/norma/playground/mcp"
+	acpcmd "github.com/normahq/norma/cmd/norma/playground/acp"
+	mcpcmd "github.com/normahq/norma/cmd/norma/playground/mcp"
 	"github.com/spf13/cobra"
 )
 

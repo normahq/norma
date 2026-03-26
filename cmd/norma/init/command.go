@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/metalagman/norma/internal/git"
+	"github.com/normahq/norma/internal/git"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )

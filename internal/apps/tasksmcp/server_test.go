@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/metalagman/norma/internal/task"
+	"github.com/normahq/norma/internal/task"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 

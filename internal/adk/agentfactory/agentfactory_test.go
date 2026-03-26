@@ -10,8 +10,8 @@ import (
 	"testing"
 
 	acp "github.com/coder/acp-go-sdk"
-	"github.com/metalagman/norma/internal/adk/acpagent"
-	"github.com/metalagman/norma/internal/adk/agentconfig"
+	"github.com/normahq/norma/internal/adk/acpagent"
+	"github.com/normahq/norma/internal/adk/agentconfig"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/adk/agent"

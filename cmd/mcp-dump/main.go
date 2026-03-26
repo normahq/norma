@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/metalagman/norma/cmd/mcp-dump/cmd"
+	"github.com/normahq/norma/cmd/mcp-dump/cmd"
 )
 
 func main() {

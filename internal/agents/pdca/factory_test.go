@@ -5,7 +5,7 @@ import (
 	"iter"
 	"testing"
 
-	"github.com/metalagman/norma/internal/agents/pdca/contracts"
+	"github.com/normahq/norma/internal/agents/pdca/contracts"
 	"google.golang.org/adk/session"
 )
 

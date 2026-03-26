@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/metalagman/norma/internal/git"
+	"github.com/normahq/norma/internal/git"
 	"github.com/rs/zerolog/log"
 )
 

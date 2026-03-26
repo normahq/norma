@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/metalagman/norma/internal/config"
+	"github.com/normahq/norma/internal/config"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/viper"
 )

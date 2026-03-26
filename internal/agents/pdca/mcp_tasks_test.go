@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/metalagman/norma/internal/adk/agentconfig"
+	"github.com/normahq/norma/internal/adk/agentconfig"
 )
 
 func TestRoleMCPServersPlanRole(t *testing.T) {

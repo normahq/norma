@@ -4,7 +4,7 @@ import (
 	"context"
 	"io"
 
-	"github.com/metalagman/norma/internal/apps/acpdump"
+	"github.com/normahq/norma/internal/apps/acpdump"
 	"github.com/rs/zerolog/log"
 )
 

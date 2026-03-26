@@ -13,8 +13,8 @@ import (
 
 	"github.com/charmbracelet/glamour"
 	acp "github.com/coder/acp-go-sdk"
-	"github.com/metalagman/norma/internal/adk/acpagent"
-	"github.com/metalagman/norma/internal/apps/appio"
+	"github.com/normahq/norma/internal/adk/acpagent"
+	"github.com/normahq/norma/internal/apps/appio"
 	"github.com/rs/zerolog"
 	adkagent "google.golang.org/adk/agent"
 	runnerpkg "google.golang.org/adk/runner"

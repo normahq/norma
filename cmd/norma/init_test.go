@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	initcmd "github.com/metalagman/norma/cmd/norma/init"
+	initcmd "github.com/normahq/norma/cmd/norma/init"
 	"github.com/spf13/viper"
 )
 

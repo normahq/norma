@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/metalagman/norma/internal/adk/agentconfig"
+	"github.com/normahq/norma/internal/adk/agentconfig"
 )
 
 // Config is the root configuration.

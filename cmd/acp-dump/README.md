@@ -45,13 +45,13 @@ Human-readable output includes:
 
 ## Repository
 
-- Norma GitHub: <https://github.com/metalagman/norma>
+- Norma GitHub: <https://github.com/normahq/norma>
 
 ## Contact
 
-- Issues: <https://github.com/metalagman/norma/issues>
+- Issues: <https://github.com/normahq/norma/issues>
 - Maintainer: [@metalagman](https://github.com/metalagman)
 
 ## License
 
-MIT. See the repository [LICENSE](https://github.com/metalagman/norma/blob/main/LICENSE).
+MIT. See the repository [LICENSE](https://github.com/normahq/norma/blob/main/LICENSE).

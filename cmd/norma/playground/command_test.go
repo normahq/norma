@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	acpcmd "github.com/metalagman/norma/cmd/norma/playground/acp"
+	acpcmd "github.com/normahq/norma/cmd/norma/playground/acp"
 )
 
 const (

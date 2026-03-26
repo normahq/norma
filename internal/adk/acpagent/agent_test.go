@@ -17,7 +17,7 @@ import (
 	"time"
 
 	acp "github.com/coder/acp-go-sdk"
-	"github.com/metalagman/norma/internal/adk/agentconfig"
+	"github.com/normahq/norma/internal/adk/agentconfig"
 	"github.com/rs/zerolog"
 	"google.golang.org/adk/agent"
 	runnerpkg "google.golang.org/adk/runner"

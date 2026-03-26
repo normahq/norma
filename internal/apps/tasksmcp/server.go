@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/metalagman/norma/internal/task"
+	"github.com/normahq/norma/internal/task"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 

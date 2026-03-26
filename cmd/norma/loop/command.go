@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/metalagman/norma/internal/adkrunner"
-	"github.com/metalagman/norma/internal/agents/normaloop"
-	"github.com/metalagman/norma/internal/agents/pdca"
-	"github.com/metalagman/norma/internal/db"
-	"github.com/metalagman/norma/internal/git"
-	"github.com/metalagman/norma/internal/task"
+	"github.com/normahq/norma/internal/adkrunner"
+	"github.com/normahq/norma/internal/agents/normaloop"
+	"github.com/normahq/norma/internal/agents/pdca"
+	"github.com/normahq/norma/internal/db"
+	"github.com/normahq/norma/internal/git"
+	"github.com/normahq/norma/internal/task"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )

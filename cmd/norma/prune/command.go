@@ -3,8 +3,8 @@ package prunecmd
 import (
 	"fmt"
 
-	"github.com/metalagman/norma/internal/git"
-	"github.com/metalagman/norma/internal/run"
+	"github.com/normahq/norma/internal/git"
+	"github.com/normahq/norma/internal/run"
 	"github.com/spf13/cobra"
 )
 

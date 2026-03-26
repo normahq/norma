@@ -14,10 +14,10 @@ import (
 	"testing"
 
 	acp "github.com/coder/acp-go-sdk"
-	"github.com/metalagman/norma/internal/adk/agentconfig"
-	"github.com/metalagman/norma/internal/adk/structuredio"
-	"github.com/metalagman/norma/internal/agents/pdca/contracts"
-	"github.com/metalagman/norma/internal/config"
+	"github.com/normahq/norma/internal/adk/agentconfig"
+	"github.com/normahq/norma/internal/adk/structuredio"
+	"github.com/normahq/norma/internal/agents/pdca/contracts"
+	"github.com/normahq/norma/internal/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

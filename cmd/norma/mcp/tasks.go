@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/metalagman/norma/internal/apps/tasksmcp"
-	"github.com/metalagman/norma/internal/task"
+	"github.com/normahq/norma/internal/apps/tasksmcp"
+	"github.com/normahq/norma/internal/task"
 	"github.com/spf13/cobra"
 )
 

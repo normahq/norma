@@ -12,9 +12,9 @@ import (
 	"syscall"
 
 	"github.com/joho/godotenv"
-	"github.com/metalagman/norma/internal/apps/relay"
-	"github.com/metalagman/norma/internal/apps/relay/auth"
-	"github.com/metalagman/norma/internal/config"
+	"github.com/normahq/norma/internal/apps/relay"
+	"github.com/normahq/norma/internal/apps/relay/auth"
+	"github.com/normahq/norma/internal/config"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"

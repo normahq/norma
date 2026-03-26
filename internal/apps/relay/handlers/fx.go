@@ -1,10 +1,10 @@
 package handlers
 
 import (
-	"github.com/metalagman/norma/internal/apps/relay/agent"
-	"github.com/metalagman/norma/internal/apps/relay/messenger"
-	"github.com/metalagman/norma/internal/apps/relay/session"
-	"github.com/metalagman/norma/internal/apps/relay/tgbotkit"
+	"github.com/normahq/norma/internal/apps/relay/agent"
+	"github.com/normahq/norma/internal/apps/relay/messenger"
+	"github.com/normahq/norma/internal/apps/relay/session"
+	"github.com/normahq/norma/internal/apps/relay/tgbotkit"
 	"go.uber.org/fx"
 )
 

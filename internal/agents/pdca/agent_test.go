@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/metalagman/norma/internal/agents/pdca/contracts"
-	"github.com/metalagman/norma/internal/config"
+	"github.com/normahq/norma/internal/agents/pdca/contracts"
+	"github.com/normahq/norma/internal/config"
 )
 
 func TestResolvedAgentForRoleReturnsConfig(t *testing.T) {

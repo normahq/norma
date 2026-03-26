@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/metalagman/norma/cmd/acp-repl/cmd"
+	"github.com/normahq/norma/cmd/acp-repl/cmd"
 )
 
 func main() {

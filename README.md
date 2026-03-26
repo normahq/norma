@@ -56,7 +56,7 @@ Norma speaks a normalized JSON contract and utilizes the **Agent Control Protoco
 
 ### 2. Install
 ```bash
-go install github.com/metalagman/norma/cmd/norma@latest
+go install github.com/normahq/norma/cmd/norma@latest
 ```
 
 ### 3. Initialize & Configure

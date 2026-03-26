@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/metalagman/norma/internal/apps/relay/auth"
+	"github.com/normahq/norma/internal/apps/relay/auth"
 	"github.com/rs/zerolog"
 	"github.com/tgbotkit/client"
 	"github.com/tgbotkit/runtime/eventemitter"

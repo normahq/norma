@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	internaldb "github.com/metalagman/norma/internal/db"
+	internaldb "github.com/normahq/norma/internal/db"
 )
 
 func TestPruneRemovesOnlyStaleNormaTaskBranches(t *testing.T) {

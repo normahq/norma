@@ -15,7 +15,7 @@ import (
 	"time"
 
 	acp "github.com/coder/acp-go-sdk"
-	"github.com/metalagman/norma/internal/adk/acpagent"
+	"github.com/normahq/norma/internal/adk/acpagent"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 

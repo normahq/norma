@@ -9,9 +9,9 @@ import (
 	"sync"
 
 	"github.com/coder/acp-go-sdk"
-	"github.com/metalagman/norma/internal/adk/acpagent"
-	"github.com/metalagman/norma/internal/adk/agentconfig"
-	"github.com/metalagman/norma/internal/adk/poolagent"
+	"github.com/normahq/norma/internal/adk/acpagent"
+	"github.com/normahq/norma/internal/adk/agentconfig"
+	"github.com/normahq/norma/internal/adk/poolagent"
 	"github.com/rs/zerolog"
 
 	"google.golang.org/adk/agent"

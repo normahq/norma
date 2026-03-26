@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/metalagman/norma/internal/agents/pdca"
-	"github.com/metalagman/norma/internal/db"
-	"github.com/metalagman/norma/internal/git"
-	"github.com/metalagman/norma/internal/run"
-	"github.com/metalagman/norma/internal/task"
+	"github.com/normahq/norma/internal/agents/pdca"
+	"github.com/normahq/norma/internal/db"
+	"github.com/normahq/norma/internal/git"
+	"github.com/normahq/norma/internal/run"
+	"github.com/normahq/norma/internal/task"
 	"github.com/spf13/cobra"
 )
 

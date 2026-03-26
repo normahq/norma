@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/metalagman/norma/cmd/codex-acp-bridge/cmd"
+	"github.com/normahq/norma/cmd/codex-acp-bridge/cmd"
 )
 
 func main() {

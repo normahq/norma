@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/metalagman/norma/internal/config"
+	"github.com/normahq/norma/internal/config"
 	"github.com/spf13/cobra"
 )
 

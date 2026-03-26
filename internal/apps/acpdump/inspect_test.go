@@ -11,7 +11,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/metalagman/norma/internal/logging"
+	"github.com/normahq/norma/internal/logging"
 	"github.com/rs/zerolog/log"
 )
 
