@@ -21,7 +21,7 @@ require (
 	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.11.1
 	github.com/tgbotkit/client v0.3.2
-	github.com/tgbotkit/runtime v0.0.0-20260109122317-889dc0dc115c
+	github.com/tgbotkit/runtime v0.0.0-20260326045117-da01e4eaebb0
 	github.com/xeipuuv/gojsonschema v1.2.0
 	go.uber.org/fx v1.24.0
 	google.golang.org/adk v1.0.0
