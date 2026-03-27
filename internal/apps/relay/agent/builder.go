@@ -140,3 +140,12 @@ func (b *Builder) buildAgentDescription(agentName string) string {
 	}
 	return agentCfg.Description(agentName)
 }
+
+// GetAgentInfo returns the description and list of MCP server names for an agent.
+func (b *Builder) GetAgentInfo(agentName string) (description string, mcpServers []string) {
+	agentCfg, ok := b.normaCfg.Agents[agentName]
+	if !ok {
+		return agentName, nil
+	}
+	return agentCfg.Description(agentName), agentCfg.MCPServers
+}

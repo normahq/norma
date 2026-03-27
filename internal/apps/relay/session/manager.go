@@ -89,6 +89,11 @@ func (m *Manager) ValidateAgent(agentName string) error {
 	return m.agentBuilder.ValidateAgent(agentName)
 }
 
+// GetAgentInfo returns the description and list of MCP server names for an agent.
+func (m *Manager) GetAgentInfo(agentName string) (string, []string) {
+	return m.agentBuilder.GetAgentInfo(agentName)
+}
+
 func (m *Manager) sessionID(chatID int64, topicID int) string {
 	return fmt.Sprintf("%s-%d-%d", sessionIDPrefix, chatID, topicID)
 }
