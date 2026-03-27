@@ -4,8 +4,16 @@
 
 ## Installation
 
+Global install (distributed via npm):
+
 ```bash
 npm install -g @normahq/acp-repl@latest
+```
+
+One-off run with npx (no global install):
+
+```bash
+npx @normahq/acp-repl@latest -- <acp-server-cmd> [args...]
 ```
 
 ## Run

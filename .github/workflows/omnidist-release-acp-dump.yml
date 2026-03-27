@@ -56,5 +56,7 @@ jobs:
           name: omnidist-staged
       - name: Restore staged artifacts
         run: tar -xzf omnidist-staged.tgz
+      - name: Verify artifacts
+        run: omnidist --profile 'acp-dump' npm verify
       - name: Publish npm artifacts
         run: omnidist --profile 'acp-dump' npm publish

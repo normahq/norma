@@ -4,8 +4,16 @@
 
 ## Installation
 
+Global install (distributed via npm):
+
 ```bash
 npm install -g @normahq/codex-acp-bridge@latest
+```
+
+One-off run with npx (no global install):
+
+```bash
+npx @normahq/codex-acp-bridge@latest
 ```
 
 ## Run
