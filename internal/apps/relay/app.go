@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/ipfans/fxlogger"
 	"github.com/normahq/norma/internal/adk/agentconfig"
@@ -13,11 +14,14 @@ import (
 	relayagent "github.com/normahq/norma/internal/apps/relay/agent"
 	"github.com/normahq/norma/internal/apps/relay/auth"
 	"github.com/normahq/norma/internal/apps/relay/handlers"
+	relaystate "github.com/normahq/norma/internal/apps/relay/state"
 	"github.com/normahq/norma/internal/apps/relay/tgbotkit"
+	"github.com/normahq/norma/internal/apps/sessionmcp"
 	"github.com/normahq/norma/internal/git"
 	runtimeconfig "github.com/normahq/norma/pkg/runtime/config"
 	"github.com/rs/zerolog/log"
 	"github.com/tgbotkit/runtime"
+	"github.com/tgbotkit/runtime/updatepoller"
 	"go.uber.org/fx"
 )
 
@@ -37,17 +41,25 @@ func App(cfg Config, normaCfg runtimeconfig.NormaConfig) *fx.App {
 func Module(cfg Config, normaCfg runtimeconfig.NormaConfig) fx.Option {
 	// Convert relay config to tgbotkit config.
 	tgbotkitCfg := tgbotkit.Config{
-		Token:        cfg.Relay.Telegram.Token,
-		WebhookToken: cfg.Relay.Telegram.WebhookToken,
-		WebhookURL:   cfg.Relay.Telegram.WebhookURL,
-		ReceiverMode: cfg.Relay.Telegram.ReceiverMode,
+		Token: cfg.Relay.Telegram.Token,
+		Webhook: tgbotkit.WebhookConfig{
+			Enabled:     cfg.Relay.Telegram.Webhook.Enabled,
+			ListenAddr:  cfg.Relay.Telegram.Webhook.ListenAddr,
+			Path:        cfg.Relay.Telegram.Webhook.Path,
+			URL:         cfg.Relay.Telegram.Webhook.URL,
+			SecretToken: cfg.Relay.Telegram.Webhook.SecretToken,
+		},
 	}
 
 	logger := log.Logger.With().Str("component", "relay").Logger()
 
-	workingDir := cfg.Relay.WorkingDir
-	if workingDir == "" {
-		workingDir, _ = os.Getwd()
+	workingDir, err := resolveWorkingDir(cfg.Relay.WorkingDir)
+	if err != nil {
+		return fx.Module("relay", fx.Error(fmt.Errorf("resolve relay working_dir: %w", err)))
+	}
+	stateDir, err := resolveStateDir(workingDir, cfg.Relay.StateDir)
+	if err != nil {
+		return fx.Module("relay", fx.Error(err))
 	}
 
 	// Start with global MCP servers.
@@ -73,6 +85,30 @@ func Module(cfg Config, normaCfg runtimeconfig.NormaConfig) fx.Option {
 			mcpReg,
 		),
 		fx.Provide(
+			func(lc fx.Lifecycle) (relaystate.Provider, error) {
+				if err := os.MkdirAll(stateDir, 0o755); err != nil {
+					return nil, fmt.Errorf("create relay state dir: %w", err)
+				}
+				dbPath := filepath.Join(stateDir, "relay.db")
+				provider, err := relaystate.NewSQLiteProvider(context.Background(), dbPath)
+				if err != nil {
+					return nil, fmt.Errorf("open relay state provider: %w", err)
+				}
+				lc.Append(fx.Hook{
+					OnStop: func(ctx context.Context) error {
+						return provider.Close()
+					},
+				})
+				return provider, nil
+			},
+			func(provider relaystate.Provider) updatepoller.OffsetStore {
+				return provider.PollingOffsetStore()
+			},
+			func(provider relaystate.Provider) sessionmcp.Store {
+				return provider.SessionMCPKV()
+			},
+		),
+		fx.Provide(
 			fx.Annotate(
 				func() (bool, error) {
 					mode, enabled, err := ResolveWorkspaceEnabled(
@@ -88,6 +124,7 @@ func Module(cfg Config, normaCfg runtimeconfig.NormaConfig) fx.Option {
 						Str("workspace_mode", string(mode)).
 						Bool("workspace_enabled", enabled).
 						Str("working_dir", workingDir).
+						Str("state_dir", stateDir).
 						Msg("relay workspace mode resolved")
 					return enabled, nil
 				},
@@ -120,12 +157,8 @@ func Module(cfg Config, normaCfg runtimeconfig.NormaConfig) fx.Option {
 				fx.ResultTags(`name:"relay_agent_name"`),
 			),
 		),
-		fx.Provide(func() (*auth.OwnerStore, error) {
-			normaDir := filepath.Join(workingDir, ".norma")
-			if err := os.MkdirAll(normaDir, 0755); err != nil {
-				return nil, fmt.Errorf("creating norma dir: %w", err)
-			}
-			return auth.NewOwnerStore(normaDir)
+		fx.Provide(func(provider relaystate.Provider) (*auth.OwnerStore, error) {
+			return auth.NewOwnerStore(provider.AppKV())
 		}),
 		fx.Provide(func(reg *mcpregistry.MapRegistry) *agentfactory.Factory {
 			return agentfactory.New(
@@ -158,4 +191,41 @@ func Module(cfg Config, normaCfg runtimeconfig.NormaConfig) fx.Option {
 			})
 		}),
 	)
+}
+
+func resolveWorkingDir(raw string) (string, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("get current working directory: %w", err)
+	}
+
+	workingDir := strings.TrimSpace(raw)
+	if workingDir == "" {
+		return filepath.Clean(cwd), nil
+	}
+	if !filepath.IsAbs(workingDir) {
+		workingDir = filepath.Join(cwd, workingDir)
+	}
+
+	resolved, err := filepath.Abs(workingDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve absolute working_dir %q: %w", raw, err)
+	}
+	return filepath.Clean(resolved), nil
+}
+
+func resolveStateDir(workingDir, raw string) (string, error) {
+	stateDir := strings.TrimSpace(raw)
+	if stateDir == "" {
+		return "", fmt.Errorf("relay.state_dir is required")
+	}
+	if !filepath.IsAbs(stateDir) {
+		stateDir = filepath.Join(workingDir, stateDir)
+	}
+
+	resolved, err := filepath.Abs(stateDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve absolute state_dir %q: %w", raw, err)
+	}
+	return filepath.Clean(resolved), nil
 }

@@ -29,6 +29,7 @@ type InternalMCPManager struct {
 	registry         mcpregistry.Registry
 	workingDir       string
 	sessionManager   *session.Manager
+	stateStore       sessionmcp.Store
 	cleanups         []func() error
 }
 
@@ -42,6 +43,7 @@ type internalMCPParams struct {
 	Registry         *mcpregistry.MapRegistry
 	WorkingDir       string
 	SessionManager   *session.Manager
+	StateStore       sessionmcp.Store
 	RelayMCPAddr     string `name:"relay_mcp_addr" optional:"true"`
 }
 
@@ -54,6 +56,7 @@ func NewInternalMCPManager(params internalMCPParams) *InternalMCPManager {
 		registry:         params.Registry,
 		workingDir:       params.WorkingDir,
 		sessionManager:   params.SessionManager,
+		stateStore:       params.StateStore,
 	}
 
 	params.LC.Append(fx.Hook{
@@ -99,6 +102,10 @@ func NewInternalMCPManager(params internalMCPParams) *InternalMCPManager {
 }
 
 func (m *InternalMCPManager) ensureBundledServers(ctx context.Context, relayMCPAddr string) error {
+	if m.stateStore == nil {
+		return fmt.Errorf("relay state store is required")
+	}
+
 	// norma.config
 	if _, ok := m.registry.Get("norma.config"); !ok {
 		configPath := selectConfigPath(m.workingDir, "relay")
@@ -119,10 +126,9 @@ func (m *InternalMCPManager) ensureBundledServers(ctx context.Context, relayMCPA
 		}
 	}
 
-	// norma.state (session state)
+	// norma.state
 	if _, ok := m.registry.Get("norma.state"); !ok {
-		store := sessionmcp.NewMemoryStore()
-		res, err := sessionmcp.StartHTTPServer(ctx, store, "127.0.0.1:0")
+		res, err := sessionmcp.StartHTTPServer(ctx, m.stateStore, "127.0.0.1:0")
 		if err != nil {
 			return fmt.Errorf("starting bundled state MCP: %w", err)
 		}

@@ -12,6 +12,7 @@ type RelayConfig struct {
 	Auth              AuthConfig        `mapstructure:"auth"`
 	Logger            LoggerConfig      `mapstructure:"logger"`
 	WorkingDir        string            `mapstructure:"working_dir"`
+	StateDir          string            `mapstructure:"state_dir"`
 	Workspace         WorkspaceConfig   `mapstructure:"workspace"`
 	MCP               MCPConfig         `mapstructure:"mcp"`
 	InternalMCP       InternalMCPConfig `mapstructure:"internal_mcp"`
@@ -19,10 +20,17 @@ type RelayConfig struct {
 
 // TelegramConfig holds the Telegram bot configuration.
 type TelegramConfig struct {
-	Token        string `mapstructure:"token"`
-	WebhookToken string `mapstructure:"webhook_token"`
-	WebhookURL   string `mapstructure:"webhook_url"`
-	ReceiverMode string `mapstructure:"receiver_mode"`
+	Token   string        `mapstructure:"token"`
+	Webhook WebhookConfig `mapstructure:"webhook"`
+}
+
+// WebhookConfig holds Telegram webhook receiver settings.
+type WebhookConfig struct {
+	Enabled     bool   `mapstructure:"enabled"`
+	ListenAddr  string `mapstructure:"listen_addr"`
+	Path        string `mapstructure:"path"`
+	URL         string `mapstructure:"url"`
+	SecretToken string `mapstructure:"secret_token"`
 }
 
 // AuthConfig holds the authentication configuration.

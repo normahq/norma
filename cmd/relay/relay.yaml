@@ -11,12 +11,20 @@ relay:
     # Set via RELAY_TELEGRAM_TOKEN env var
     token: ""
 
-    # Receiver mode: polling (default) or webhook
-    receiver_mode: "polling"
-
     # Optional webhook configuration
-    webhook_token: ""
-    webhook_url: ""
+    webhook:
+      # Register outgoing Telegram webhook URL.
+      # Required when webhook.enabled=true.
+      url: ""
+      # Optional Telegram secret token protection.
+      secret_token: ""
+      # Enable local HTTP endpoint for incoming Telegram webhook updates.
+      # If false, relay uses polling mode.
+      enabled: false
+      # Local bind address for webhook endpoint.
+      listen_addr: "0.0.0.0:8080"
+      # Local HTTP path that receives webhook updates.
+      path: "/telegram/webhook"
 
   auth:
     # Owner token is generated at runtime (one-time use)
@@ -27,12 +35,22 @@ relay:
     level: "info"
     pretty: true
 
+  # Optional repo/root directory for relay runtime.
+  # If empty, current process directory is used.
+  working_dir: ""
+
+  # Relay app state directory.
+  # Stores relay.db (owner/app KV, session metadata, telegram polling offset).
+  # Relative paths are resolved from relay.working_dir.
+  state_dir: ".norma/relay"
+
   workspace:
     # Workspace mode:
     # - on: always use git worktrees per session
     # - off: run agents in relay working_dir directly
     # - auto: use worktrees only when working_dir is a git repo
-    mode: "on"
+    # In on mode, relay fails fast if working_dir is not a git repository.
+    mode: "auto"
 
   # Internal MCP servers to start with relay lifecycle.
   # Server implementations are wired incrementally.

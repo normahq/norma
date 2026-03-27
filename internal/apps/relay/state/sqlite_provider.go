@@ -1,0 +1,127 @@
+package state
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"strings"
+
+	"github.com/tgbotkit/runtime/updatepoller"
+	_ "modernc.org/sqlite" // pure-Go SQLite driver
+)
+
+type sqliteProvider struct {
+	db      *sql.DB
+	appKV   *sqliteKVStore
+	mcpKV   *sqliteKVStore
+	session *sqliteSessionStore
+	offset  *sqliteOffsetStore
+}
+
+var _ Provider = (*sqliteProvider)(nil)
+
+// NewSQLiteProvider initializes relay state storage in a SQLite database.
+func NewSQLiteProvider(ctx context.Context, path string) (Provider, error) {
+	dbPath := strings.TrimSpace(path)
+	if dbPath == "" {
+		return nil, fmt.Errorf("sqlite path is required")
+	}
+
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		return nil, fmt.Errorf("open relay state sqlite db: %w", err)
+	}
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+
+	if err := applySQLitePragmas(ctx, db); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	if err := ensureSchema(ctx, db); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+
+	return &sqliteProvider{
+		db:      db,
+		appKV:   &sqliteKVStore{db: db, namespace: NamespaceApp},
+		mcpKV:   &sqliteKVStore{db: db, namespace: NamespaceSessionMCP},
+		session: &sqliteSessionStore{db: db},
+		offset:  &sqliteOffsetStore{db: db},
+	}, nil
+}
+
+func (p *sqliteProvider) AppKV() KVStore {
+	return p.appKV
+}
+
+func (p *sqliteProvider) SessionMCPKV() KVStore {
+	return p.mcpKV
+}
+
+func (p *sqliteProvider) Sessions() SessionStore {
+	return p.session
+}
+
+func (p *sqliteProvider) PollingOffsetStore() updatepoller.OffsetStore {
+	return p.offset
+}
+
+func (p *sqliteProvider) Close() error {
+	return p.db.Close()
+}
+
+func applySQLitePragmas(ctx context.Context, db *sql.DB) error {
+	stmts := []string{
+		"PRAGMA foreign_keys=ON;",
+		"PRAGMA journal_mode=WAL;",
+		"PRAGMA busy_timeout=5000;",
+	}
+	for _, stmt := range stmts {
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
+			// WAL can be unsupported in some environments. Ignore only this one.
+			if stmt == "PRAGMA journal_mode=WAL;" {
+				continue
+			}
+			return fmt.Errorf("apply relay state pragma %q: %w", stmt, err)
+		}
+	}
+	return nil
+}
+
+func ensureSchema(ctx context.Context, db *sql.DB) error {
+	stmts := []string{
+		`CREATE TABLE IF NOT EXISTS relay_app_kv (
+			namespace TEXT NOT NULL,
+			key TEXT NOT NULL,
+			value_json TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			PRIMARY KEY (namespace, key)
+		);`,
+		`CREATE TABLE IF NOT EXISTS relay_session_metadata (
+			session_id TEXT PRIMARY KEY,
+			chat_id INTEGER NOT NULL,
+			topic_id INTEGER NOT NULL,
+			agent_name TEXT NOT NULL,
+			workspace_dir TEXT NOT NULL,
+			branch_name TEXT NOT NULL,
+			status TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			UNIQUE (chat_id, topic_id)
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_relay_session_metadata_status ON relay_session_metadata(status);`,
+		`CREATE TABLE IF NOT EXISTS relay_telegram_offsets (
+			bot_key TEXT PRIMARY KEY,
+			offset INTEGER NOT NULL,
+			updated_at TEXT NOT NULL
+		);`,
+	}
+
+	for _, stmt := range stmts {
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("ensure relay state schema: %w", err)
+		}
+	}
+	return nil
+}

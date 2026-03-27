@@ -166,13 +166,18 @@ func (h *RelayHandler) onMessage(ctx context.Context, event *events.MessageEvent
 			return nil
 		}
 	} else {
-		// Subagent topic: require existing session
+		// Subagent topic: try in-memory first, then lazy restore from persisted metadata.
 		ts, err = h.sessionManager.GetSession(chatID, topicID)
 		if err != nil {
-			log.Warn().Err(err).Int("topic_id", topicID).Msg("No session found, closing topic")
-			h.sessionManager.CloseTopic(ctx, chatID, topicID)
-			_ = h.messenger.SendPlain(ctx, chatID, "Agent unavailable. Use /new to start a new session.", topicID)
-			return nil
+			_ = h.messenger.SendPlain(ctx, chatID, "Restoring agent session...", topicID)
+			ts, err = h.sessionManager.RestoreSession(ctx, chatID, topicID)
+			if err != nil {
+				log.Warn().Err(err).Int("topic_id", topicID).Msg("No session found, closing topic")
+				h.sessionManager.CloseTopic(ctx, chatID, topicID)
+				_ = h.messenger.SendPlain(ctx, chatID, "Agent unavailable. Use /new to start a new session.", topicID)
+				return nil
+			}
+			_ = h.messenger.SendPlain(ctx, chatID, "Done", topicID)
 		}
 	}
 

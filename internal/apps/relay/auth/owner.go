@@ -1,10 +1,9 @@
 package auth
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"time"
 )
 
@@ -21,20 +20,28 @@ type Owner struct {
 
 // OwnerStore manages owner persistence.
 type OwnerStore struct {
-	storePath string
-	owner     *Owner
+	store ownerKVStore
+	owner *Owner
 }
 
-// NewOwnerStore creates a new owner store.
-func NewOwnerStore(normaDir string) (*OwnerStore, error) {
-	storePath := filepath.Join(normaDir, "relay_owner.json")
+type ownerKVStore interface {
+	GetJSON(ctx context.Context, key string) (value any, ok bool, err error)
+	SetJSON(ctx context.Context, key string, value any) error
+}
 
+const ownerKVKey = "owner"
+
+// NewOwnerStore creates a new owner store backed by key-value state.
+func NewOwnerStore(stateStore ownerKVStore) (*OwnerStore, error) {
+	if stateStore == nil {
+		return nil, fmt.Errorf("owner state store is required")
+	}
 	store := &OwnerStore{
-		storePath: storePath,
+		store: stateStore,
 	}
 
 	// Try to load existing owner.
-	if err := store.load(); err != nil && !os.IsNotExist(err) {
+	if err := store.load(); err != nil {
 		return nil, fmt.Errorf("loading owner: %w", err)
 	}
 
@@ -93,11 +100,18 @@ func (s *OwnerStore) HasOwner() bool {
 }
 
 func (s *OwnerStore) load() error {
-	data, err := os.ReadFile(s.storePath)
+	raw, ok, err := s.store.GetJSON(context.Background(), ownerKVKey)
 	if err != nil {
-		return err
+		return fmt.Errorf("get owner state: %w", err)
+	}
+	if !ok || raw == nil {
+		return nil
 	}
 
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return fmt.Errorf("marshal owner state: %w", err)
+	}
 	var owner Owner
 	if err := json.Unmarshal(data, &owner); err != nil {
 		return fmt.Errorf("unmarshalling owner: %w", err)
@@ -108,19 +122,8 @@ func (s *OwnerStore) load() error {
 }
 
 func (s *OwnerStore) save() error {
-	// Ensure directory exists.
-	dir := filepath.Dir(s.storePath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("creating directory: %w", err)
-	}
-
-	data, err := json.MarshalIndent(s.owner, "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshalling owner: %w", err)
-	}
-
-	if err := os.WriteFile(s.storePath, data, 0644); err != nil {
-		return fmt.Errorf("writing file: %w", err)
+	if err := s.store.SetJSON(context.Background(), ownerKVKey, s.owner); err != nil {
+		return fmt.Errorf("set owner state: %w", err)
 	}
 
 	return nil

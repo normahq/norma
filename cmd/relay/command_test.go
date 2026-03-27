@@ -17,7 +17,7 @@ type relayTestConfigDocument struct {
 
 func TestLoadConfigDocument_AppliesProfileRelayOverrides(t *testing.T) {
 	repoRoot := t.TempDir()
-	t.Setenv("RELAY_TELEGRAM_RECEIVER_MODE", "webhook")
+	t.Setenv("RELAY_TELEGRAM_WEBHOOK_ENABLED", "true")
 
 	if err := writeFile(filepath.Join(repoRoot, ".norma", "relay.yaml"), `norma:
   agents:
@@ -61,8 +61,8 @@ profiles:
 	if relayCfg.Relay.OrchestratorAgent != "relay_agent" {
 		t.Fatalf("orchestrator_agent = %q, want relay_agent", relayCfg.Relay.OrchestratorAgent)
 	}
-	if relayCfg.Relay.Telegram.ReceiverMode != "webhook" {
-		t.Fatalf("receiver_mode = %q, want webhook from env override", relayCfg.Relay.Telegram.ReceiverMode)
+	if !relayCfg.Relay.Telegram.Webhook.Enabled {
+		t.Fatal("webhook.enabled = false, want true from env override")
 	}
 }
 

@@ -34,7 +34,7 @@ func newRootCommand() (*cobra.Command, error) {
 	cmd := &cobra.Command{
 		Use:   "relay",
 		Short: "relay is a standalone Telegram relay server for norma",
-		PersistentPreRun: func(cmd *cobra.Command, _ []string) {
+		PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
 			logLevel := logging.LevelInfo
 			if debug {
 				logLevel = logging.LevelDebug
@@ -42,7 +42,7 @@ func newRootCommand() (*cobra.Command, error) {
 			if trace {
 				logLevel = logging.LevelTrace
 			}
-			_ = logging.Init(logging.WithLevel(logLevel))
+			return logging.Init(logging.WithLevel(logLevel))
 		},
 	}
 

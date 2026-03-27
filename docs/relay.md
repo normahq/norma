@@ -35,16 +35,22 @@ Relay config is merged from:
 ### Telegram settings
 
 - `relay.telegram.token`: bot token (required)
-- `relay.telegram.receiver_mode`: `polling|webhook` (default: `polling`)
-- `relay.telegram.webhook_url`: required when receiver mode is `webhook`
-- `relay.telegram.webhook_token`: optional webhook secret
+- `relay.telegram.webhook.enabled`: enable local HTTP webhook endpoint (`true` => webhook mode, `false` => polling mode; default: `false`)
+- `relay.telegram.webhook.url`: outgoing Telegram webhook URL (required when `relay.telegram.webhook.enabled=true`)
+- `relay.telegram.webhook.secret_token`: optional webhook secret token
+- `relay.telegram.webhook.listen_addr`: local webhook listen address (default: `0.0.0.0:8080`)
+- `relay.telegram.webhook.path`: local webhook path (default: `/telegram/webhook`)
 
 ### Relay settings
 
+- `relay.working_dir`: optional relay working directory (defaults to process CWD)
+- `relay.state_dir`: relay state directory for persistent relay SQLite state (`relay.db`).
+  - Stores owner/app KV, `norma.state` MCP KV, session metadata, and Telegram polling offset.
+  - Relative paths are resolved from `relay.working_dir`.
 - `relay.auth.owner_token`: generated at runtime per server start
 - `relay.mcp.address`: optional relay MCP HTTP endpoint
-- `relay.workspace.mode`: `on|off|auto` (default `on`)
-  - `on`: always use Git worktrees per session
+- `relay.workspace.mode`: `on|off|auto` (default `auto`)
+  - `on`: always use Git worktrees per session; startup fails if `working_dir` is not a Git repository
   - `off`: run agents directly in relay `working_dir` (no `norma.workspace` MCP)
   - `auto`: enable worktrees only when `working_dir` is a Git repo, otherwise fallback to `off`
 - `relay.internal_mcp.servers`: internal MCP server IDs to start with lifecycle
@@ -57,33 +63,14 @@ Session key:
 - Root relay session: `(chat_id, topic_id=0)`
 - Topic subagent session: `(chat_id, topic_id)`
 
-Topic bindings are durable across restarts:
-
-- Persistent store: `.norma/relay_sessions.json`
-- Record shape:
-  - `session_id`
-  - `chat_id`
-  - `topic_id`
-  - `agent_name`
-  - `workspace_dir`
-  - `status` (`active|stopped|error`)
-  - `updated_at`
-
-On restart, relay does **not** restore ADK session history.
-
-Restore strategy is **lazy**:
-
-- Relay loads persisted binding metadata at startup.
-- When the first message arrives for a persisted topic that has no in-memory runner, relay restores that topic session on demand.
-- Relay sends topic notifications:
-  - `Restoring agent session...`
-  - `Done`
+Session runtimes are still in-memory, but metadata is persisted in `relay.db`.
+Relay lazy-restores a topic session on first message after restart when metadata exists.
 
 ## Message Flow
 
 1. User sends Telegram message.
 2. Relay resolves session by `(chat_id, topic_id)`.
-3. If topic session is missing in memory but has persisted binding metadata, relay lazily recreates it and notifies the topic.
+3. If topic session is missing in memory, relay attempts lazy restore from persisted metadata.
 4. Relay calls ADK runner for that session.
 5. Relay streams partial updates to Telegram using Bot API `sendMessageDraft`.
 
@@ -151,13 +138,13 @@ Both paths create:
 ## Acceptance/Verification Scenarios
 
 1. Startup order enforces internal MCP -> relay agent -> bot runtime.
-2. Polling mode starts by default without webhook config.
-3. Webhook mode fails fast without `webhook_url`.
+2. Polling mode starts by default when `relay.telegram.webhook.enabled=false`.
+3. Webhook mode (`relay.telegram.webhook.enabled=true`) fails fast without `relay.telegram.webhook.url`.
 4. `/start <token>` registers owner once; non-owner traffic is rejected.
-5. `/new <agent>` creates topic + durable session record.
+5. `/new <agent>` creates topic + relay session and persists session metadata.
 6. Relay MCP `start_agent` creates topic + session and returns IDs.
-7. Restart keeps persisted topic bindings but resets ADK session history.
-8. First message to a persisted topic lazily restores session runtime and sends restore notifications.
+7. Restart clears in-memory sessions but topic sessions are lazy-restored from persisted metadata.
+8. Polling mode resumes from persisted Telegram offset in relay state DB.
 9. Partial updates are sent with Telegram Bot API `sendMessageDraft` (not `sendMessage`).
 10. Per turn, two non-zero draft streams are used and kept separate (response vs events).
 11. Reusing the same `draft_id` within each stream updates the same animated draft message.

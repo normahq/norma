@@ -61,7 +61,7 @@ func (h *StartHandler) onCommand(ctx context.Context, event *events.CommandEvent
 
 	chatID := event.Message.Chat.Id
 	userID := event.Message.From.Id
-	authToken := strings.TrimSpace(event.Args)
+	authToken, malformed := parseStartAuthArg(event.Args)
 
 	log.Debug().
 		Int64("user_id", userID).
@@ -89,6 +89,17 @@ func (h *StartHandler) onCommand(ctx context.Context, event *events.CommandEvent
 		return nil
 	}
 
+	if malformed {
+		log.Warn().
+			Int64("user_id", userID).
+			Int64("chat_id", chatID).
+			Msg("Malformed /start auth argument")
+		if err := h.messenger.SendPlain(ctx, chatID, malformedStartFormatMessage(), 0); err != nil {
+			return err
+		}
+		return nil
+	}
+
 	if authToken == "" {
 		if err := h.sendWelcomeMessage(ctx, chatID); err != nil {
 			return err
@@ -97,7 +108,10 @@ func (h *StartHandler) onCommand(ctx context.Context, event *events.CommandEvent
 	}
 
 	if authToken != h.authToken {
-		log.Warn().Msg("Invalid auth token provided")
+		log.Warn().
+			Int64("user_id", userID).
+			Int64("chat_id", chatID).
+			Msg("Invalid auth token provided")
 		if err := h.messenger.SendPlain(ctx, chatID, "Invalid authentication token. Please try again.", 0); err != nil {
 			return err
 		}
@@ -136,6 +150,21 @@ func (h *StartHandler) onCommand(ctx context.Context, event *events.CommandEvent
 		return err
 	}
 	return nil
+}
+
+func parseStartAuthArg(raw string) (string, bool) {
+	authToken := strings.TrimSpace(raw)
+	if authToken == "" {
+		return "", false
+	}
+	if strings.HasPrefix(authToken, "?") || strings.Contains(authToken, "=") {
+		return "", true
+	}
+	return authToken, false
+}
+
+func malformedStartFormatMessage() string {
+	return "Invalid /start format. Use /start <your_owner_token>.\n\nIf using a link, use https://t.me/<bot_username>?start=<your_owner_token>"
 }
 
 type userInfo struct {

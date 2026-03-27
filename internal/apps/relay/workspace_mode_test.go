@@ -12,7 +12,7 @@ func TestParseWorkspaceMode(t *testing.T) {
 		want    WorkspaceMode
 		wantErr bool
 	}{
-		{name: "default empty", raw: "", want: WorkspaceModeOn},
+		{name: "default empty", raw: "", want: WorkspaceModeAuto},
 		{name: "on", raw: "on", want: WorkspaceModeOn},
 		{name: "off", raw: "off", want: WorkspaceModeOff},
 		{name: "auto", raw: "auto", want: WorkspaceModeAuto},
@@ -49,7 +49,8 @@ func TestResolveWorkspaceEnabled(t *testing.T) {
 		want    bool
 		wantErr bool
 	}{
-		{name: "on", mode: "on", isGit: false, want: true},
+		{name: "on git", mode: "on", isGit: true, want: true},
+		{name: "on non git", mode: "on", isGit: false, wantErr: true},
 		{name: "off", mode: "off", isGit: true, want: false},
 		{name: "auto git", mode: "auto", isGit: true, want: true},
 		{name: "auto non git", mode: "auto", isGit: false, want: false},

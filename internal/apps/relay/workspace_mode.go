@@ -16,12 +16,12 @@ const (
 
 func ParseWorkspaceMode(raw string) (WorkspaceMode, error) {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case "", string(WorkspaceModeOn):
+	case "", string(WorkspaceModeAuto):
+		return WorkspaceModeAuto, nil
+	case string(WorkspaceModeOn):
 		return WorkspaceModeOn, nil
 	case string(WorkspaceModeOff):
 		return WorkspaceModeOff, nil
-	case string(WorkspaceModeAuto):
-		return WorkspaceModeAuto, nil
 	default:
 		return "", fmt.Errorf("invalid relay.workspace.mode %q: expected one of on, off, auto", raw)
 	}
@@ -40,6 +40,9 @@ func ResolveWorkspaceEnabled(
 
 	switch mode {
 	case WorkspaceModeOn:
+		if isGitRepo != nil && !isGitRepo(ctx, workingDir) {
+			return "", false, fmt.Errorf("relay.workspace.mode %q requires a git repository at relay.working_dir %q", mode, workingDir)
+		}
 		return mode, true, nil
 	case WorkspaceModeOff:
 		return mode, false, nil

@@ -12,7 +12,6 @@ import (
 	"github.com/normahq/norma/internal/apps/relay/auth"
 	"github.com/normahq/norma/internal/config"
 	runtimeconfig "github.com/normahq/norma/pkg/runtime/config"
-	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -52,6 +51,9 @@ func serveCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if err := applyRelayLogging(doc.Relay.Logger); err != nil {
+				return fmt.Errorf("configure relay logging: %w", err)
+			}
 
 			runtimeCfg := config.Config{
 				Norma:   doc.Norma,
@@ -68,11 +70,6 @@ func serveCommand() *cobra.Command {
 				return fmt.Errorf("generating owner token: %w", err)
 			}
 
-			log.Info().
-				Str("owner_token", ownerToken).
-				Str("auth_url", fmt.Sprintf("https://t.me/<bot_username>?start=%s", ownerToken)).
-				Msg("Relay bot owner token generated")
-
 			relayCfg.Relay.Auth.OwnerToken = ownerToken
 			app := relay.App(relayCfg, runtimeCfg.Norma)
 
@@ -83,7 +80,7 @@ func serveCommand() *cobra.Command {
 				return fmt.Errorf("starting relay app: %w", err)
 			}
 
-			log.Info().Msg("Relay bot started. Press Ctrl+C to stop.")
+			logRelayStartup(ctx, relayCfg.Relay.Telegram.Token, ownerToken)
 
 			<-ctx.Done()
 			if err := app.Stop(context.Background()); err != nil {

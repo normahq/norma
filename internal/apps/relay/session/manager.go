@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 
 	"github.com/normahq/norma/internal/apps/relay/agent"
+	relaystate "github.com/normahq/norma/internal/apps/relay/state"
 	"github.com/normahq/norma/internal/git"
 	"github.com/rs/zerolog"
 	"github.com/tgbotkit/client"
@@ -15,13 +17,14 @@ import (
 
 const sessionIDPrefix = "relay"
 
-// Manager manages per-topic ADK agent sessions (in-memory only, no persistence).
+// Manager manages per-topic ADK agent sessions and persists session metadata.
 type Manager struct {
 	agentBuilder     *agent.Builder
 	workingDir       string
 	tgClient         client.ClientWithResponsesInterface
 	workspaces       *agent.WorkspaceManager
 	workspaceEnabled bool
+	sessionStore     relaystate.SessionStore
 	logger           zerolog.Logger
 
 	rootCtx    context.Context
@@ -40,11 +43,16 @@ type ManagerParams struct {
 	WorkingDir       string
 	WorkspaceEnabled bool `name:"relay_workspace_enabled"`
 	TGClient         client.ClientWithResponsesInterface
+	StateProvider    relaystate.Provider
 	Logger           zerolog.Logger
 }
 
 // NewManager creates a session Manager.
 func NewManager(p ManagerParams) (*Manager, error) {
+	if p.StateProvider == nil {
+		return nil, fmt.Errorf("relay state provider is required")
+	}
+
 	rootCtx, rootCancel := context.WithCancel(context.Background())
 
 	m := &Manager{
@@ -53,6 +61,7 @@ func NewManager(p ManagerParams) (*Manager, error) {
 		tgClient:         p.TGClient,
 		workspaces:       agent.NewWorkspaceManager(p.WorkingDir),
 		workspaceEnabled: p.WorkspaceEnabled,
+		sessionStore:     p.StateProvider.Sessions(),
 		logger:           p.Logger.With().Str("component", "relay.session_manager").Logger(),
 		rootCtx:          rootCtx,
 		rootCancel:       rootCancel,
@@ -141,6 +150,16 @@ func (m *Manager) CreateSession(ctx context.Context, chatID int64, topicID int, 
 		chatID:       chatID,
 		workspaceDir: workspaceDir,
 		branchName:   branchName,
+	}
+
+	if err := m.persistSessionRecord(ctx, ts, relaystate.SessionStatusActive); err != nil {
+		if closer, ok := ts.agent.(io.Closer); ok {
+			_ = closer.Close()
+		}
+		if m.workspaceEnabled && workspaceDir != "" {
+			_ = m.workspaces.CleanupWorkspace(ctx, workspaceDir)
+		}
+		return fmt.Errorf("persist session metadata: %w", err)
 	}
 
 	m.mu.Lock()
@@ -304,6 +323,16 @@ func (m *Manager) EnsureSession(ctx context.Context, chatID int64, topicID int, 
 		branchName:   branchName,
 	}
 
+	if err := m.persistSessionRecord(ctx, ts, relaystate.SessionStatusActive); err != nil {
+		if closer, ok := ts.agent.(io.Closer); ok {
+			_ = closer.Close()
+		}
+		if m.workspaceEnabled && workspaceDir != "" {
+			_ = m.workspaces.CleanupWorkspace(ctx, workspaceDir)
+		}
+		return nil, fmt.Errorf("persist session metadata: %w", err)
+	}
+
 	m.sessions[sessionID] = ts
 
 	m.logger.Info().
@@ -314,6 +343,41 @@ func (m *Manager) EnsureSession(ctx context.Context, chatID int64, topicID int, 
 		Msg("session created via EnsureSession")
 
 	return ts, nil
+}
+
+// RestoreSession restores a topic session from persisted metadata when it is not active in memory.
+func (m *Manager) RestoreSession(ctx context.Context, chatID int64, topicID int) (*TopicSession, error) {
+	sessionID := m.sessionID(chatID, topicID)
+
+	m.mu.RLock()
+	if ts := m.sessions[sessionID]; ts != nil {
+		m.mu.RUnlock()
+		return ts, nil
+	}
+	m.mu.RUnlock()
+
+	record, ok, err := m.sessionStore.GetByChatTopic(ctx, chatID, topicID)
+	if err != nil {
+		return nil, fmt.Errorf("read session metadata: %w", err)
+	}
+	if !ok {
+		return nil, fmt.Errorf("no persisted session for topic %d", topicID)
+	}
+	if strings.TrimSpace(record.Status) != "" && record.Status != relaystate.SessionStatusActive {
+		return nil, fmt.Errorf("persisted session for topic %d is not active", topicID)
+	}
+	if strings.TrimSpace(record.AgentName) == "" {
+		return nil, fmt.Errorf("persisted session for topic %d has empty agent name", topicID)
+	}
+
+	m.logger.Info().
+		Int64("chat_id", chatID).
+		Int("topic_id", topicID).
+		Str("session_id", sessionID).
+		Str("agent", record.AgentName).
+		Msg("restoring session from persisted metadata")
+
+	return m.EnsureSession(ctx, chatID, topicID, record.AgentName)
 }
 
 // StopSession removes a session from memory and cleans up.
@@ -339,6 +403,9 @@ func (m *Manager) StopSession(chatID int64, topicID int) {
 	}
 	if err := m.closeTopicSession(ts); err != nil {
 		m.logger.Warn().Err(err).Str("session_id", sessionID).Msg("failed to close topic session")
+	}
+	if err := m.sessionStore.DeleteBySessionID(m.rootCtx, sessionID); err != nil {
+		m.logger.Warn().Err(err).Str("session_id", sessionID).Msg("failed to delete persisted session metadata")
 	}
 
 	m.logger.Info().Str("session_id", sessionID).Msg("session stopped")
@@ -467,4 +534,23 @@ func (m *Manager) CommitWorkspace(ctx context.Context, chatID int64, topicID int
 	}
 
 	return nil
+}
+
+func (m *Manager) persistSessionRecord(ctx context.Context, ts *TopicSession, status string) error {
+	if ts == nil {
+		return fmt.Errorf("topic session is required")
+	}
+	if strings.TrimSpace(status) == "" {
+		status = relaystate.SessionStatusActive
+	}
+
+	return m.sessionStore.Upsert(ctx, relaystate.SessionRecord{
+		SessionID:    ts.sessionID,
+		ChatID:       ts.chatID,
+		TopicID:      ts.topicID,
+		AgentName:    ts.agentName,
+		WorkspaceDir: ts.workspaceDir,
+		BranchName:   ts.branchName,
+		Status:       status,
+	})
 }

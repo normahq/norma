@@ -13,7 +13,10 @@ type relayConfigDocumentForTest struct {
 	Relay struct {
 		OrchestratorAgent string `mapstructure:"orchestrator_agent"`
 		Telegram          struct {
-			ReceiverMode string `mapstructure:"receiver_mode"`
+			Webhook struct {
+				URL     string `mapstructure:"url"`
+				Enabled bool   `mapstructure:"enabled"`
+			} `mapstructure:"webhook"`
 		} `mapstructure:"telegram"`
 		Logger struct {
 			Level string `mapstructure:"level"`
@@ -76,7 +79,8 @@ func TestLoadRuntime_UsesSingleEffectiveFileWithoutCrossRootMerge(t *testing.T) 
 
 func TestLoadConfigDocument_AppliesProfileOverridesAndEnv(t *testing.T) {
 	repoRoot := t.TempDir()
-	t.Setenv("RELAY_TELEGRAM_RECEIVER_MODE", "webhook")
+	t.Setenv("RELAY_TELEGRAM_WEBHOOK_URL", "https://example.com/webhook")
+	t.Setenv("RELAY_TELEGRAM_WEBHOOK_ENABLED", "true")
 
 	if err := writeRuntimeFile(filepath.Join(repoRoot, ".norma", "relay.yaml"), `norma:
   agents:
@@ -108,7 +112,9 @@ profiles:
 			AppName: "relay",
 			DefaultsYAML: []byte(`relay:
   telegram:
-    receiver_mode: polling
+    webhook:
+      url: ""
+      enabled: false
 `),
 		},
 		&doc,
@@ -120,8 +126,11 @@ profiles:
 	if got := doc.Relay.OrchestratorAgent; got != "from_relay_file" {
 		t.Fatalf("orchestrator_agent = %q, want from_relay_file", got)
 	}
-	if got := doc.Relay.Telegram.ReceiverMode; got != "webhook" {
-		t.Fatalf("telegram.receiver_mode = %q, want webhook", got)
+	if got := doc.Relay.Telegram.Webhook.URL; got != "https://example.com/webhook" {
+		t.Fatalf("telegram.webhook.url = %q, want https://example.com/webhook", got)
+	}
+	if !doc.Relay.Telegram.Webhook.Enabled {
+		t.Fatalf("telegram.webhook.enabled = false, want true from env")
 	}
 	if got := doc.Relay.Logger.Level; got != "debug" {
 		t.Fatalf("logger.level = %q, want debug", got)
@@ -145,8 +154,6 @@ cli:
     act: agent
 relay:
   orchestrator_agent: from_core_file
-  telegram:
-    receiver_mode: polling
 `); err != nil {
 		t.Fatalf("write core config: %v", err)
 	}
@@ -181,8 +188,8 @@ relay:
 	if got := doc.Relay.OrchestratorAgent; got != "from_relay_file" {
 		t.Fatalf("orchestrator_agent = %q, want from_relay_file", got)
 	}
-	if got := doc.Relay.Telegram.ReceiverMode; got != "" {
-		t.Fatalf("relay.telegram unexpectedly loaded from config.yaml; app-specific file should be used without merge")
+	if got := doc.Relay.Telegram.Webhook.URL; got != "" {
+		t.Fatalf("relay.telegram.webhook unexpectedly loaded from config.yaml; app-specific file should be used without merge")
 	}
 }
 
