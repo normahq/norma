@@ -63,8 +63,8 @@ type Agent struct {
 	systemInstructions string
 	logger             zerolog.Logger
 	sessionMu          sync.Mutex
-	remoteByADK  map[string]string
-	mcpServers   []acp.McpServer
+	remoteByADK        map[string]string
+	mcpServers         []acp.McpServer
 }
 
 const (
@@ -163,12 +163,6 @@ func (a *Agent) run(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, er
 	return func(yield func(*session.Event, error) bool) {
 		logger := a.invocationLogger(ctx)
 
-		remoteSessionID, err := a.ensureRemoteSession(ctx, logger, ctx.Session().ID())
-		if err != nil {
-			yield(nil, err)
-			return
-		}
-
 		prompt := extractPromptText(ctx.UserContent())
 		if a.systemInstructions != "" {
 			prompt = a.systemInstructions + "\n\n" + prompt
@@ -179,69 +173,104 @@ func (a *Agent) run(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, er
 			return
 		}
 
-		logger.Debug().
-			Str("adk_session_id", ctx.Session().ID()).
-			Str("acp_session_id", remoteSessionID).
-			Int("prompt_len", len(prompt)).
-			Msg("starting adk invocation")
-
-		updates, resultCh, err := a.client.Prompt(ctx, remoteSessionID, prompt)
-		if err != nil {
-			yield(nil, err)
-			return
-		}
-
-		var promptResult *PromptResult
-		for updates != nil || resultCh != nil {
-			select {
-			case <-ctx.Done():
-				yield(nil, ctx.Err())
+		const maxPromptAttempts = 2
+		for attempt := 1; attempt <= maxPromptAttempts; attempt++ {
+			remoteSessionID, err := a.ensureRemoteSession(ctx, logger, ctx.Session().ID())
+			if err != nil {
+				yield(nil, err)
 				return
-			case ext, ok := <-updates:
-				if !ok {
-					updates = nil
-					continue
-				}
-				ev, ok := mapACPUpdateToEvent(logger, ctx.InvocationID(), ext)
-				if !ok {
-					continue
-				}
-				// We log but don't re-mark as partial here as mapACPUpdateToEvent
-				// already set the appropriate Partial flag.
-				a.logADKEvent(logger, ev, "yielding adk event")
-				if !yield(ev, nil) {
-					return
-				}
-			case result, ok := <-resultCh:
-				if !ok {
-					resultCh = nil
-					continue
-				}
-				promptResult = &result
-				resultCh = nil
 			}
-		}
 
-		if promptResult != nil && promptResult.Err != nil {
-			yield(nil, promptResult.Err)
+			logger.Debug().
+				Str("adk_session_id", ctx.Session().ID()).
+				Str("acp_session_id", remoteSessionID).
+				Int("attempt", attempt).
+				Int("prompt_len", len(prompt)).
+				Msg("starting adk invocation")
+
+			updates, resultCh, err := a.client.Prompt(ctx, remoteSessionID, prompt)
+			if err != nil {
+				if attempt < maxPromptAttempts && isACPSessionEntityNotFoundError(err) {
+					a.clearRemoteSession(ctx.Session().ID())
+					logger.Warn().
+						Str("adk_session_id", ctx.Session().ID()).
+						Str("acp_session_id", remoteSessionID).
+						Int("attempt", attempt).
+						Err(err).
+						Msg("acp session not found; retrying with a fresh remote session")
+					continue
+				}
+				yield(nil, err)
+				return
+			}
+
+			var promptResult *PromptResult
+			hadMappedUpdate := false
+			for updates != nil || resultCh != nil {
+				select {
+				case <-ctx.Done():
+					yield(nil, ctx.Err())
+					return
+				case ext, ok := <-updates:
+					if !ok {
+						updates = nil
+						continue
+					}
+					ev, ok := mapACPUpdateToEvent(logger, ctx.InvocationID(), ext)
+					if !ok {
+						continue
+					}
+					hadMappedUpdate = true
+					// We log but don't re-mark as partial here as mapACPUpdateToEvent
+					// already set the appropriate Partial flag.
+					a.logADKEvent(logger, ev, "yielding adk event")
+					if !yield(ev, nil) {
+						return
+					}
+				case result, ok := <-resultCh:
+					if !ok {
+						resultCh = nil
+						continue
+					}
+					promptResult = &result
+					resultCh = nil
+				}
+			}
+
+			if promptResult != nil && promptResult.Err != nil {
+				if attempt < maxPromptAttempts && !hadMappedUpdate && isACPSessionEntityNotFoundError(promptResult.Err) {
+					a.clearRemoteSession(ctx.Session().ID())
+					logger.Warn().
+						Str("adk_session_id", ctx.Session().ID()).
+						Str("acp_session_id", remoteSessionID).
+						Int("attempt", attempt).
+						Err(promptResult.Err).
+						Msg("acp prompt target session not found; retrying with a fresh remote session")
+					continue
+				}
+				yield(nil, promptResult.Err)
+				return
+			}
+
+			logger.Debug().
+				Str("adk_session_id", ctx.Session().ID()).
+				Str("acp_session_id", remoteSessionID).
+				Msg("completed adk invocation")
+
+			ev := session.NewEvent(ctx.InvocationID())
+			if promptResult != nil {
+				ev.FinishReason = mapACPStopReasonToFinishReason(promptResult.Response.StopReason)
+				ev.UsageMetadata = mapACPUsageToUsageMetadata(promptResult.Usage)
+			}
+			ev.TurnComplete = true
+			a.logADKEvent(logger, ev, "yielding final turn complete event")
+			if !yield(ev, nil) {
+				return
+			}
 			return
 		}
 
-		logger.Debug().
-			Str("adk_session_id", ctx.Session().ID()).
-			Str("acp_session_id", remoteSessionID).
-			Msg("completed adk invocation")
-
-		ev := session.NewEvent(ctx.InvocationID())
-		if promptResult != nil {
-			ev.FinishReason = mapACPStopReasonToFinishReason(promptResult.Response.StopReason)
-			ev.UsageMetadata = mapACPUsageToUsageMetadata(promptResult.Usage)
-		}
-		ev.TurnComplete = true
-		a.logADKEvent(logger, ev, "yielding final turn complete event")
-		if !yield(ev, nil) {
-			return
-		}
+		yield(nil, fmt.Errorf("acp prompt failed after %d attempts", maxPromptAttempts))
 	}
 }
 
@@ -339,6 +368,26 @@ func (a *Agent) ensureRemoteSession(ctx context.Context, logger zerolog.Logger, 
 	}
 	event.Msg("created new acp session for adk session")
 	return sessionID, nil
+}
+
+func (a *Agent) clearRemoteSession(adkSessionID string) {
+	if strings.TrimSpace(adkSessionID) == "" {
+		return
+	}
+	a.sessionMu.Lock()
+	defer a.sessionMu.Unlock()
+	delete(a.remoteByADK, adkSessionID)
+}
+
+func isACPSessionEntityNotFoundError(err error) bool {
+	var reqErr *acp.RequestError
+	if !errors.As(err, &reqErr) {
+		return false
+	}
+	if reqErr.Code == -32601 {
+		return false
+	}
+	return strings.Contains(strings.ToLower(reqErr.Message), "requested entity was not found")
 }
 
 func extractPromptText(content *genai.Content) string {

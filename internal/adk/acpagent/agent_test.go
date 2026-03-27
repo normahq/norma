@@ -708,6 +708,44 @@ func TestAgentReusesRemoteSession(t *testing.T) {
 	}
 }
 
+func TestAgentRecoversFromMissingRemoteSessionOnPrompt(t *testing.T) {
+	a, err := New(Config{
+		Context: context.Background(),
+		Command: helperCommandWithEnv(t, map[string]string{
+			"GO_FAIL_FIRST_PROMPT_ENTITY_NOT_FOUND": "1",
+		}),
+		WorkingDir: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = a.Close() }()
+
+	sessionService := session.InMemoryService()
+	r, err := runnerpkg.New(runnerpkg.Config{
+		AppName:        "test-app",
+		Agent:          a,
+		SessionService: sessionService,
+	})
+	if err != nil {
+		t.Fatalf("runner.New() error = %v", err)
+	}
+	sess, err := sessionService.Create(context.Background(), &session.CreateRequest{AppName: "test-app", UserID: "test-user"})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	first := collectFinalText(t, r.Run(context.Background(), "test-user", sess.Session.ID(), genai.NewContentFromText("hello", genai.RoleUser), agent.RunConfig{}))
+	second := collectFinalText(t, r.Run(context.Background(), "test-user", sess.Session.ID(), genai.NewContentFromText("again", genai.RoleUser), agent.RunConfig{}))
+
+	if first != "session-2:hello" {
+		t.Fatalf("first final text = %q, want session-2:hello", first)
+	}
+	if second != "session-2:again" {
+		t.Fatalf("second final text = %q, want session-2:again", second)
+	}
+}
+
 func collectFinalText(t *testing.T, events iter.Seq2[*session.Event, error]) string {
 	t.Helper()
 	var fullText strings.Builder
@@ -1224,6 +1262,7 @@ func runACPHelper(stdin *os.File, stdout *os.File) {
 	scanner := bufio.NewScanner(stdin)
 	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
 	sessionCount := 0
+	promptCount := 0
 	expectedClientName := os.Getenv("GO_EXPECT_CLIENT_NAME")
 	expectedClientVersion := os.Getenv("GO_EXPECT_CLIENT_VERSION")
 	expectedSessionModel := os.Getenv("GO_EXPECT_SESSION_MODEL")
@@ -1232,6 +1271,7 @@ func runACPHelper(stdin *os.File, stdout *os.File) {
 	expectedMCPServersRaw := os.Getenv("GO_EXPECT_MCP_SERVERS_RAW")
 	disableSetModel := os.Getenv("GO_DISABLE_SET_MODEL") == "1"
 	disableSetMode := os.Getenv("GO_DISABLE_SET_MODE") == "1"
+	failFirstPromptEntityNotFound := os.Getenv("GO_FAIL_FIRST_PROMPT_ENTITY_NOT_FOUND") == "1"
 
 	for scanner.Scan() {
 		var msg helperEnvelope
@@ -1352,6 +1392,18 @@ func runACPHelper(stdin *os.File, stdout *os.File) {
 		case acp.AgentMethodSessionPrompt:
 			var req helperPromptRequest
 			must(json.Unmarshal(msg.Params, &req))
+			promptCount++
+			if failFirstPromptEntityNotFound && promptCount == 1 {
+				writeEnvelope(stdout, helperEnvelope{
+					JSONRPC: "2.0",
+					ID:      msg.ID,
+					Error: &helperError{
+						Code:    500,
+						Message: "Requested entity was not found.",
+					},
+				})
+				continue
+			}
 			prompt := req.Prompt[0].Text
 			if strings.HasPrefix(prompt, "slow:") {
 				time.Sleep(150 * time.Millisecond)
