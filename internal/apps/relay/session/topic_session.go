@@ -31,3 +31,7 @@ func (s *TopicSession) GetSessionID() string {
 func (s *TopicSession) GetWorkspaceDir() string {
 	return s.workspaceDir
 }
+
+func (s *TopicSession) GetAgentName() string {
+	return s.agentName
+}

@@ -6,6 +6,8 @@ Command:
 
 ```bash
 norma tool codex-acp-bridge
+# or when using standalone relay binary:
+relay tool codex-acp-bridge
 ```
 
 ## Why this exists

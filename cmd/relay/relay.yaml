@@ -3,8 +3,8 @@
 # Example: RELAY_TELEGRAM_TOKEN=my-token
 
 relay:
-  # Agent id from runtime agents registry used for main chat orchestration.
-  orchestrator_agent: ""
+  # Agent id from runtime agents registry used for root chat orchestration.
+  root_agent: ""
 
   telegram:
     # Telegram bot token (required)

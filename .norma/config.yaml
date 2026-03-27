@@ -3,7 +3,7 @@ norma:
     fl:
       type: gemini_acp
       gemini_acp:
-        model: gemini-3.1-flash-lite-preview
+        model: gemini-3-flash-preview
     gemini:
       type: gemini_acp
       gemini_acp:
@@ -71,4 +71,4 @@ cli:
 profiles:
   default:
     relay:
-      orchestrator_agent: fl
+      root_agent: opencode

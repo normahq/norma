@@ -708,7 +708,7 @@ func TestAgentReusesRemoteSession(t *testing.T) {
 	}
 }
 
-func TestAgentRecoversFromMissingRemoteSessionOnPrompt(t *testing.T) {
+func TestAgentFailsFastOnMissingRemoteSessionDuringPrompt(t *testing.T) {
 	a, err := New(Config{
 		Context: context.Background(),
 		Command: helperCommandWithEnv(t, map[string]string{
@@ -735,14 +735,22 @@ func TestAgentRecoversFromMissingRemoteSessionOnPrompt(t *testing.T) {
 		t.Fatalf("Create() error = %v", err)
 	}
 
-	first := collectFinalText(t, r.Run(context.Background(), "test-user", sess.Session.ID(), genai.NewContentFromText("hello", genai.RoleUser), agent.RunConfig{}))
-	second := collectFinalText(t, r.Run(context.Background(), "test-user", sess.Session.ID(), genai.NewContentFromText("again", genai.RoleUser), agent.RunConfig{}))
-
-	if first != "session-2:hello" {
-		t.Fatalf("first final text = %q, want session-2:hello", first)
+	var firstRunErr error
+	for _, runErr := range r.Run(context.Background(), "test-user", sess.Session.ID(), genai.NewContentFromText("hello", genai.RoleUser), agent.RunConfig{}) {
+		if runErr != nil {
+			firstRunErr = runErr
+		}
 	}
-	if second != "session-2:again" {
-		t.Fatalf("second final text = %q, want session-2:again", second)
+	if firstRunErr == nil {
+		t.Fatal("first run error = nil, want prompt error")
+	}
+	if got := firstRunErr.Error(); !strings.Contains(got, "Requested entity was not found") {
+		t.Fatalf("first run error = %q, want missing-entity error", got)
+	}
+
+	second := collectFinalText(t, r.Run(context.Background(), "test-user", sess.Session.ID(), genai.NewContentFromText("again", genai.RoleUser), agent.RunConfig{}))
+	if second != "session-1:again" {
+		t.Fatalf("second final text = %q, want session-1:again", second)
 	}
 }
 

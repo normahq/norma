@@ -93,6 +93,7 @@ func (b *Builder) Build(ctx context.Context, sessionID string, chatID int64, top
 		Description:       b.buildAgentDescription(agentName),
 		WorkingDirectory:  workspaceDir,
 		SystemInstruction: b.buildRelaySystemInstruction(sessionID, agentName, branchName, workspaceDir),
+		MCPServerIDs:      b.buildAgentMCPServerIDs(agentName),
 	}
 
 	ag, err := b.factory.Build(ctx, req)
@@ -145,7 +146,50 @@ func (b *Builder) buildAgentDescription(agentName string) string {
 func (b *Builder) GetAgentInfo(agentName string) (description string, mcpServers []string) {
 	agentCfg, ok := b.normaCfg.Agents[agentName]
 	if !ok {
-		return agentName, nil
+		return agentName, bundledMCPServerIDs(b.workspaceEnabled)
 	}
-	return agentCfg.Description(agentName), agentCfg.MCPServers
+	return agentCfg.Description(agentName), mergeMCPServerIDs(agentCfg.MCPServers, b.workspaceEnabled)
+}
+
+func (b *Builder) buildAgentMCPServerIDs(agentName string) []string {
+	agentCfg, ok := b.normaCfg.Agents[agentName]
+	if !ok {
+		return bundledMCPServerIDs(b.workspaceEnabled)
+	}
+	return mergeMCPServerIDs(agentCfg.MCPServers, b.workspaceEnabled)
+}
+
+func bundledMCPServerIDs(workspaceEnabled bool) []string {
+	servers := []string{"norma.config", "norma.state", "norma.relay"}
+	if workspaceEnabled {
+		servers = append(servers, "norma.workspace")
+	}
+	return servers
+}
+
+func mergeMCPServerIDs(explicit []string, workspaceEnabled bool) []string {
+	base := bundledMCPServerIDs(workspaceEnabled)
+	out := make([]string, 0, len(base)+len(explicit))
+	seen := make(map[string]struct{}, len(base)+len(explicit))
+
+	appendUnique := func(id string) {
+		trimmed := strings.TrimSpace(id)
+		if trimmed == "" {
+			return
+		}
+		if _, ok := seen[trimmed]; ok {
+			return
+		}
+		seen[trimmed] = struct{}{}
+		out = append(out, trimmed)
+	}
+
+	for _, id := range base {
+		appendUnique(id)
+	}
+	for _, id := range explicit {
+		appendUnique(id)
+	}
+
+	return out
 }

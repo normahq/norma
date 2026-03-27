@@ -3,14 +3,19 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/normahq/norma/internal/adk/agentconfig"
 	"github.com/normahq/norma/internal/adk/mcpregistry"
 	"github.com/normahq/norma/internal/apps/configmcp"
+	"github.com/normahq/norma/internal/apps/relay/messenger"
 	"github.com/normahq/norma/internal/apps/relay/session"
 	"github.com/normahq/norma/internal/apps/relaymcp"
 	"github.com/normahq/norma/internal/apps/sessionmcp"
@@ -29,9 +34,17 @@ type InternalMCPManager struct {
 	registry         mcpregistry.Registry
 	workingDir       string
 	sessionManager   *session.Manager
+	messenger        *messenger.Messenger
 	stateStore       sessionmcp.Store
 	cleanups         []func() error
 }
+
+const (
+	bundledConfigServerID    = "norma.config"
+	bundledStateServerID     = "norma.state"
+	bundledRelayServerID     = "norma.relay"
+	bundledWorkspaceServerID = "norma.workspace"
+)
 
 type internalMCPParams struct {
 	fx.In
@@ -43,6 +56,7 @@ type internalMCPParams struct {
 	Registry         *mcpregistry.MapRegistry
 	WorkingDir       string
 	SessionManager   *session.Manager
+	Messenger        *messenger.Messenger
 	StateStore       sessionmcp.Store
 	RelayMCPAddr     string `name:"relay_mcp_addr" optional:"true"`
 }
@@ -56,6 +70,7 @@ func NewInternalMCPManager(params internalMCPParams) *InternalMCPManager {
 		registry:         params.Registry,
 		workingDir:       params.WorkingDir,
 		sessionManager:   params.SessionManager,
+		messenger:        params.Messenger,
 		stateStore:       params.StateStore,
 	}
 
@@ -106,85 +121,159 @@ func (m *InternalMCPManager) ensureBundledServers(ctx context.Context, relayMCPA
 		return fmt.Errorf("relay state store is required")
 	}
 
+	handlersByID := make(map[string]http.Handler, 4)
+	routes := make([]string, 0, 5)
+
 	// norma.config
-	if _, ok := m.registry.Get("norma.config"); !ok {
+	if _, ok := m.registry.Get(bundledConfigServerID); !ok {
 		configPath := selectConfigPath(m.workingDir, "relay")
 		svc, err := configmcp.NewConfigService(configPath)
 		if err != nil {
 			m.logger.Warn().Err(err).Msg("failed to create config service")
 		} else {
-			res, err := configmcp.StartHTTPServer(ctx, svc, "127.0.0.1:0")
+			server, err := configmcp.NewServer(svc)
 			if err != nil {
-				return fmt.Errorf("starting bundled config MCP: %w", err)
+				return fmt.Errorf("build bundled config MCP server: %w", err)
 			}
-			m.logger.Info().Str("addr", res.Addr).Msg("bundled norma.config server started")
-			m.registry.Set("norma.config", agentconfig.MCPServerConfig{
-				Type: agentconfig.MCPServerTypeHTTP,
-				URL:  fmt.Sprintf("http://%s/mcp", res.Addr),
-			})
-			m.addCleanup(res.Close)
+			handlersByID[bundledConfigServerID] = streamableHandlerForServer(server)
+			routes = append(routes, bundledRoutePath(bundledConfigServerID))
 		}
 	}
 
 	// norma.state
-	if _, ok := m.registry.Get("norma.state"); !ok {
-		res, err := sessionmcp.StartHTTPServer(ctx, m.stateStore, "127.0.0.1:0")
+	if _, ok := m.registry.Get(bundledStateServerID); !ok {
+		server, err := sessionmcp.NewServer(m.stateStore)
 		if err != nil {
-			return fmt.Errorf("starting bundled state MCP: %w", err)
+			return fmt.Errorf("build bundled state MCP server: %w", err)
 		}
-		m.logger.Info().Str("addr", res.Addr).Msg("bundled norma.state server started")
-		m.registry.Set("norma.state", agentconfig.MCPServerConfig{
-			Type: agentconfig.MCPServerTypeHTTP,
-			URL:  fmt.Sprintf("http://%s/mcp", res.Addr),
-		})
-		m.addCleanup(res.Close)
+		handlersByID[bundledStateServerID] = streamableHandlerForServer(server)
+		routes = append(routes, bundledRoutePath(bundledStateServerID))
 	}
 
 	// norma.relay
-	if _, ok := m.registry.Get("norma.relay"); !ok || relayMCPAddr != "" {
+	if _, ok := m.registry.Get(bundledRelayServerID); !ok || relayMCPAddr != "" {
 		// If it's already in factory but relayMCPAddr is set, it means it was configured in app.go
 		// and we should start it on that address.
 		// If it's NOT in factory, we start it on a random port.
-		addr := relayMCPAddr
-		if addr == "" {
-			addr = "127.0.0.1:0"
-		}
-
-		svc := session.NewRelayMCPServer(m.sessionManager)
-		res, err := relaymcp.StartHTTPServer(ctx, svc, addr)
+		svc := session.NewRelayMCPServer(m.sessionManager, m.messenger)
+		server, err := relaymcp.NewServer(svc)
 		if err != nil {
-			return fmt.Errorf("starting bundled relay MCP: %w", err)
+			return fmt.Errorf("build bundled relay MCP server: %w", err)
 		}
-		m.logger.Info().Str("addr", res.Addr).Msg("bundled norma.relay server started")
-
-		// Always update factory with actual address (especially if it was random)
-		m.registry.Set("norma.relay", agentconfig.MCPServerConfig{
-			Type: agentconfig.MCPServerTypeHTTP,
-			URL:  fmt.Sprintf("http://%s/mcp", res.Addr),
-		})
-		m.addCleanup(res.Close)
+		handlersByID[bundledRelayServerID] = streamableHandlerForServer(server)
+		routes = append(routes, bundledRoutePath(bundledRelayServerID), "/mcp")
 	}
 
 	// norma.workspace
 	if m.workspaceEnabled {
-		if _, ok := m.registry.Get("norma.workspace"); !ok {
+		if _, ok := m.registry.Get(bundledWorkspaceServerID); !ok {
 			svc := session.NewWorkspaceMCPServer(m.sessionManager)
-			res, err := workspacemcp.StartHTTPServer(ctx, svc, "127.0.0.1:0")
+			server, err := workspacemcp.NewServer(svc)
 			if err != nil {
-				return fmt.Errorf("starting bundled workspace MCP: %w", err)
+				return fmt.Errorf("build bundled workspace MCP server: %w", err)
 			}
-			m.logger.Info().Str("addr", res.Addr).Msg("bundled norma.workspace server started")
-			m.registry.Set("norma.workspace", agentconfig.MCPServerConfig{
-				Type: agentconfig.MCPServerTypeHTTP,
-				URL:  fmt.Sprintf("http://%s/mcp", res.Addr),
-			})
-			m.addCleanup(res.Close)
+			handlersByID[bundledWorkspaceServerID] = streamableHandlerForServer(server)
+			routes = append(routes, bundledRoutePath(bundledWorkspaceServerID))
 		}
 	} else {
-		m.logger.Info().Msg("workspace mode disabled; skipping bundled norma.workspace server")
+		m.logger.Info().Msg("workspace mode disabled; skipping bundled workspace server")
 	}
 
+	if len(handlersByID) == 0 {
+		return nil
+	}
+
+	listenAddr := strings.TrimSpace(relayMCPAddr)
+	if listenAddr == "" {
+		listenAddr = "127.0.0.1:0"
+	}
+
+	res, err := startBundledMCPHTTPServer(ctx, listenAddr, handlersByID)
+	if err != nil {
+		return fmt.Errorf("start bundled MCP listener: %w", err)
+	}
+	m.addCleanup(res.Close)
+
+	ids := make([]string, 0, len(handlersByID))
+	for id := range handlersByID {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		m.registry.Set(id, agentconfig.MCPServerConfig{
+			Type: agentconfig.MCPServerTypeHTTP,
+			URL:  bundledRegistryURL(res.Addr, id),
+		})
+	}
+
+	sort.Strings(routes)
+	m.logger.Info().
+		Str("addr", res.Addr).
+		Str("routes", strings.Join(routes, ", ")).
+		Msg("bundled MCP listener started")
+
 	return nil
+}
+
+func streamableHandlerForServer(server *mcp.Server) http.Handler {
+	return mcp.NewStreamableHTTPHandler(func(_ *http.Request) *mcp.Server { return server }, &mcp.StreamableHTTPOptions{})
+}
+
+func bundledRoutePath(serverID string) string {
+	return "/mcp/" + serverID
+}
+
+func bundledRegistryURL(addr, serverID string) string {
+	if serverID == bundledRelayServerID {
+		return fmt.Sprintf("http://%s/mcp", addr)
+	}
+	return fmt.Sprintf("http://%s%s", addr, bundledRoutePath(serverID))
+}
+
+type bundledHTTPServerResult struct {
+	Addr  string
+	Close func() error
+}
+
+func startBundledMCPHTTPServer(ctx context.Context, addr string, handlersByID map[string]http.Handler) (*bundledHTTPServerResult, error) {
+	mux := http.NewServeMux()
+
+	ids := make([]string, 0, len(handlersByID))
+	for id := range handlersByID {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+
+	for _, id := range ids {
+		handler := handlersByID[id]
+		mux.Handle(bundledRoutePath(id), handler)
+		if id == bundledRelayServerID {
+			mux.Handle("/mcp", handler)
+		}
+	}
+
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return nil, fmt.Errorf("listen on %q: %w", addr, err)
+	}
+
+	httpServer := &http.Server{Handler: mux}
+
+	go func() {
+		<-ctx.Done()
+		_ = httpServer.Close()
+	}()
+
+	go func() {
+		_ = httpServer.Serve(listener)
+	}()
+
+	return &bundledHTTPServerResult{
+		Addr: listener.Addr().String(),
+		Close: func() error {
+			return httpServer.Close()
+		},
+	}, nil
 }
 
 func selectConfigPath(workDir, appName string) string {
@@ -203,7 +292,7 @@ func (m *InternalMCPManager) addCleanup(f func() error) {
 
 func isBundled(id string) bool {
 	switch id {
-	case "norma.config", "norma.state", "norma.relay", "norma.workspace":
+	case bundledConfigServerID, bundledStateServerID, bundledRelayServerID, bundledWorkspaceServerID:
 		return true
 	default:
 		return false

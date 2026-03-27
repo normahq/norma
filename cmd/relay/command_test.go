@@ -35,7 +35,7 @@ cli:
 profiles:
   default:
     relay:
-      orchestrator_agent: relay_agent
+      root_agent: relay_agent
 `); err != nil {
 		t.Fatalf("write relay.yaml: %v", err)
 	}
@@ -58,15 +58,15 @@ profiles:
 
 	relayCfg := relayapp.Config{Relay: doc.Relay}
 
-	if relayCfg.Relay.OrchestratorAgent != "relay_agent" {
-		t.Fatalf("orchestrator_agent = %q, want relay_agent", relayCfg.Relay.OrchestratorAgent)
+	if relayCfg.Relay.RootAgent != "relay_agent" {
+		t.Fatalf("root_agent = %q, want relay_agent", relayCfg.Relay.RootAgent)
 	}
 	if !relayCfg.Relay.Telegram.Webhook.Enabled {
 		t.Fatal("webhook.enabled = false, want true from env override")
 	}
 }
 
-func TestNewRootCommand_RegistersServeAndFlags(t *testing.T) {
+func TestNewRootCommand_RegistersCommandsAndFlags(t *testing.T) {
 	t.Setenv("GOOGLE_API_KEY", "test-google-api-key")
 
 	cmd, err := newRootCommand()
@@ -76,6 +76,12 @@ func TestNewRootCommand_RegistersServeAndFlags(t *testing.T) {
 
 	if _, _, err := cmd.Find([]string{"serve"}); err != nil {
 		t.Fatalf("serve command missing: %v", err)
+	}
+	if _, _, err := cmd.Find([]string{"tool"}); err != nil {
+		t.Fatalf("tool command missing: %v", err)
+	}
+	if _, _, err := cmd.Find([]string{"tool", "codex-acp-bridge"}); err != nil {
+		t.Fatalf("tool codex-acp-bridge command missing: %v", err)
 	}
 
 	for _, name := range []string{"config-dir", "profile", "debug", "trace"} {

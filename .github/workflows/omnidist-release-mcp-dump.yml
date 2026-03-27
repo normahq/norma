@@ -21,9 +21,9 @@ jobs:
       - name: Build artifacts
         run: omnidist --profile 'mcp-dump' build
       - name: Stage artifacts
-        run: omnidist --profile 'mcp-dump' stage
+        run: omnidist --profile 'mcp-dump' npm stage
       - name: Verify artifacts
-        run: omnidist --profile 'mcp-dump' verify
+        run: omnidist --profile 'mcp-dump' npm verify
       - name: Pack staged artifacts
         run: tar -czf omnidist-staged.tgz .omnidist/mcp-dump
       - name: Upload staged artifacts

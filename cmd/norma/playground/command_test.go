@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	acpcmd "github.com/normahq/norma/cmd/norma/playground/acp"
@@ -267,11 +268,11 @@ type acpREPLRunner func(ctx context.Context, repoRoot string, input io.Reader, s
 
 func testACPSessionReuseInREPL(t *testing.T, runner acpREPLRunner) {
 	t.Helper()
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
+	stdout := &lockedBuffer{}
+	stderr := &lockedBuffer{}
 
 	input := strings.NewReader("first\nsecond\nquit\n")
-	err := runner(context.Background(), t.TempDir(), input, &stdout, &stderr)
+	err := runner(context.Background(), t.TempDir(), input, stdout, stderr)
 	if err != nil {
 		t.Fatalf("ACP runner error = %v", err)
 	}
@@ -288,6 +289,23 @@ func testACPSessionReuseInREPL(t *testing.T, runner acpREPLRunner) {
 	if got := stderr.String(); !strings.Contains(got, "starting interactive REPL") {
 		t.Fatalf("stderr = %q, want repl lifecycle log entry", got)
 	}
+}
+
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
 }
 
 func TestRunACPInfoHuman(t *testing.T) {

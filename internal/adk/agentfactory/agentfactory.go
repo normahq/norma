@@ -20,11 +20,12 @@ import (
 
 // BuildRequest defines the parameters for building a new agent instance.
 type BuildRequest struct {
-	AgentID           string `json:"agent_id" validate:"required,min=1"`
-	Name              string `json:"name,omitempty"`
-	Description       string `json:"description,omitempty"`
-	SystemInstruction string `json:"system_instruction,omitempty"`
-	WorkingDirectory  string `json:"working_directory" validate:"required,min=1"`
+	AgentID           string   `json:"agent_id" validate:"required,min=1"`
+	Name              string   `json:"name,omitempty"`
+	Description       string   `json:"description,omitempty"`
+	SystemInstruction string   `json:"system_instruction,omitempty"`
+	WorkingDirectory  string   `json:"working_directory" validate:"required,min=1"`
+	MCPServerIDs      []string `json:"mcp_server_ids,omitempty"`
 }
 
 var buildRequestValidator = newBuildRequestValidator()
@@ -165,7 +166,12 @@ func (f *Factory) Build(ctx context.Context, req BuildRequest) (agent.Agent, err
 		return nil, fmt.Errorf("unsupported agent type %q for agent %q", cfg.Type, req.AgentID)
 	}
 
-	resolvedMCP, err := f.resolveMCPServers(req.AgentID, cfg.MCPServers)
+	mcpServerIDs := cfg.MCPServers
+	if req.MCPServerIDs != nil {
+		mcpServerIDs = req.MCPServerIDs
+	}
+
+	resolvedMCP, err := f.resolveMCPServers(req.AgentID, mcpServerIDs)
 	if err != nil {
 		return nil, err
 	}

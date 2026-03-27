@@ -11,8 +11,8 @@ import (
 type relayConfigDocumentForTest struct {
 	Norma runtimeconfig.NormaConfig `mapstructure:"norma"`
 	Relay struct {
-		OrchestratorAgent string `mapstructure:"orchestrator_agent"`
-		Telegram          struct {
+		RootAgent string `mapstructure:"root_agent"`
+		Telegram  struct {
 			Webhook struct {
 				URL     string `mapstructure:"url"`
 				Enabled bool   `mapstructure:"enabled"`
@@ -95,7 +95,7 @@ cli:
     check: agent
     act: agent
 relay:
-  orchestrator_agent: from_relay_file
+  root_agent: from_relay_file
 profiles:
   default:
     relay:
@@ -123,8 +123,8 @@ profiles:
 		t.Fatalf("LoadConfigDocument: %v", err)
 	}
 
-	if got := doc.Relay.OrchestratorAgent; got != "from_relay_file" {
-		t.Fatalf("orchestrator_agent = %q, want from_relay_file", got)
+	if got := doc.Relay.RootAgent; got != "from_relay_file" {
+		t.Fatalf("root_agent = %q, want from_relay_file", got)
 	}
 	if got := doc.Relay.Telegram.Webhook.URL; got != "https://example.com/webhook" {
 		t.Fatalf("telegram.webhook.url = %q, want https://example.com/webhook", got)
@@ -153,7 +153,7 @@ cli:
     check: agent
     act: agent
 relay:
-  orchestrator_agent: from_core_file
+  root_agent: from_core_file
 `); err != nil {
 		t.Fatalf("write core config: %v", err)
 	}
@@ -170,7 +170,7 @@ cli:
     check: agent
     act: agent
 relay:
-  orchestrator_agent: from_relay_file
+  root_agent: from_relay_file
 `); err != nil {
 		t.Fatalf("write relay config: %v", err)
 	}
@@ -185,8 +185,8 @@ relay:
 		t.Fatalf("LoadConfigDocument: %v", err)
 	}
 
-	if got := doc.Relay.OrchestratorAgent; got != "from_relay_file" {
-		t.Fatalf("orchestrator_agent = %q, want from_relay_file", got)
+	if got := doc.Relay.RootAgent; got != "from_relay_file" {
+		t.Fatalf("root_agent = %q, want from_relay_file", got)
 	}
 	if got := doc.Relay.Telegram.Webhook.URL; got != "" {
 		t.Fatalf("relay.telegram.webhook unexpectedly loaded from config.yaml; app-specific file should be used without merge")
@@ -209,7 +209,7 @@ cli:
     check: agent
     act: agent
 relay:
-  orchestrator_agent: from_core_file
+  root_agent: from_core_file
 `); err != nil {
 		t.Fatalf("write core config: %v", err)
 	}
@@ -224,8 +224,8 @@ relay:
 		t.Fatalf("LoadConfigDocument: %v", err)
 	}
 
-	if got := doc.Relay.OrchestratorAgent; got != "from_core_file" {
-		t.Fatalf("orchestrator_agent = %q, want from_core_file", got)
+	if got := doc.Relay.RootAgent; got != "from_core_file" {
+		t.Fatalf("root_agent = %q, want from_core_file", got)
 	}
 }
 

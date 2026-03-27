@@ -5,7 +5,7 @@
 ## Summary
 
 - Runtime stack: `tgbotkit/runtime` + Google ADK runners.
-- Main agent: relay app key `relay.orchestrator_agent` (profile overrides via `profiles.<profile>.relay.orchestrator_agent`).
+- Main agent: relay app key `relay.root_agent` (profile overrides via `profiles.<profile>.relay.root_agent`).
 - Subagents: one session per Telegram topic (`message_thread_id`) with dedicated git worktree.
 - Output streaming: dual `sendMessageDraft` channels.
   - Response channel: MarkdownV2 escaped text.
@@ -18,7 +18,7 @@ Relay startup order is strict:
 
 1. Load Norma + relay config.
 2. Start internal MCP lifecycle manager.
-3. Start relay orchestrator agent via `agentfactory.Factory`.
+3. Start relay root agent via `agentfactory.Factory`.
 4. Start Telegram runtime receiver.
 
 Internal MCP v1 scope is config + lifecycle plumbing; server implementations can be added incrementally.
@@ -48,7 +48,12 @@ Relay config is merged from:
   - Stores owner/app KV, `norma.state` MCP KV, session metadata, and Telegram polling offset.
   - Relative paths are resolved from `relay.working_dir`.
 - `relay.auth.owner_token`: generated at runtime per server start
-- `relay.mcp.address`: optional relay MCP HTTP endpoint
+- `relay.mcp.address`: optional bind address for the shared bundled MCP HTTP listener
+  - Bundled routes on this listener:
+    - `/mcp` and `/mcp/norma.relay` for relay MCP
+    - `/mcp/norma.config`
+    - `/mcp/norma.state`
+    - `/mcp/norma.workspace` (when workspace mode is enabled)
 - `relay.workspace.mode`: `on|off|auto` (default `auto`)
   - `on`: always use Git worktrees per session; startup fails if `working_dir` is not a Git repository
   - `off`: run agents directly in relay `working_dir` (no `norma.workspace` MCP)

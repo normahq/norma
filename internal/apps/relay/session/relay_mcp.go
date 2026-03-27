@@ -4,21 +4,25 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/normahq/norma/internal/apps/relay/messenger"
+	relaywelcome "github.com/normahq/norma/internal/apps/relay/welcome"
 	"github.com/normahq/norma/internal/apps/relaymcp"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
 
 type relayMCPServer struct {
-	manager *Manager
-	logger  zerolog.Logger
+	manager   *Manager
+	messenger *messenger.Messenger
+	logger    zerolog.Logger
 }
 
 // NewRelayMCPServer wraps a session Manager as a RelayService.
-func NewRelayMCPServer(manager *Manager) relaymcp.RelayService {
+func NewRelayMCPServer(manager *Manager, msg *messenger.Messenger) relaymcp.RelayService {
 	return &relayMCPServer{
-		manager: manager,
-		logger:  log.With().Str("component", "relay.mcp").Logger(),
+		manager:   manager,
+		messenger: msg,
+		logger:    log.With().Str("component", "relay.mcp").Logger(),
 	}
 }
 
@@ -37,6 +41,20 @@ func (s *relayMCPServer) StartAgent(ctx context.Context, chatID int64, agentName
 			Msg("MCP: StartAgent failed")
 		return relaymcp.AgentInfo{}, err
 	}
+	agentDesc, mcpServers := s.manager.GetAgentInfo(agentName)
+
+	if s.messenger != nil {
+		welcomeMsg := relaywelcome.BuildAgentWelcomeMessage(agentName, sessionID, agentDesc, mcpServers)
+		if sendErr := s.messenger.SendMarkdown(ctx, chatID, welcomeMsg, topicID); sendErr != nil {
+			s.logger.Warn().
+				Err(sendErr).
+				Int64("chat_id", chatID).
+				Int("topic_id", topicID).
+				Str("agent", agentName).
+				Str("session_id", sessionID).
+				Msg("MCP: failed to send welcome message to topic")
+		}
+	}
 
 	s.logger.Info().
 		Int64("chat_id", chatID).
@@ -46,10 +64,12 @@ func (s *relayMCPServer) StartAgent(ctx context.Context, chatID int64, agentName
 		Msg("MCP: StartAgent succeeded")
 
 	return relaymcp.AgentInfo{
-		SessionID: sessionID,
-		AgentName: agentName,
-		ChatID:    chatID,
-		TopicID:   topicID,
+		SessionID:   sessionID,
+		AgentName:   agentName,
+		ChatID:      chatID,
+		TopicID:     topicID,
+		Description: agentDesc,
+		MCPServers:  mcpServers,
 	}, nil
 }
 

@@ -152,9 +152,9 @@ func Module(cfg Config, normaCfg runtimeconfig.NormaConfig) fx.Option {
 		fx.Provide(
 			fx.Annotate(
 				func() string {
-					return cfg.Relay.OrchestratorAgent
+					return cfg.Relay.RootAgent
 				},
-				fx.ResultTags(`name:"relay_agent_name"`),
+				fx.ResultTags(`name:"relay_root_agent"`),
 			),
 		),
 		fx.Provide(func(provider relaystate.Provider) (*auth.OwnerStore, error) {

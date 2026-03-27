@@ -6,7 +6,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/normahq/norma/internal/adk/agentconfig"
 	"github.com/normahq/norma/internal/apps/relay/auth"
 	"github.com/normahq/norma/internal/apps/relay/messenger"
 	relaysession "github.com/normahq/norma/internal/apps/relay/session"
@@ -29,7 +28,7 @@ type RelayHandler struct {
 	messenger      *messenger.Messenger
 	tgClient       client.ClientWithResponsesInterface
 	authToken      string
-	relayAgentName string
+	rootAgentName  string
 	normaCfg       runtimeconfig.NormaConfig
 	logger         zerolog.Logger
 
@@ -48,7 +47,7 @@ type relayHandlerDeps struct {
 	Messenger          *messenger.Messenger
 	TGClient           client.ClientWithResponsesInterface
 	AuthToken          string `name:"relay_auth_token"`
-	RelayAgentName     string `name:"relay_agent_name"`
+	RootAgentName      string `name:"relay_root_agent"`
 	NormaCfg           runtimeconfig.NormaConfig
 	Logger             zerolog.Logger
 	InternalMCPManager *InternalMCPManager `optional:"true"`
@@ -61,15 +60,14 @@ func NewRelayHandler(deps relayHandlerDeps) (*RelayHandler, error) {
 		messenger:      deps.Messenger,
 		tgClient:       deps.TGClient,
 		authToken:      strings.TrimSpace(deps.AuthToken),
-		relayAgentName: strings.TrimSpace(deps.RelayAgentName),
+		rootAgentName:  strings.TrimSpace(deps.RootAgentName),
 		normaCfg:       deps.NormaCfg,
 		logger:         deps.Logger.With().Str("component", "relay.handler").Logger(),
 	}
 
 	deps.LC.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
-			h.onStart(ctx)
-			return nil
+			return h.onStart(ctx)
 		},
 	})
 
@@ -149,20 +147,29 @@ func (h *RelayHandler) onMessage(ctx context.Context, event *events.MessageEvent
 	var err error
 
 	if topicID == 0 {
-		// Main orchestrator: ensure session exists using relay agent from config
+		// Main root session: always create/ensure from current relay config.
+		if h.rootAgentName == "" {
+			_ = h.messenger.SendPlain(ctx, chatID, "Relay root agent is not configured (`relay.root_agent`). Please close this chat and restart relay.", topicID)
+			return nil
+		}
+
 		// Check if session already exists to avoid sending spinning message again
 		existingSession, _ := h.sessionManager.GetSession(chatID, topicID)
 		if existingSession == nil {
 			// Send spinning message for on-demand creation
-			if agentCfg, ok := h.normaCfg.Agents[h.relayAgentName]; ok {
-				spinningMsg := h.buildSpinningMessage(h.relayAgentName, agentCfg)
-				_ = h.messenger.SendPlain(ctx, chatID, spinningMsg, topicID)
-			}
+			agentDesc, mcpServers := h.sessionManager.GetAgentInfo(h.rootAgentName)
+			spinningMsg := BuildAgentWelcomeMessage(h.rootAgentName, "", agentDesc, mcpServers)
+			_ = h.messenger.SendMarkdown(ctx, chatID, spinningMsg, topicID)
 		}
-		ts, err = h.sessionManager.EnsureSession(ctx, chatID, topicID, h.relayAgentName)
+		ts, err = h.sessionManager.EnsureSession(ctx, chatID, topicID, h.rootAgentName)
 		if err != nil {
-			log.Error().Err(err).Str("agent", h.relayAgentName).Msg("Failed to ensure orchestrator session")
-			_ = h.messenger.SendPlain(ctx, chatID, fmt.Sprintf("Failed to start orchestrator: %v", err), topicID)
+			log.Error().Err(err).Str("agent", h.rootAgentName).Msg("failed to ensure root session")
+			_ = h.messenger.SendPlain(
+				ctx,
+				chatID,
+				fmt.Sprintf("Failed to start root session: %v.\n\nPlease close this chat and start again.", err),
+				topicID,
+			)
 			return nil
 		}
 	} else {
@@ -172,19 +179,31 @@ func (h *RelayHandler) onMessage(ctx context.Context, event *events.MessageEvent
 			_ = h.messenger.SendPlain(ctx, chatID, "Restoring agent session...", topicID)
 			ts, err = h.sessionManager.RestoreSession(ctx, chatID, topicID)
 			if err != nil {
-				log.Warn().Err(err).Int("topic_id", topicID).Msg("No session found, closing topic")
-				h.sessionManager.CloseTopic(ctx, chatID, topicID)
-				_ = h.messenger.SendPlain(ctx, chatID, "Agent unavailable. Use /new to start a new session.", topicID)
+				log.Warn().Err(err).Int("topic_id", topicID).Msg("failed to restore topic session")
+				_ = h.messenger.SendPlain(
+					ctx,
+					chatID,
+					fmt.Sprintf("Failed to restore this session: %v.\n\nPlease close this chat topic and create a new session with /new <agent_name>.", err),
+					topicID,
+				)
 				return nil
 			}
-			_ = h.messenger.SendPlain(ctx, chatID, "Done", topicID)
+			// Send welcome message with agent info after restore
+			agentDesc, mcpServers := h.sessionManager.GetAgentInfo(ts.GetAgentName())
+			sessionID := ts.GetSessionID()
+			welcomeMsg := BuildAgentWelcomeMessage(ts.GetAgentName(), sessionID, agentDesc, mcpServers)
+			_ = h.messenger.SendMarkdown(ctx, chatID, welcomeMsg, topicID)
 		}
 	}
 
 	// Run turn
 	if err := h.runTurn(ctx, text, ts.GetRunner(), ts.GetSessionID(), chatID, topicID, event.Message.MessageId); err != nil {
 		log.Error().Err(err).Int("topic_id", topicID).Msg("Agent execution failed")
-		if sendErr := h.messenger.SendPlain(ctx, chatID, fmt.Sprintf("Error: %v", err), topicID); sendErr != nil {
+		errText := fmt.Sprintf("Agent execution failed: %v.\n\nPlease close this chat and start a new session.", err)
+		if topicID > 0 {
+			errText = fmt.Sprintf("Agent execution failed: %v.\n\nPlease close this chat topic and create a new session with /new <agent_name>.", err)
+		}
+		if sendErr := h.messenger.SendPlain(ctx, chatID, errText, topicID); sendErr != nil {
 			log.Warn().Err(sendErr).Int("topic_id", topicID).Msg("failed to send relay error message")
 		}
 	}
@@ -197,11 +216,19 @@ func (h *RelayHandler) runTurn(ctx context.Context, text string, r *runner.Runne
 	userID := fmt.Sprintf("relay-%d-%d", chatID, topicID)
 	draftID := messageID + 1
 
+	runCtx := zerolog.Ctx(ctx).With().
+		Int64("chat_id", chatID).
+		Int("topic_id", topicID).
+		Str("session_id", sessionID).
+		Str("relay_user_id", userID).
+		Logger().
+		WithContext(ctx)
+
 	var result strings.Builder
 	thinkingStages := []string{"Thinking.", "Thinking..", "Thinking..."}
 	thinkingIdx := 0
 
-	for ev, err := range r.Run(ctx, userID, sessionID, userContent, agent.RunConfig{}) {
+	for ev, err := range r.Run(runCtx, userID, sessionID, userContent, agent.RunConfig{}) {
 		if err != nil {
 			return fmt.Errorf("agent run: %w", err)
 		}
@@ -269,29 +296,33 @@ func hasCommandEntity(msg *client.Message) bool {
 	return false
 }
 
-func (h *RelayHandler) onStart(ctx context.Context) {
+func (h *RelayHandler) onStart(ctx context.Context) error {
 	h.initializeBotUsername(ctx)
 
 	if !h.ownerStore.HasOwner() {
-		return
+		return nil
 	}
 	owner := h.ownerStore.GetOwner()
 	if owner == nil {
-		return
+		return nil
+	}
+	if owner.ChatID == 0 {
+		return fmt.Errorf("owner.chat_id is required for relay startup; run /start to bind owner chat")
 	}
 
 	h.SetOwner(owner.UserID, owner.ChatID)
 
-	// Precreate orchestrator session synchronously if chatID is known
-	if owner.ChatID != 0 {
-		h.ensureOrchestratorSession(ctx, owner.ChatID)
+	// Precreate root session synchronously.
+	if err := h.ensureRootSession(ctx, owner.ChatID); err != nil {
+		return err
 	}
 
 	if err := h.messenger.SendPlain(ctx, owner.UserID, "Boss, I'm online and ready to work.", 0); err != nil {
 		h.logger.Warn().Err(err).Int64("owner_id", owner.UserID).Msg("failed to send startup ready message to owner")
-		return
+		return nil
 	}
 	h.logger.Info().Int64("owner_id", owner.UserID).Msg("startup ready message sent to owner")
+	return nil
 }
 
 func (h *RelayHandler) initializeBotUsername(ctx context.Context) {
@@ -327,37 +358,27 @@ func (h *RelayHandler) initializeBotUsername(ctx context.Context) {
 	h.logger.Info().Str("bot_username", username).Msg("relay bot username loaded")
 }
 
-func (h *RelayHandler) ensureOrchestratorSession(ctx context.Context, chatID int64) {
-	agentName := h.relayAgentName
+func (h *RelayHandler) ensureRootSession(ctx context.Context, chatID int64) error {
+	agentName := h.rootAgentName
 	if agentName == "" {
-		h.logger.Warn().Msg("no relay agent configured, skipping orchestrator precreate")
-		return
+		return fmt.Errorf("relay.root_agent is required")
 	}
 
-	agentCfg, ok := h.normaCfg.Agents[agentName]
-	if !ok {
-		h.logger.Warn().Str("agent", agentName).Msg("relay agent not found in config")
-		return
-	}
-
-	spinningMsg := h.buildSpinningMessage(agentName, agentCfg)
-	if err := h.messenger.SendPlain(ctx, chatID, spinningMsg, 0); err != nil {
+	agentDesc, mcpServers := h.sessionManager.GetAgentInfo(agentName)
+	spinningMsg := BuildAgentWelcomeMessage(agentName, "", agentDesc, mcpServers)
+	if err := h.messenger.SendMarkdown(ctx, chatID, spinningMsg, 0); err != nil {
 		h.logger.Warn().Err(err).Msg("failed to send spinning up message")
 	}
 
 	ts, err := h.sessionManager.EnsureSession(ctx, chatID, 0, agentName)
 	if err != nil {
-		h.logger.Error().Err(err).Str("agent", agentName).Msg("failed to precreate orchestrator session")
-		return
+		return fmt.Errorf("precreate root session: %w", err)
 	}
 
 	h.logger.Info().
 		Int64("chat_id", chatID).
 		Str("agent", agentName).
 		Str("session_id", ts.GetSessionID()).
-		Msg("orchestrator session precreated")
-}
-
-func (h *RelayHandler) buildSpinningMessage(agentName string, cfg agentconfig.Config) string {
-	return "Spinning up agent: " + cfg.Description(agentName)
+		Msg("root session precreated")
+	return nil
 }

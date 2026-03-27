@@ -229,3 +229,55 @@ func TestACPConstructor_PropagatesContextLogger(t *testing.T) {
 		t.Fatalf("captured logger level = %s, want %s", capturedLogger.GetLevel(), zerolog.TraceLevel)
 	}
 }
+
+func TestFactoryBuild_UsesBuildRequestMCPServerIDsOverride(t *testing.T) {
+	origNewACPAgent := newACPAgent
+	t.Cleanup(func() {
+		newACPAgent = origNewACPAgent
+	})
+
+	var capturedMCP map[string]agentconfig.MCPServerConfig
+	newACPAgent = func(cfg acpagent.Config) (agent.Agent, error) {
+		capturedMCP = cfg.MCPServers
+		return nil, nil
+	}
+
+	agents := map[string]agentconfig.Config{
+		"test-acp": {
+			Type: agentconfig.AgentTypeGenericACP,
+			GenericACP: &agentconfig.ACPConfig{
+				Cmd: []string{"fake-acp", "serve"},
+			},
+			MCPServers: []string{"cfg"},
+		},
+	}
+	reg := mcpregistry.New(map[string]agentconfig.MCPServerConfig{
+		"cfg": {
+			Type: agentconfig.MCPServerTypeHTTP,
+			URL:  "http://cfg.example/mcp",
+		},
+		"override": {
+			Type: agentconfig.MCPServerTypeHTTP,
+			URL:  "http://override.example/mcp",
+		},
+	})
+	f := New(agents, reg)
+
+	_, err := f.Build(context.Background(), BuildRequest{
+		AgentID:          "test-acp",
+		WorkingDirectory: t.TempDir(),
+		MCPServerIDs:     []string{"override"},
+	})
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+	if len(capturedMCP) != 1 {
+		t.Fatalf("len(capturedMCP) = %d, want 1", len(capturedMCP))
+	}
+	if _, ok := capturedMCP["override"]; !ok {
+		t.Fatalf("captured MCP does not contain override server: %#v", capturedMCP)
+	}
+	if _, ok := capturedMCP["cfg"]; ok {
+		t.Fatalf("captured MCP unexpectedly contains cfg server: %#v", capturedMCP)
+	}
+}

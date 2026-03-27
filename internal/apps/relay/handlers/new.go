@@ -8,6 +8,7 @@ import (
 	"github.com/normahq/norma/internal/apps/relay/auth"
 	"github.com/normahq/norma/internal/apps/relay/messenger"
 	"github.com/normahq/norma/internal/apps/relay/session"
+	relaywelcome "github.com/normahq/norma/internal/apps/relay/welcome"
 	"github.com/rs/zerolog/log"
 	"github.com/tgbotkit/runtime/events"
 	"github.com/tgbotkit/runtime/handlers"
@@ -21,15 +22,8 @@ type CommandHandler struct {
 	messenger      *messenger.Messenger
 }
 
-func formatMCPServers(servers []string) string {
-	if len(servers) == 0 {
-		return ""
-	}
-	var b strings.Builder
-	for _, s := range servers {
-		fmt.Fprintf(&b, "- %s\n", s)
-	}
-	return b.String()
+func BuildAgentWelcomeMessage(agentName, sessionID, agentDesc string, mcpServers []string) string {
+	return relaywelcome.BuildAgentWelcomeMessage(agentName, sessionID, agentDesc, mcpServers)
 }
 
 type commandHandlerParams struct {
@@ -94,12 +88,7 @@ func (h *CommandHandler) onCommand(ctx context.Context, event *events.CommandEve
 
 	agentDesc, mcpServers := h.sessionManager.GetAgentInfo(agentName)
 
-	var welcomeMsg string
-	if len(mcpServers) > 0 {
-		welcomeMsg = fmt.Sprintf("🤖 Started new **%s** agent session (%s).\n\n**Description:** %s\n\n**MCP Servers:**\n%s", agentName, sessionID, agentDesc, formatMCPServers(mcpServers))
-	} else {
-		welcomeMsg = fmt.Sprintf("🤖 Started new **%s** agent session (%s).\n\n**Description:** %s", agentName, sessionID, agentDesc)
-	}
+	welcomeMsg := BuildAgentWelcomeMessage(agentName, sessionID, agentDesc, mcpServers)
 	if err := h.messenger.SendMarkdown(ctx, chatID, welcomeMsg, topicID); err != nil {
 		log.Error().Err(err).Msg("Failed to send welcome message")
 		return err

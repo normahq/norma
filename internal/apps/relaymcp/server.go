@@ -61,12 +61,14 @@ type RelayService interface {
 }
 
 type AgentInfo struct {
-	SessionID  string
-	AgentName  string
-	ChatID     int64
-	TopicID    int
-	WorkingDir string
-	Status     string
+	SessionID   string
+	AgentName   string
+	ChatID      int64
+	TopicID     int
+	WorkingDir  string
+	Status      string
+	Description string
+	MCPServers  []string
 }
 
 func Run(ctx context.Context, svc RelayService) error {
@@ -183,10 +185,12 @@ type startAgentInput struct {
 
 type startAgentOutput struct {
 	ToolOutcome
-	SessionID string `json:"session_id,omitempty"`
-	TopicID   int    `json:"topic_id,omitempty"`
-	ChatID    int64  `json:"chat_id,omitempty"`
-	AgentName string `json:"agent_name,omitempty"`
+	SessionID   string   `json:"session_id,omitempty"`
+	TopicID     int      `json:"topic_id,omitempty"`
+	ChatID      int64    `json:"chat_id,omitempty"`
+	AgentName   string   `json:"agent_name,omitempty"`
+	Description string   `json:"description,omitempty"`
+	MCPServers  []string `json:"mcp_servers,omitempty"`
 }
 
 func (s *service) startAgent(ctx context.Context, _ *mcp.CallToolRequest, in startAgentInput) (*mcp.CallToolResult, startAgentOutput, error) {
@@ -211,6 +215,8 @@ func (s *service) startAgent(ctx context.Context, _ *mcp.CallToolRequest, in sta
 		TopicID:     info.TopicID,
 		ChatID:      info.ChatID,
 		AgentName:   info.AgentName,
+		Description: info.Description,
+		MCPServers:  info.MCPServers,
 	}, nil
 }
 
