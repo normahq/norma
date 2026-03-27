@@ -3,7 +3,7 @@ profiles:
     tool:
       name: norma
       main: ./cmd/norma
-      readme-path: ./README.md
+    readme-path: ./README.md
     version:
       source: fixed
       fixed: 0.0.1
@@ -33,7 +33,7 @@ profiles:
     tool:
       name: acp-dump
       main: ./cmd/acp-dump
-      readme-path: ./cmd/acp-dump/README.md
+    readme-path: ./cmd/acp-dump/README.md
     version:
       source: fixed
       fixed: 0.0.1
@@ -63,7 +63,7 @@ profiles:
     tool:
       name: mcp-dump
       main: ./cmd/mcp-dump
-      readme-path: ./cmd/mcp-dump/README.md
+    readme-path: ./cmd/mcp-dump/README.md
     version:
       source: fixed
       fixed: 0.0.1
@@ -93,7 +93,7 @@ profiles:
     tool:
       name: acp-repl
       main: ./cmd/acp-repl
-      readme-path: ./cmd/acp-repl/README.md
+    readme-path: ./cmd/acp-repl/README.md
     version:
       source: fixed
       fixed: 0.0.1
@@ -123,7 +123,7 @@ profiles:
     tool:
       name: codex-acp-bridge
       main: ./cmd/codex-acp-bridge
-      readme-path: ./cmd/codex-acp-bridge/README.md
+    readme-path: ./cmd/codex-acp-bridge/README.md
     version:
       source: fixed
       fixed: 0.0.1
