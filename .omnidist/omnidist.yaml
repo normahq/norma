@@ -1,34 +1,4 @@
 profiles:
-  norma:
-    tool:
-      name: norma
-      main: ./cmd/norma
-    readme-path: ./README.md
-    version:
-      source: fixed
-      fixed: 0.0.1
-    targets:
-      - os: darwin
-        arch: amd64
-      - os: darwin
-        arch: arm64
-      - os: linux
-        arch: amd64
-      - os: linux
-        arch: arm64
-      - os: windows
-        arch: amd64
-    build:
-      ldflags: -s -w
-      tags: []
-      cgo: false
-    distributions:
-      npm:
-        package: '@normahq/norma'
-        registry: https://registry.npmjs.org
-        access: public
-        include-readme: true
-
   acp-dump:
     tool:
       name: acp-dump
@@ -58,6 +28,13 @@ profiles:
         registry: https://registry.npmjs.org
         access: public
         include-readme: true
+        keywords:
+          - ai
+          - llm
+          - acp
+          - agent
+          - cli
+          - dump
 
   mcp-dump:
     tool:
@@ -88,6 +65,13 @@ profiles:
         registry: https://registry.npmjs.org
         access: public
         include-readme: true
+        keywords:
+          - ai
+          - llm
+          - mcp
+          - agent
+          - cli
+          - dump
 
   acp-repl:
     tool:
@@ -118,6 +102,14 @@ profiles:
         registry: https://registry.npmjs.org
         access: public
         include-readme: true
+        keywords:
+          - ai
+          - llm
+          - acp
+          - agent
+          - cli
+          - repl
+          - interactive
 
   codex-acp-bridge:
     tool:
@@ -148,3 +140,12 @@ profiles:
         registry: https://registry.npmjs.org
         access: public
         include-readme: true
+        keywords:
+          - ai
+          - llm
+          - codex
+          - acp
+          - mcp
+          - agent
+          - bridge
+          - cli
