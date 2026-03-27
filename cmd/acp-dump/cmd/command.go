@@ -52,7 +52,7 @@ func Command() *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "print output as JSON")
 	cmd.Flags().BoolVar(&debugLogs, "debug", false, "enable debug logging")
-	cmd.Example = "  acp-dump -- opencode acp\n  acp-dump --json -- gemini --experimental-acp"
+	cmd.Example = "  acp-dump -- opencode acp\n  acp-dump --json -- gemini --acp"
 	return cmd
 }
 

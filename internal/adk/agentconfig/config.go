@@ -387,7 +387,7 @@ func NormalizeACPConfig(cfg Config, executablePath string) (Config, error) {
 		}
 		normalized.Type = AgentTypeGenericACP
 		specCopy := *cfg.GeminiACP
-		specCopy.Cmd = []string{"gemini", "--experimental-acp"}
+		specCopy.Cmd = []string{"gemini", "--acp"}
 		if specCopy.Model != "" {
 			specCopy.Cmd = append(specCopy.Cmd, "--model", specCopy.Model)
 		}

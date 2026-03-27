@@ -57,7 +57,7 @@ func Command() *cobra.Command {
 		}
 		return nil
 	}
-	cmd.Example = "  acp-repl -- opencode acp\n  acp-repl --model openai/gpt-5.4 --mode coding -- opencode acp\n  acp-repl -- gemini --experimental-acp"
+	cmd.Example = "  acp-repl -- opencode acp\n  acp-repl --model openai/gpt-5.4 --mode coding -- opencode acp\n  acp-repl -- gemini --acp"
 	return cmd
 }
 

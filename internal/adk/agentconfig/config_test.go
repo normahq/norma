@@ -55,7 +55,7 @@ func TestConfigValidate(t *testing.T) {
 			cfg: Config{
 				Type: AgentTypeGeminiACP,
 				GeminiACP: &ACPConfig{
-					Cmd: []string{"gemini", "--experimental-acp"},
+					Cmd: []string{"gemini", "--acp"},
 				},
 			},
 			wantErr: "cmd must be omitted for type gemini_acp",
@@ -140,12 +140,12 @@ func TestNormalizeACPConfig(t *testing.T) {
 			want: Config{
 				Type: AgentTypeGenericACP,
 				GenericACP: &ACPConfig{
-					Cmd:       []string{"gemini", "--experimental-acp", "--model", "gemini-3-flash-preview"},
+					Cmd:       []string{"gemini", "--acp", "--model", "gemini-3-flash-preview"},
 					Model:     "gemini-3-flash-preview",
 					Mode:      "code",
 					ExtraArgs: []string{"--trace"},
 				},
-				Cmd:       []string{"gemini", "--experimental-acp", "--model", "gemini-3-flash-preview"},
+				Cmd:       []string{"gemini", "--acp", "--model", "gemini-3-flash-preview"},
 				Model:     "gemini-3-flash-preview",
 				Mode:      "code",
 				ExtraArgs: []string{"--trace"},

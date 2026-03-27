@@ -176,7 +176,7 @@ func TestRunGeminiACPOneShot(t *testing.T) {
 		t.Fatalf("stderr = %q, want lifecycle log entry", got)
 	}
 	args := readArgsFile(t, argsFile)
-	wantArgs := []string{"--experimental-acp", "--model", "gemini-test", "--sandbox", "workspace-write"}
+	wantArgs := []string{"--acp", "--model", "gemini-test", "--sandbox", "workspace-write"}
 	for _, want := range wantArgs {
 		if !containsArg(args, want) {
 			t.Fatalf("args %v do not contain %q", args, want)

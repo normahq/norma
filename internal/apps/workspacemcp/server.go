@@ -150,7 +150,7 @@ type service struct {
 func (s *service) registerTools(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "norma.workspace.import",
-		Description: "Rebase workspace branch onto latest local master to import new base changes",
+		Description: "Sync workspace branch with local master (discarding uncommitted workspace changes before rebase)",
 	}, s.importTool)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "norma.workspace.export",
@@ -178,7 +178,7 @@ func (s *service) importTool(ctx context.Context, _ *mcp.CallToolRequest, in imp
 	}
 
 	return &mcp.CallToolResult{
-		Content: []mcp.Content{&mcp.TextContent{Text: "Workspace rebased onto master successfully"}},
+		Content: []mcp.Content{&mcp.TextContent{Text: "Workspace synced to master successfully"}},
 	}, importOutput{ToolOutcome: okOutcome()}, nil
 }
 

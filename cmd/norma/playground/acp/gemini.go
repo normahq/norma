@@ -83,7 +83,7 @@ func RunGeminiACP(ctx context.Context, repoRoot string, opts GeminiOptions, stdi
 }
 
 func BuildGeminiACPCommand(opts GeminiOptions) []string {
-	cmd := []string{opts.GeminiBin, "--experimental-acp"}
+	cmd := []string{opts.GeminiBin, "--acp"}
 	if strings.TrimSpace(opts.Model) != "" {
 		cmd = append(cmd, "--model", opts.Model)
 	}

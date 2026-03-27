@@ -55,14 +55,35 @@ func (m *WorkspaceManager) EnsureWorkspace(ctx context.Context, key, branchName,
 	return workspaceDir, nil
 }
 
-// Import rebases workspace branch onto local master.
+// Import syncs a workspace branch onto local master.
 func (m *WorkspaceManager) Import(ctx context.Context, workspaceDir string) error {
+	statusOut, err := git.GitRunCmdOutput(ctx, workspaceDir, "git", "status", "--porcelain")
+	if err != nil {
+		return fmt.Errorf("read workspace status: %w", err)
+	}
+
+	status := strings.TrimSpace(statusOut)
+	if status != "" {
+		changedEntries := strings.Count(status, "\n") + 1
+		log.Warn().
+			Str("workspace", workspaceDir).
+			Int("changed_entries", changedEntries).
+			Msg("discarding dirty workspace changes before import")
+
+		if err := git.GitRunCmdErr(ctx, workspaceDir, "git", "reset", "--hard"); err != nil {
+			return fmt.Errorf("reset dirty workspace before import: %w", err)
+		}
+		if err := git.GitRunCmdErr(ctx, workspaceDir, "git", "clean", "-fd"); err != nil {
+			return fmt.Errorf("clean dirty workspace before import: %w", err)
+		}
+	}
+
 	if err := git.GitRunCmdErr(ctx, workspaceDir, "git", "rebase", "master"); err != nil {
 		// Abort rebase on failure so workspace stays clean
 		_ = git.GitRunCmdErr(ctx, workspaceDir, "git", "rebase", "--abort")
-		return fmt.Errorf("git rebase master: %w", err)
+		return fmt.Errorf("rebase workspace onto master: %w", err)
 	}
-	log.Info().Str("workspace", workspaceDir).Msg("workspace rebased onto master")
+	log.Info().Str("workspace", workspaceDir).Msg("workspace synced to master")
 	return nil
 }
 
