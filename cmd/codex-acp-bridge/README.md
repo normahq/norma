@@ -102,4 +102,4 @@ Supported transports: `stdio`, `http`. The `sse` transport is explicitly rejecte
 
 ## License
 
-MIT. See the repository [LICENSE](https://github.com/normahq/norma/blob/main/LICENSE).
+MIT. See the repository [LICENSE](https://github.com/normahq/norma/blob/master/LICENSE).

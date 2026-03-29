@@ -58,4 +58,4 @@ acp-repl --debug -- opencode acp
 
 ## License
 
-MIT. See the repository [LICENSE](https://github.com/normahq/norma/blob/main/LICENSE).
+MIT. See the repository [LICENSE](https://github.com/normahq/norma/blob/master/LICENSE).
