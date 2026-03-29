@@ -6,7 +6,7 @@ profiles:
     readme-path: ./cmd/acp-dump/README.md
     version:
       source: fixed
-      fixed: 0.0.2
+      fixed: 0.0.3
     targets:
       - os: darwin
         arch: amd64
@@ -43,7 +43,7 @@ profiles:
     readme-path: ./cmd/mcp-dump/README.md
     version:
       source: fixed
-      fixed: 0.0.2
+      fixed: 0.0.3
     targets:
       - os: darwin
         arch: amd64
@@ -80,7 +80,7 @@ profiles:
     readme-path: ./cmd/acp-repl/README.md
     version:
       source: fixed
-      fixed: 0.0.2
+      fixed: 0.0.3
     targets:
       - os: darwin
         arch: amd64
@@ -118,7 +118,7 @@ profiles:
     readme-path: ./cmd/codex-acp-bridge/README.md
     version:
       source: fixed
-      fixed: 0.0.2
+      fixed: 0.0.3
     targets:
       - os: darwin
         arch: amd64
