@@ -7,8 +7,7 @@ import (
 	"strings"
 
 	"github.com/go-playground/validator/v10"
-	"github.com/go-viper/mapstructure/v2"
-	runtimeconfig "github.com/normahq/norma/pkg/runtime/config"
+	"github.com/normahq/norma/pkg/runtime/appconfig"
 )
 
 var configValidator = newConfigValidator()
@@ -27,19 +26,7 @@ func newConfigValidator() *validator.Validate {
 
 // ValidateSettings validates raw config settings against the Config struct tags and custom logic.
 func ValidateSettings(settings map[string]any) error {
-	var cfg runtimeconfig.NormaConfig
-	decoder, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
-		Metadata: nil,
-		Result:   &cfg,
-		TagName:  "mapstructure",
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create decoder: %w", err)
-	}
-	if err := decoder.Decode(settings); err != nil {
-		return fmt.Errorf("failed to decode settings: %w", err)
-	}
-	return cfg.Validate()
+	return appconfig.ValidateSettings(settings)
 }
 
 // Validate validates the configuration.

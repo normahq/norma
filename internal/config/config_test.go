@@ -3,8 +3,8 @@ package config
 import (
 	"testing"
 
-	"github.com/normahq/norma/internal/adk/agentconfig"
-	runtimeconfig "github.com/normahq/norma/pkg/runtime/config"
+	"github.com/normahq/norma/pkg/runtime/agentconfig"
+	runtimeconfig "github.com/normahq/norma/pkg/runtime/appconfig"
 )
 
 const (

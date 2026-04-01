@@ -1,4 +1,4 @@
-package config
+package appconfig
 
 import (
 	"fmt"
@@ -7,7 +7,8 @@ import (
 	"strings"
 
 	"github.com/go-playground/validator/v10"
-	"github.com/normahq/norma/internal/adk/agentconfig"
+	"github.com/go-viper/mapstructure/v2"
+	"github.com/normahq/norma/pkg/runtime/agentconfig"
 )
 
 // NormaConfig contains runtime agent-factory settings for Norma.
@@ -18,8 +19,8 @@ import (
 //	  agents: ...
 //	  mcp_servers: ...
 type NormaConfig struct {
-	Agents     map[string]agentconfig.Config          `json:"agents,omitempty"      mapstructure:"agents"      validate:"required,gt=0,dive,required"`
-	MCPServers map[string]agentconfig.MCPServerConfig `json:"mcp_servers,omitempty" mapstructure:"mcp_servers" validate:"omitempty,dive,required"`
+	Agents     map[string]agentconfig.Config          `json:"agents,omitempty"      mapstructure:"agents"      validate:"required,gt=0"`
+	MCPServers map[string]agentconfig.MCPServerConfig `json:"mcp_servers,omitempty" mapstructure:"mcp_servers" validate:"omitempty"`
 }
 
 // Validate validates the runtime norma config.
@@ -40,7 +41,6 @@ func (c NormaConfig) Validate() error {
 			errList = append(errList, fmt.Sprintf("agent %q: %v", name, err))
 		}
 	}
-
 	for name, mcpCfg := range c.MCPServers {
 		if err := agentconfig.ValidateMCPServerConfig(mcpCfg); err != nil {
 			errList = append(errList, fmt.Sprintf("mcp %q: %v", name, err))
@@ -52,6 +52,23 @@ func (c NormaConfig) Validate() error {
 	}
 	sort.Strings(errList)
 	return fmt.Errorf("norma config validation failed: %s", strings.Join(errList, "; "))
+}
+
+// ValidateSettings decodes and validates raw "norma" settings.
+func ValidateSettings(settings map[string]any) error {
+	var cfg NormaConfig
+	decoder, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
+		Metadata: nil,
+		Result:   &cfg,
+		TagName:  "mapstructure",
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create decoder: %w", err)
+	}
+	if err := decoder.Decode(settings); err != nil {
+		return fmt.Errorf("failed to decode settings: %w", err)
+	}
+	return cfg.Validate()
 }
 
 var normaConfigValidator = newNormaConfigValidator()

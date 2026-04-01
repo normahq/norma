@@ -6,13 +6,12 @@ import (
 	"testing"
 
 	relayapp "github.com/normahq/norma/internal/apps/relay"
-	"github.com/normahq/norma/internal/config"
-	runtimeconfig "github.com/normahq/norma/pkg/runtime/config"
+	"github.com/normahq/norma/pkg/runtime/appconfig"
 )
 
 type relayTestConfigDocument struct {
-	Norma runtimeconfig.NormaConfig `mapstructure:"norma"`
-	Relay relayapp.RelayConfig      `mapstructure:"relay"`
+	Norma appconfig.NormaConfig `mapstructure:"norma"`
+	Relay relayapp.RelayConfig  `mapstructure:"relay"`
 }
 
 func TestLoadConfigDocument_AppliesProfileRelayOverrides(t *testing.T) {
@@ -41,9 +40,9 @@ profiles:
 	}
 
 	var doc relayTestConfigDocument
-	selectedProfile, err := config.LoadConfigDocument(
-		config.RuntimeLoadOptions{RepoRoot: repoRoot, Profile: "default"},
-		config.AppLoadOptions{
+	selectedProfile, err := appconfig.LoadConfigDocument(
+		appconfig.RuntimeLoadOptions{RepoRoot: repoRoot, Profile: "default"},
+		appconfig.AppLoadOptions{
 			AppName:      "relay",
 			DefaultsYAML: defaultRelayConfig,
 		},

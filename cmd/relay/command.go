@@ -10,8 +10,7 @@ import (
 
 	"github.com/normahq/norma/internal/apps/relay"
 	"github.com/normahq/norma/internal/apps/relay/auth"
-	"github.com/normahq/norma/internal/config"
-	runtimeconfig "github.com/normahq/norma/pkg/runtime/config"
+	"github.com/normahq/norma/pkg/runtime/appconfig"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -20,8 +19,8 @@ import (
 var defaultRelayConfig []byte
 
 type relayConfigDocument struct {
-	Norma runtimeconfig.NormaConfig `mapstructure:"norma"`
-	Relay relay.RelayConfig         `mapstructure:"relay"`
+	Norma appconfig.NormaConfig `mapstructure:"norma"`
+	Relay relay.RelayConfig     `mapstructure:"relay"`
 }
 
 func serveCommand() *cobra.Command {
@@ -36,13 +35,13 @@ func serveCommand() *cobra.Command {
 			}
 
 			var doc relayConfigDocument
-			selectedProfile, err := config.LoadConfigDocument(
-				config.RuntimeLoadOptions{
+			_, err = appconfig.LoadConfigDocument(
+				appconfig.RuntimeLoadOptions{
 					RepoRoot:  repoRoot,
 					ConfigDir: viper.GetString("config_dir"),
 					Profile:   viper.GetString("profile"),
 				},
-				config.AppLoadOptions{
+				appconfig.AppLoadOptions{
 					AppName:      "relay",
 					DefaultsYAML: defaultRelayConfig,
 				},
@@ -55,10 +54,6 @@ func serveCommand() *cobra.Command {
 				return fmt.Errorf("configure relay logging: %w", err)
 			}
 
-			runtimeCfg := config.Config{
-				Norma:   doc.Norma,
-				Profile: selectedProfile,
-			}
 			relayCfg := relay.Config{Relay: doc.Relay}
 
 			if relayCfg.Relay.Telegram.Token == "" {
@@ -71,7 +66,7 @@ func serveCommand() *cobra.Command {
 			}
 
 			relayCfg.Relay.Auth.OwnerToken = ownerToken
-			app := relay.App(relayCfg, runtimeCfg.Norma)
+			app := relay.App(relayCfg, doc.Norma)
 
 			ctx, cancel := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
 			defer cancel()

@@ -5,11 +5,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	runtimeconfig "github.com/normahq/norma/pkg/runtime/config"
+	"github.com/normahq/norma/pkg/runtime/appconfig"
 )
 
 type relayConfigDocumentForTest struct {
-	Norma runtimeconfig.NormaConfig `mapstructure:"norma"`
+	Norma appconfig.NormaConfig `mapstructure:"norma"`
 	Relay struct {
 		RootAgent string `mapstructure:"root_agent"`
 		Telegram  struct {
@@ -106,9 +106,9 @@ profiles:
 	}
 
 	var doc relayConfigDocumentForTest
-	_, err := LoadConfigDocument(
-		RuntimeLoadOptions{RepoRoot: repoRoot, Profile: "default"},
-		AppLoadOptions{
+	_, err := appconfig.LoadConfigDocument(
+		appconfig.RuntimeLoadOptions{RepoRoot: repoRoot, Profile: "default"},
+		appconfig.AppLoadOptions{
 			AppName: "relay",
 			DefaultsYAML: []byte(`relay:
   telegram:
@@ -176,9 +176,9 @@ relay:
 	}
 
 	var doc relayConfigDocumentForTest
-	_, err := LoadConfigDocument(
-		RuntimeLoadOptions{RepoRoot: repoRoot},
-		AppLoadOptions{AppName: "relay"},
+	_, err := appconfig.LoadConfigDocument(
+		appconfig.RuntimeLoadOptions{RepoRoot: repoRoot},
+		appconfig.AppLoadOptions{AppName: "relay"},
 		&doc,
 	)
 	if err != nil {
@@ -215,9 +215,9 @@ relay:
 	}
 
 	var doc relayConfigDocumentForTest
-	_, err := LoadConfigDocument(
-		RuntimeLoadOptions{RepoRoot: repoRoot},
-		AppLoadOptions{AppName: "relay"},
+	_, err := appconfig.LoadConfigDocument(
+		appconfig.RuntimeLoadOptions{RepoRoot: repoRoot},
+		appconfig.AppLoadOptions{AppName: "relay"},
 		&doc,
 	)
 	if err != nil {
