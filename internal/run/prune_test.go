@@ -14,26 +14,26 @@ func TestPruneRemovesOnlyStaleNormaTaskBranches(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	repoRoot := t.TempDir()
-	initGitRepo(t, ctx, repoRoot)
+	workingDir := t.TempDir()
+	initGitRepo(t, ctx, workingDir)
 
-	writeFile(t, filepath.Join(repoRoot, "base.txt"), "base\n")
-	runGit(t, ctx, repoRoot, "add", "base.txt")
-	runGit(t, ctx, repoRoot, "commit", "-m", "chore: seed repo")
+	writeFile(t, filepath.Join(workingDir, "base.txt"), "base\n")
+	runGit(t, ctx, workingDir, "add", "base.txt")
+	runGit(t, ctx, workingDir, "commit", "-m", "chore: seed repo")
 
 	// Stale branch: exists locally, checked out nowhere.
-	runGit(t, ctx, repoRoot, "branch", "norma/task/norma-stale")
+	runGit(t, ctx, workingDir, "branch", "norma/task/norma-stale")
 
 	// Active branch: attached to a live worktree, so it must be preserved.
 	activeWorktree := filepath.Join(t.TempDir(), "active-worktree")
-	runGit(t, ctx, repoRoot, "worktree", "add", "-b", "norma/task/norma-active", activeWorktree)
+	runGit(t, ctx, workingDir, "worktree", "add", "-b", "norma/task/norma-active", activeWorktree)
 
 	// Norma run branch/worktree: should be removed by prune.
-	runWorkspace := filepath.Join(repoRoot, ".norma", "runs", "run-1", "steps", "001-do", "workspace")
+	runWorkspace := filepath.Join(workingDir, ".norma", "runs", "run-1", "steps", "001-do", "workspace")
 	if err := os.MkdirAll(filepath.Dir(runWorkspace), 0o700); err != nil {
 		t.Fatalf("mkdir run workspace parent: %v", err)
 	}
-	runGit(t, ctx, repoRoot, "worktree", "add", "-b", "norma/task/norma-run", runWorkspace)
+	runGit(t, ctx, workingDir, "worktree", "add", "-b", "norma/task/norma-run", runWorkspace)
 
 	dbPath := filepath.Join(t.TempDir(), "norma.db")
 	database, err := internaldb.Open(ctx, dbPath)
@@ -42,17 +42,17 @@ func TestPruneRemovesOnlyStaleNormaTaskBranches(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = database.Close() })
 
-	if err := Prune(ctx, database, repoRoot); err != nil {
+	if err := Prune(ctx, database, workingDir); err != nil {
 		t.Fatalf("Prune() error = %v", err)
 	}
 
-	if got := strings.TrimSpace(runGit(t, ctx, repoRoot, "branch", "--list", "norma/task/norma-stale")); got != "" {
+	if got := strings.TrimSpace(runGit(t, ctx, workingDir, "branch", "--list", "norma/task/norma-stale")); got != "" {
 		t.Fatalf("stale branch should be deleted, got %q", got)
 	}
-	if got := strings.TrimSpace(runGit(t, ctx, repoRoot, "branch", "--list", "norma/task/norma-run")); got != "" {
+	if got := strings.TrimSpace(runGit(t, ctx, workingDir, "branch", "--list", "norma/task/norma-run")); got != "" {
 		t.Fatalf("run branch should be deleted, got %q", got)
 	}
-	if got := strings.TrimSpace(runGit(t, ctx, repoRoot, "branch", "--list", "norma/task/norma-active")); got == "" {
+	if got := strings.TrimSpace(runGit(t, ctx, workingDir, "branch", "--list", "norma/task/norma-active")); got == "" {
 		t.Fatalf("active branch should be preserved")
 	}
 
@@ -60,4 +60,3 @@ func TestPruneRemovesOnlyStaleNormaTaskBranches(t *testing.T) {
 		t.Fatalf("expected run workspace to be removed, stat err=%v", err)
 	}
 }
-

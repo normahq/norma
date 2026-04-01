@@ -16,7 +16,7 @@ type WorkspaceManager struct {
 	workingDir string
 }
 
-// NewWorkspaceManager creates a WorkspaceManager for the given repo root.
+// NewWorkspaceManager creates a WorkspaceManager for the given working directory.
 func NewWorkspaceManager(workingDir string) *WorkspaceManager {
 	return &WorkspaceManager{workingDir: workingDir}
 }

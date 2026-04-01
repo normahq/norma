@@ -15,10 +15,10 @@ type relayTestConfigDocument struct {
 }
 
 func TestLoadConfigDocument_AppliesProfileRelayOverrides(t *testing.T) {
-	repoRoot := t.TempDir()
+	workingDir := t.TempDir()
 	t.Setenv("RELAY_TELEGRAM_WEBHOOK_ENABLED", "true")
 
-	if err := writeFile(filepath.Join(repoRoot, ".norma", "relay.yaml"), `norma:
+	if err := writeFile(filepath.Join(workingDir, ".norma", "relay.yaml"), `norma:
   agents:
     relay_agent:
       type: opencode_acp
@@ -41,7 +41,7 @@ profiles:
 
 	var doc relayTestConfigDocument
 	selectedProfile, err := appconfig.LoadConfigDocument(
-		appconfig.RuntimeLoadOptions{RepoRoot: repoRoot, Profile: "default"},
+		appconfig.RuntimeLoadOptions{WorkingDir: workingDir, Profile: "default"},
 		appconfig.AppLoadOptions{
 			AppName:      "relay",
 			DefaultsYAML: defaultRelayConfig,

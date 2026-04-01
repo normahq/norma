@@ -35,18 +35,18 @@ const (
 
 func runAgentPlanner(
 	cmd *cobra.Command,
-	repoRoot string,
+	workingDir string,
 	registry map[string]config.AgentConfig,
 	mcpRegistry map[string]config.MCPServerConfig,
 	plannerID string,
 ) error {
-	plannerAgent, closePlannerAgent, err := createPlannerAgent(cmd.Context(), repoRoot, registry, mcpRegistry, plannerID)
+	plannerAgent, closePlannerAgent, err := createPlannerAgent(cmd.Context(), workingDir, registry, mcpRegistry, plannerID)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = closePlannerAgent() }()
 
-	sess, err := startPlannerInteractive(cmd.Context(), plannerAgent, repoRoot)
+	sess, err := startPlannerInteractive(cmd.Context(), plannerAgent, workingDir)
 	if err != nil {
 		return err
 	}
@@ -389,24 +389,24 @@ func createPlannerAgentWithOptions(
 }
 
 // startEmbeddedTaskServer starts an embedded tasks MCP server over HTTP with a random port.
-func startEmbeddedTaskServer(ctx context.Context, repoRoot string) (*tasksmcp.HTTPServerResult, error) {
-	trimmedRepoRoot := strings.TrimSpace(repoRoot)
-	if trimmedRepoRoot == "" {
-		return nil, fmt.Errorf("repo root is required")
+func startEmbeddedTaskServer(ctx context.Context, workingDir string) (*tasksmcp.HTTPServerResult, error) {
+	trimmedWorkingDir := strings.TrimSpace(workingDir)
+	if trimmedWorkingDir == "" {
+		return nil, fmt.Errorf("working directory is required")
 	}
-	absoluteRepoRoot, err := filepath.Abs(trimmedRepoRoot)
+	absoluteWorkingDir, err := filepath.Abs(trimmedWorkingDir)
 	if err != nil {
-		return nil, fmt.Errorf("resolve repo root path %q: %w", trimmedRepoRoot, err)
+		return nil, fmt.Errorf("resolve working directory path %q: %w", trimmedWorkingDir, err)
 	}
 
 	tracker := task.NewBeadsTracker("")
-	tracker.WorkingDir = absoluteRepoRoot
+	tracker.WorkingDir = absoluteWorkingDir
 
 	return tasksmcp.StartHTTPServer(ctx, tracker, "127.0.0.1:0")
 }
 
-func plannerMCPServers(repoRoot string, configured map[string]config.MCPServerConfig, tasksServerAddr string) (map[string]agentconfig.MCPServerConfig, error) {
-	_ = strings.TrimSpace(repoRoot)
+func plannerMCPServers(workingDir string, configured map[string]config.MCPServerConfig, tasksServerAddr string) (map[string]agentconfig.MCPServerConfig, error) {
+	_ = strings.TrimSpace(workingDir)
 
 	merged := make(map[string]agentconfig.MCPServerConfig, len(configured)+1)
 	for name, cfg := range configured {

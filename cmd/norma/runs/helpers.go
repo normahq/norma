@@ -13,11 +13,11 @@ import (
 )
 
 func openDB(ctx context.Context) (*sql.DB, string, func(), error) {
-	repoRoot, err := os.Getwd()
+	workingDir, err := os.Getwd()
 	if err != nil {
 		return nil, "", func() {}, err
 	}
-	normaDir := filepath.Join(repoRoot, ".norma")
+	normaDir := filepath.Join(workingDir, ".norma")
 	if err := os.MkdirAll(normaDir, 0o700); err != nil {
 		return nil, "", func() {}, err
 	}
@@ -26,14 +26,14 @@ func openDB(ctx context.Context) (*sql.DB, string, func(), error) {
 	if err != nil {
 		return nil, "", func() {}, err
 	}
-	return storeDB, repoRoot, func() { _ = storeDB.Close() }, nil
+	return storeDB, workingDir, func() { _ = storeDB.Close() }, nil
 }
 
-func loadRuntimeAndCLIConfig(repoRoot string) (config.Config, config.CLISettings, error) {
+func loadRuntimeAndCLIConfig(workingDir string) (config.Config, config.CLISettings, error) {
 	cfg, appCfg, err := config.LoadRuntimeAndCLIConfig(config.RuntimeLoadOptions{
-		RepoRoot:  repoRoot,
-		ConfigDir: viper.GetString("config_dir"),
-		Profile:   viper.GetString("profile"),
+		WorkingDir: workingDir,
+		ConfigDir:  viper.GetString("config_dir"),
+		Profile:    viper.GetString("profile"),
 	})
 	if err != nil {
 		return config.Config{}, config.CLISettings{}, err

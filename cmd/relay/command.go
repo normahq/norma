@@ -32,7 +32,7 @@ func serveCommand() *cobra.Command {
 		Short: "Start Telegram relay bot",
 		Long:  "Start the Telegram relay bot server. A random owner token will be generated and displayed.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			repoRoot, err := os.Getwd()
+			workingDir, err := os.Getwd()
 			if err != nil {
 				return fmt.Errorf("getting working directory: %w", err)
 			}
@@ -40,9 +40,9 @@ func serveCommand() *cobra.Command {
 			var doc relayConfigDocument
 			_, err = appconfig.LoadConfigDocument(
 				appconfig.RuntimeLoadOptions{
-					RepoRoot:  repoRoot,
-					ConfigDir: viper.GetString("config_dir"),
-					Profile:   viper.GetString("profile"),
+					WorkingDir: workingDir,
+					ConfigDir:  viper.GetString("config_dir"),
+					Profile:    viper.GetString("profile"),
 				},
 				appconfig.AppLoadOptions{
 					AppName:      "relay",

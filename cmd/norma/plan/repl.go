@@ -31,15 +31,15 @@ func replCommand() *cobra.Command {
 }
 
 func runREPL(cmd *cobra.Command, _ []string) error {
-	repoRoot, err := os.Getwd()
+	workingDir, err := os.Getwd()
 	if err != nil {
 		return err
 	}
-	if !git.Available(cmd.Context(), repoRoot) {
+	if !git.Available(cmd.Context(), workingDir) {
 		return fmt.Errorf("current directory is not a git repository")
 	}
 
-	cfg, err := loadConfig(repoRoot)
+	cfg, err := loadConfig(workingDir)
 	if err != nil {
 		return err
 	}
@@ -52,7 +52,7 @@ func runREPL(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	return acprepl.RunAgentREPL(cmd.Context(), plannerREPLConfig(cmd, repoRoot, cfg, plannerID))
+	return acprepl.RunAgentREPL(cmd.Context(), plannerREPLConfig(cmd, workingDir, cfg, plannerID))
 }
 
 func printPlannerREPLIntro(stdout io.Writer) error {
@@ -60,7 +60,7 @@ func printPlannerREPLIntro(stdout io.Writer) error {
 	return err
 }
 
-func plannerREPLConfig(cmd *cobra.Command, repoRoot string, cfg config.Config, plannerID string) acprepl.AgentREPLConfig {
+func plannerREPLConfig(cmd *cobra.Command, workingDir string, cfg config.Config, plannerID string) acprepl.AgentREPLConfig {
 	return acprepl.AgentREPLConfig{
 		AppName: plannerREPLAppName,
 		UserID:  plannerREPLUserID,
@@ -72,7 +72,7 @@ func plannerREPLConfig(cmd *cobra.Command, repoRoot string, cfg config.Config, p
 			permissionHandler acprepl.PermissionHandler,
 			stderr io.Writer,
 		) (adkagent.Agent, func() error, error) {
-			return createPlannerAgentWithOptions(ctx, repoRoot, cfg.Norma.Agents, cfg.Norma.MCPServers, plannerID, plannerAgentCreateOptions{
+			return createPlannerAgentWithOptions(ctx, workingDir, cfg.Norma.Agents, cfg.Norma.MCPServers, plannerID, plannerAgentCreateOptions{
 				Stderr:            stderr,
 				PermissionHandler: permissionHandler,
 			})

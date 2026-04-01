@@ -30,8 +30,8 @@ func GeminiCommand() *cobra.Command {
 		BinaryHelp: "Gemini executable path",
 		ArgsFlag:   "gemini-arg",
 		ArgsHelp:   "extra Gemini CLI argument (repeatable)",
-		Run: func(ctx context.Context, repoRoot string, stdin io.Reader, stdout, stderr io.Writer) error {
-			return RunGeminiACP(ctx, repoRoot, opts, stdin, stdout, stderr)
+		Run: func(ctx context.Context, workingDir string, stdin io.Reader, stdout, stderr io.Writer) error {
+			return RunGeminiACP(ctx, workingDir, opts, stdin, stdout, stderr)
 		},
 	})
 }
@@ -51,8 +51,8 @@ func GeminiInfoCommand() *cobra.Command {
 		BinaryHelp: "Gemini executable path",
 		ArgsFlag:   "gemini-arg",
 		ArgsHelp:   "extra Gemini CLI argument (repeatable)",
-		RunInfo: func(ctx context.Context, repoRoot string, jsonOutput bool, stdout io.Writer, stderr io.Writer) error {
-			return RunGeminiACPInfo(ctx, repoRoot, opts, jsonOutput, stdout, stderr)
+		RunInfo: func(ctx context.Context, workingDir string, jsonOutput bool, stdout io.Writer, stderr io.Writer) error {
+			return RunGeminiACPInfo(ctx, workingDir, opts, jsonOutput, stdout, stderr)
 		},
 	})
 }
@@ -67,14 +67,14 @@ func GeminiWebCommand() *cobra.Command {
 			cmd.Flags().StringVar(&opts.GeminiBin, "gemini-bin", opts.GeminiBin, "Gemini executable path")
 			cmd.Flags().StringArrayVar(&opts.GeminiArgs, "gemini-arg", nil, "extra Gemini CLI argument (repeatable)")
 		},
-		func(ctx context.Context, repoRoot string, launcherArgs []string, stderr io.Writer) error {
-			return RunGeminiACPWeb(ctx, repoRoot, opts, launcherArgs, stderr)
+		func(ctx context.Context, workingDir string, launcherArgs []string, stderr io.Writer) error {
+			return RunGeminiACPWeb(ctx, workingDir, opts, launcherArgs, stderr)
 		},
 	)
 }
 
-func RunGeminiACP(ctx context.Context, repoRoot string, opts GeminiOptions, stdin io.Reader, stdout, stderr io.Writer) error {
-	return runStandardACP(ctx, repoRoot, opts.Prompt, BuildGeminiACPCommand(opts), opts.Model, runtimeSpec{
+func RunGeminiACP(ctx context.Context, workingDir string, opts GeminiOptions, stdin io.Reader, stdout, stderr io.Writer) error {
+	return runStandardACP(ctx, workingDir, opts.Prompt, BuildGeminiACPCommand(opts), opts.Model, runtimeSpec{
 		component:   "playground.gemini_acp",
 		name:        "GeminiACP",
 		description: "Gemini CLI playground agent via ACP",
@@ -93,7 +93,7 @@ func BuildGeminiACPCommand(opts GeminiOptions) []string {
 
 func RunGeminiACPInfo(
 	ctx context.Context,
-	repoRoot string,
+	workingDir string,
 	opts GeminiOptions,
 	jsonOutput bool,
 	stdout io.Writer,
@@ -101,7 +101,7 @@ func RunGeminiACPInfo(
 ) error {
 	return runACPInfo(
 		ctx,
-		repoRoot,
+		workingDir,
 		BuildGeminiACPCommand(opts),
 		opts.Model,
 		"playground.gemini_acp_info",
@@ -114,12 +114,12 @@ func RunGeminiACPInfo(
 
 func RunGeminiACPWeb(
 	ctx context.Context,
-	repoRoot string,
+	workingDir string,
 	opts GeminiOptions,
 	launcherArgs []string,
 	stderr io.Writer,
 ) error {
-	return runACPWeb(ctx, repoRoot, BuildGeminiACPCommand(opts), opts.Model, runtimeSpec{
+	return runACPWeb(ctx, workingDir, BuildGeminiACPCommand(opts), opts.Model, runtimeSpec{
 		component:   "playground.gemini_acp_web",
 		name:        "GeminiACPWeb",
 		description: "Gemini CLI playground agent via ACP (web launcher)",

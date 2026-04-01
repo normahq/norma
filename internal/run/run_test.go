@@ -13,31 +13,31 @@ func TestApplyChangesDoesNotCommitRestoredLocalChanges(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	repoRoot := t.TempDir()
-	initGitRepo(t, ctx, repoRoot)
+	workingDir := t.TempDir()
+	initGitRepo(t, ctx, workingDir)
 
-	writeFile(t, filepath.Join(repoRoot, "base.txt"), "base\n")
-	writeFile(t, filepath.Join(repoRoot, "local.txt"), "clean\n")
-	runGit(t, ctx, repoRoot, "add", "-A")
-	runGit(t, ctx, repoRoot, "commit", "-m", "chore: initial")
+	writeFile(t, filepath.Join(workingDir, "base.txt"), "base\n")
+	writeFile(t, filepath.Join(workingDir, "local.txt"), "clean\n")
+	runGit(t, ctx, workingDir, "add", "-A")
+	runGit(t, ctx, workingDir, "commit", "-m", "chore: initial")
 
 	branchName := "norma/task/norma-wzw"
-	runGit(t, ctx, repoRoot, "checkout", "-b", branchName)
-	writeFile(t, filepath.Join(repoRoot, "base.txt"), "base\nbranch\n")
-	runGit(t, ctx, repoRoot, "add", "base.txt")
-	runGit(t, ctx, repoRoot, "commit", "-m", "feat: branch change")
-	runGit(t, ctx, repoRoot, "checkout", "master")
+	runGit(t, ctx, workingDir, "checkout", "-b", branchName)
+	writeFile(t, filepath.Join(workingDir, "base.txt"), "base\nbranch\n")
+	runGit(t, ctx, workingDir, "add", "base.txt")
+	runGit(t, ctx, workingDir, "commit", "-m", "feat: branch change")
+	runGit(t, ctx, workingDir, "checkout", "master")
 
 	// Simulate local uncommitted work that must survive applyChanges.
-	writeFile(t, filepath.Join(repoRoot, "local.txt"), "dirty-local\n")
-	writeFile(t, filepath.Join(repoRoot, "scratch.txt"), "scratch\n")
+	writeFile(t, filepath.Join(workingDir, "local.txt"), "dirty-local\n")
+	writeFile(t, filepath.Join(workingDir, "scratch.txt"), "scratch\n")
 
-	runner := &Runner{repoRoot: repoRoot}
+	runner := &Runner{workingDir: workingDir}
 	if err := runner.applyChanges(ctx, "run-1", "merge branch", "norma-wzw"); err != nil {
 		t.Fatalf("applyChanges() error = %v", err)
 	}
 
-	committedFiles := runGit(t, ctx, repoRoot, "show", "--name-only", "--pretty=format:", "HEAD")
+	committedFiles := runGit(t, ctx, workingDir, "show", "--name-only", "--pretty=format:", "HEAD")
 	if strings.Contains(committedFiles, "local.txt") {
 		t.Fatalf("local dirty file unexpectedly included in commit:\n%s", committedFiles)
 	}
@@ -48,16 +48,16 @@ func TestApplyChangesDoesNotCommitRestoredLocalChanges(t *testing.T) {
 		t.Fatalf("expected merged file base.txt in commit:\n%s", committedFiles)
 	}
 
-	localContent := readFile(t, filepath.Join(repoRoot, "local.txt"))
+	localContent := readFile(t, filepath.Join(workingDir, "local.txt"))
 	if localContent != "dirty-local\n" {
 		t.Fatalf("local.txt content mismatch, got %q", localContent)
 	}
 
-	if _, err := os.Stat(filepath.Join(repoRoot, "scratch.txt")); err != nil {
+	if _, err := os.Stat(filepath.Join(workingDir, "scratch.txt")); err != nil {
 		t.Fatalf("expected scratch.txt to be restored: %v", err)
 	}
 
-	status := runGit(t, ctx, repoRoot, "status", "--porcelain")
+	status := runGit(t, ctx, workingDir, "status", "--porcelain")
 	if !strings.Contains(status, " M local.txt") {
 		t.Fatalf("expected local.txt to remain dirty after applyChanges; status:\n%s", status)
 	}
@@ -65,17 +65,17 @@ func TestApplyChangesDoesNotCommitRestoredLocalChanges(t *testing.T) {
 		t.Fatalf("expected scratch.txt to remain untracked after applyChanges; status:\n%s", status)
 	}
 
-	stashList := strings.TrimSpace(runGit(t, ctx, repoRoot, "stash", "list"))
+	stashList := strings.TrimSpace(runGit(t, ctx, workingDir, "stash", "list"))
 	if stashList != "" {
 		t.Fatalf("expected no leftover stash entries, got:\n%s", stashList)
 	}
 }
 
-func initGitRepo(t *testing.T, ctx context.Context, repoRoot string) {
+func initGitRepo(t *testing.T, ctx context.Context, workingDir string) {
 	t.Helper()
-	runGit(t, ctx, repoRoot, "init")
-	runGit(t, ctx, repoRoot, "config", "user.name", "Norma Test")
-	runGit(t, ctx, repoRoot, "config", "user.email", "norma-test@example.com")
+	runGit(t, ctx, workingDir, "init")
+	runGit(t, ctx, workingDir, "config", "user.name", "Norma Test")
+	runGit(t, ctx, workingDir, "config", "user.email", "norma-test@example.com")
 }
 
 func writeFile(t *testing.T, path, content string) {
@@ -94,10 +94,10 @@ func readFile(t *testing.T, path string) string {
 	return string(data)
 }
 
-func runGit(t *testing.T, ctx context.Context, repoRoot string, args ...string) string {
+func runGit(t *testing.T, ctx context.Context, workingDir string, args ...string) string {
 	t.Helper()
 	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Dir = repoRoot
+	cmd.Dir = workingDir
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, out)

@@ -15,21 +15,21 @@ import (
 
 func TestStopAll_CleansWorkspaceWhenRootContextCanceled(t *testing.T) {
 	ctx := context.Background()
-	repoRoot := t.TempDir()
-	initGitRepo(t, ctx, repoRoot)
+	workingDir := t.TempDir()
+	initGitRepo(t, ctx, workingDir)
 
-	writeFile(t, filepath.Join(repoRoot, "seed.txt"), "seed\n")
-	runGit(t, ctx, repoRoot, "add", "seed.txt")
-	runGit(t, ctx, repoRoot, "commit", "-m", "chore: seed")
+	writeFile(t, filepath.Join(workingDir, "seed.txt"), "seed\n")
+	runGit(t, ctx, workingDir, "add", "seed.txt")
+	runGit(t, ctx, workingDir, "commit", "-m", "chore: seed")
 
 	workspaceDir := filepath.Join(t.TempDir(), "relay-workspace")
-	runGit(t, ctx, repoRoot, "worktree", "add", "-b", "norma/relay/relay-1-1", workspaceDir, "HEAD")
+	runGit(t, ctx, workingDir, "worktree", "add", "-b", "norma/relay/relay-1-1", workspaceDir, "HEAD")
 
 	rootCtx, rootCancel := context.WithCancel(context.Background())
 	rootCancel()
 
 	m := &Manager{
-		workspaces:       relayagent.NewWorkspaceManager(repoRoot),
+		workspaces:       relayagent.NewWorkspaceManager(workingDir),
 		workspaceEnabled: true,
 		logger:           zerolog.Nop(),
 		rootCtx:          rootCtx,
@@ -97,11 +97,11 @@ func (f *fakeSessionStore) List(context.Context) ([]relaystate.SessionRecord, er
 	return nil, nil
 }
 
-func initGitRepo(t *testing.T, ctx context.Context, repoRoot string) {
+func initGitRepo(t *testing.T, ctx context.Context, workingDir string) {
 	t.Helper()
-	runGit(t, ctx, repoRoot, "init")
-	runGit(t, ctx, repoRoot, "config", "user.name", "Norma Test")
-	runGit(t, ctx, repoRoot, "config", "user.email", "norma-test@example.com")
+	runGit(t, ctx, workingDir, "init")
+	runGit(t, ctx, workingDir, "config", "user.name", "Norma Test")
+	runGit(t, ctx, workingDir, "config", "user.email", "norma-test@example.com")
 }
 
 func writeFile(t *testing.T, path, content string) {

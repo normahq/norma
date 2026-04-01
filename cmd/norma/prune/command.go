@@ -14,17 +14,17 @@ func Command() *cobra.Command {
 		Use:   "prune",
 		Short: "Prune all runs, their directories, associated worktrees, and stale norma task branches",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			storeDB, repoRoot, closeFn, err := openDB(cmd.Context())
+			storeDB, workingDir, closeFn, err := openDB(cmd.Context())
 			if err != nil {
 				return err
 			}
 			defer closeFn()
 
-			if !git.Available(cmd.Context(), repoRoot) {
+			if !git.Available(cmd.Context(), workingDir) {
 				return fmt.Errorf("current directory is not a git repository")
 			}
 
-			if err := run.Prune(cmd.Context(), storeDB, repoRoot); err != nil {
+			if err := run.Prune(cmd.Context(), storeDB, workingDir); err != nil {
 				return fmt.Errorf("prune failed: %w", err)
 			}
 

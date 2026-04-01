@@ -299,8 +299,8 @@ func (s *ConfigService) saveConfig(ctx context.Context, _ *mcp.CallToolRequest, 
 	}, okOutcome(), nil
 }
 
-func LoadConfig(repoRoot string) (config.Config, error) {
-	configPath := filepath.Join(repoRoot, ".norma", config.CoreConfigFileName)
+func LoadConfig(workingDir string) (config.Config, error) {
+	configPath := filepath.Join(workingDir, ".norma", config.CoreConfigFileName)
 	v := viper.New()
 	v.SetConfigFile(configPath)
 

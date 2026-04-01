@@ -10,7 +10,7 @@ import (
 
 func runACPInfo(
 	ctx context.Context,
-	repoRoot string,
+	workingDir string,
 	command []string,
 	sessionModel string,
 	component string,
@@ -25,7 +25,7 @@ func runACPInfo(
 
 	return acpdump.Run(ctx, acpdump.RunConfig{
 		Command:      command,
-		WorkingDir:   repoRoot,
+		WorkingDir:   workingDir,
 		SessionModel: sessionModel,
 		StartMessage: startMsg,
 		JSONOutput:   jsonOutput,

@@ -41,11 +41,11 @@ func newACPPlaygroundCommand(
 		Short:        short,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			repoRoot, err := os.Getwd()
+			workingDir, err := os.Getwd()
 			if err != nil {
 				return fmt.Errorf("get working directory: %w", err)
 			}
-			return runFunc(cmd.Context(), repoRoot, cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr())
+			return runFunc(cmd.Context(), workingDir, cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr())
 		},
 	}
 	bindFlags(cmd)
@@ -64,11 +64,11 @@ func newACPInfoCommand(
 		Short:        short,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			repoRoot, err := os.Getwd()
+			workingDir, err := os.Getwd()
 			if err != nil {
 				return fmt.Errorf("get working directory: %w", err)
 			}
-			return runFunc(cmd.Context(), repoRoot, jsonOutput, cmd.OutOrStdout(), cmd.ErrOrStderr())
+			return runFunc(cmd.Context(), workingDir, jsonOutput, cmd.OutOrStdout(), cmd.ErrOrStderr())
 		},
 	}
 	if bindFlags != nil {
@@ -90,11 +90,11 @@ func newACPWebCommand(
 		SilenceUsage: true,
 		Args:         cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			repoRoot, err := os.Getwd()
+			workingDir, err := os.Getwd()
 			if err != nil {
 				return fmt.Errorf("get working directory: %w", err)
 			}
-			return runFunc(cmd.Context(), repoRoot, args, cmd.ErrOrStderr())
+			return runFunc(cmd.Context(), workingDir, args, cmd.ErrOrStderr())
 		},
 	}
 	if bindFlags != nil {
@@ -265,7 +265,7 @@ func newModelACPInfoCommand(cfg modelACPCommandConfig) *cobra.Command {
 
 func runStandardACP(
 	ctx context.Context,
-	repoRoot string,
+	workingDir string,
 	prompt string,
 	command []string,
 	sessionModel string,
@@ -284,7 +284,7 @@ func runStandardACP(
 	ui := newPlaygroundTerminal(stdin, stdout, lockedStderr, logger)
 
 	logger.Info().
-		Str("repo_root", repoRoot).
+		Str("working_dir", workingDir).
 		Strs("command", command).
 		Msg(spec.startMsg)
 
@@ -294,7 +294,7 @@ func runStandardACP(
 		Description:       spec.description,
 		Model:             sessionModel,
 		Command:           command,
-		WorkingDir:        repoRoot,
+		WorkingDir:        workingDir,
 		Stderr:            lockedStderr,
 		PermissionHandler: ui.RequestPermission,
 		Logger:            &logger,
@@ -344,7 +344,7 @@ func runStandardACP(
 
 func runACPWeb(
 	ctx context.Context,
-	repoRoot string,
+	workingDir string,
 	command []string,
 	sessionModel string,
 	spec runtimeSpec,
@@ -360,7 +360,7 @@ func runACPWeb(
 		With().Timestamp().Str("component", spec.component).Logger()
 
 	logger.Info().
-		Str("repo_root", repoRoot).
+		Str("working_dir", workingDir).
 		Strs("command", command).
 		Strs("web_args", webArgs).
 		Msg(spec.startMsg)
@@ -371,7 +371,7 @@ func runACPWeb(
 		Description:       spec.description,
 		Model:             sessionModel,
 		Command:           command,
-		WorkingDir:        repoRoot,
+		WorkingDir:        workingDir,
 		Stderr:            lockedStderr,
 		PermissionHandler: autoAllowPermission,
 		Logger:            &logger,

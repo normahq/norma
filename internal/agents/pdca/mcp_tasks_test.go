@@ -30,8 +30,8 @@ func TestRoleMCPServersPlanRole(t *testing.T) {
 	if len(cfg.Cmd) != 5 {
 		t.Fatalf("len(cfg.Cmd) = %d, want 5", len(cfg.Cmd))
 	}
-	if cfg.Cmd[0] != "/tmp/norma" || cfg.Cmd[1] != "mcp" || cfg.Cmd[2] != "tasks" || cfg.Cmd[3] != "--repo-root" {
-		t.Fatalf("cfg.Cmd = %v, want executable + mcp tasks --repo-root", cfg.Cmd)
+	if cfg.Cmd[0] != "/tmp/norma" || cfg.Cmd[1] != "mcp" || cfg.Cmd[2] != "tasks" || cfg.Cmd[3] != "--working-dir" {
+		t.Fatalf("cfg.Cmd = %v, want executable + mcp tasks --working-dir", cfg.Cmd)
 	}
 	if !filepath.IsAbs(cfg.Cmd[4]) {
 		t.Fatalf("cfg.Cmd[4] = %q, want absolute repo path", cfg.Cmd[4])

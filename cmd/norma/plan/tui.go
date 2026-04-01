@@ -21,15 +21,15 @@ func tuiCommand() *cobra.Command {
 }
 
 func runTUI(cmd *cobra.Command, _ []string) error {
-	repoRoot, err := os.Getwd()
+	workingDir, err := os.Getwd()
 	if err != nil {
 		return err
 	}
-	if !git.Available(cmd.Context(), repoRoot) {
+	if !git.Available(cmd.Context(), workingDir) {
 		return fmt.Errorf("current directory is not a git repository")
 	}
 
-	cfg, err := loadConfig(repoRoot)
+	cfg, err := loadConfig(workingDir)
 	if err != nil {
 		return err
 	}
@@ -38,5 +38,5 @@ func runTUI(cmd *cobra.Command, _ []string) error {
 	if !ok {
 		return fmt.Errorf("planner agent not configured in selected profile %q", cfg.Profile)
 	}
-	return runAgentPlanner(cmd, repoRoot, cfg.Norma.Agents, cfg.Norma.MCPServers, plannerID)
+	return runAgentPlanner(cmd, workingDir, cfg.Norma.Agents, cfg.Norma.MCPServers, plannerID)
 }

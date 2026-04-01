@@ -33,12 +33,12 @@ var taskIDPattern = regexp.MustCompile(`^norma-[a-z0-9]+(?:\.[a-z0-9]+)*$`)
 
 // Runner executes an ADK agent run for a task.
 type Runner struct {
-	repoRoot string
-	normaDir string
-	cfg      config.Config
-	store    *db.Store
-	tracker  task.Tracker
-	factory  AgentFactory
+	workingDir string
+	normaDir   string
+	cfg        config.Config
+	store      *db.Store
+	tracker    task.Tracker
+	factory    AgentFactory
 }
 
 // Result summarizes a completed run.
@@ -48,19 +48,19 @@ type Result struct {
 }
 
 // NewADKRunner constructs a Runner with an ADK agent factory.
-func NewADKRunner(repoRoot string, cfg config.Config, store *db.Store, tracker task.Tracker, factory AgentFactory) (*Runner, error) {
-	absRoot, err := filepath.Abs(repoRoot)
+func NewADKRunner(workingDir string, cfg config.Config, store *db.Store, tracker task.Tracker, factory AgentFactory) (*Runner, error) {
+	absRoot, err := filepath.Abs(workingDir)
 	if err != nil {
-		return nil, fmt.Errorf("resolve absolute repo root: %w", err)
+		return nil, fmt.Errorf("resolve absolute working directory: %w", err)
 	}
 
 	return &Runner{
-		repoRoot: absRoot,
-		normaDir: filepath.Join(absRoot, ".norma"),
-		cfg:      cfg,
-		store:    store,
-		tracker:  tracker,
-		factory:  factory,
+		workingDir: absRoot,
+		normaDir:   filepath.Join(absRoot, ".norma"),
+		cfg:        cfg,
+		store:      store,
+		tracker:    tracker,
+		factory:    factory,
 	}, nil
 }
 
@@ -111,14 +111,14 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []task.AcceptanceCrite
 		return res, fmt.Errorf("create .norma: %w", err)
 	}
 
-	baseBranch, err := git.CurrentBranch(ctx, r.repoRoot)
+	baseBranch, err := git.CurrentBranch(ctx, r.workingDir)
 	if err != nil {
 		return res, fmt.Errorf("resolve base branch: %w", err)
 	}
 	log.Info().Str("base_branch", baseBranch).Msg("using local base branch for task sync")
 
 	// Prune stalled worktrees
-	_ = git.GitRunCmdErr(ctx, r.repoRoot, "git", "worktree", "prune")
+	_ = git.GitRunCmdErr(ctx, r.workingDir, "git", "worktree", "prune")
 
 	if err := reconcile.Run(ctx, r.store.DB(), r.normaDir); err != nil {
 		return res, err
@@ -136,7 +136,7 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []task.AcceptanceCrite
 	meta := RunMeta{
 		RunID:      runID,
 		RunDir:     runDir,
-		GitRoot:    r.repoRoot,
+		GitRoot:    r.workingDir,
 		BaseBranch: baseBranch,
 	}
 	payload := TaskPayload{
@@ -201,11 +201,11 @@ func (r *Runner) applyChanges(ctx context.Context, runID, goal, taskID string) e
 	log.Info().Str("branch", branchName).Msg("applying changes from workspace")
 
 	// Ensure a clean working tree before merge to avoid clobbering local changes.
-	dirty := strings.TrimSpace(git.GitRunCmd(ctx, r.repoRoot, "git", "status", "--porcelain"))
+	dirty := strings.TrimSpace(git.GitRunCmd(ctx, r.workingDir, "git", "status", "--porcelain"))
 	stashed := false
 	if dirty != "" {
 		log.Info().Msg("stashing local changes before merge")
-		if err := git.GitRunCmdErr(ctx, r.repoRoot, "git", "stash", "push", "-u", "-m", fmt.Sprintf("norma pre-apply %s", runID)); err != nil {
+		if err := git.GitRunCmdErr(ctx, r.workingDir, "git", "stash", "push", "-u", "-m", fmt.Sprintf("norma pre-apply %s", runID)); err != nil {
 			return fmt.Errorf("git stash push: %w", err)
 		}
 		stashed = true
@@ -215,7 +215,7 @@ func (r *Runner) applyChanges(ctx context.Context, runID, goal, taskID string) e
 		if !stashed {
 			return nil
 		}
-		if err := git.GitRunCmdErr(ctx, r.repoRoot, "git", "stash", "pop"); err != nil {
+		if err := git.GitRunCmdErr(ctx, r.workingDir, "git", "stash", "pop"); err != nil {
 			return fmt.Errorf("git stash pop: %w", err)
 		}
 		stashed = false
@@ -223,19 +223,19 @@ func (r *Runner) applyChanges(ctx context.Context, runID, goal, taskID string) e
 	}
 
 	// record git status/hash "before"
-	beforeHash := strings.TrimSpace(git.GitRunCmd(ctx, r.repoRoot, "git", "rev-parse", "HEAD"))
+	beforeHash := strings.TrimSpace(git.GitRunCmd(ctx, r.workingDir, "git", "rev-parse", "HEAD"))
 
 	// merge --squash
-	if err := git.GitRunCmdErr(ctx, r.repoRoot, "git", "merge", "--squash", branchName); err != nil {
-		_ = git.GitRunCmdErr(ctx, r.repoRoot, "git", "reset", "--hard", beforeHash)
+	if err := git.GitRunCmdErr(ctx, r.workingDir, "git", "merge", "--squash", branchName); err != nil {
+		_ = git.GitRunCmdErr(ctx, r.workingDir, "git", "reset", "--hard", beforeHash)
 		if restoreErr := restoreStash(); restoreErr != nil {
 			return fmt.Errorf("git merge --squash: %w (failed to restore stashed changes: %w)", err, restoreErr)
 		}
 		return fmt.Errorf("git merge --squash: %w", err)
 	}
 
-	if err := git.GitRunCmdErr(ctx, r.repoRoot, "git", "add", "-A"); err != nil {
-		_ = git.GitRunCmdErr(ctx, r.repoRoot, "git", "reset", "--hard", beforeHash)
+	if err := git.GitRunCmdErr(ctx, r.workingDir, "git", "add", "-A"); err != nil {
+		_ = git.GitRunCmdErr(ctx, r.workingDir, "git", "reset", "--hard", beforeHash)
 		if restoreErr := restoreStash(); restoreErr != nil {
 			return fmt.Errorf("git add -A: %w (failed to restore stashed changes: %w)", err, restoreErr)
 		}
@@ -243,7 +243,7 @@ func (r *Runner) applyChanges(ctx context.Context, runID, goal, taskID string) e
 	}
 
 	// check if there are changes to commit
-	status := git.GitRunCmd(ctx, r.repoRoot, "git", "status", "--porcelain")
+	status := git.GitRunCmd(ctx, r.workingDir, "git", "status", "--porcelain")
 	log.Debug().Str("git_status", status).Msg("git status after merge")
 	if strings.TrimSpace(status) == "" {
 		if err := restoreStash(); err != nil {
@@ -254,9 +254,9 @@ func (r *Runner) applyChanges(ctx context.Context, runID, goal, taskID string) e
 	}
 
 	// commit using Conventional Commits
-	if err := git.GitRunCmdErr(ctx, r.repoRoot, "git", "commit", "-m", commitMsg); err != nil {
+	if err := git.GitRunCmdErr(ctx, r.workingDir, "git", "commit", "-m", commitMsg); err != nil {
 		log.Error().Err(err).Msg("failed to commit merged changes, rolling back")
-		_ = git.GitRunCmdErr(ctx, r.repoRoot, "git", "reset", "--hard", beforeHash)
+		_ = git.GitRunCmdErr(ctx, r.workingDir, "git", "reset", "--hard", beforeHash)
 		if restoreErr := restoreStash(); restoreErr != nil {
 			return fmt.Errorf("git commit: %w (failed to restore stashed changes: %w)", err, restoreErr)
 		}
@@ -267,7 +267,7 @@ func (r *Runner) applyChanges(ctx context.Context, runID, goal, taskID string) e
 		return err
 	}
 
-	afterHash := strings.TrimSpace(git.GitRunCmd(ctx, r.repoRoot, "git", "rev-parse", "HEAD"))
+	afterHash := strings.TrimSpace(git.GitRunCmd(ctx, r.workingDir, "git", "rev-parse", "HEAD"))
 	log.Info().
 		Str("before_hash", beforeHash).
 		Str("after_hash", afterHash).

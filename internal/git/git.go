@@ -10,9 +10,9 @@ import (
 )
 
 // Available checks if the given directory is inside a git work tree.
-func Available(ctx context.Context, repoRoot string) bool {
+func Available(ctx context.Context, workingDir string) bool {
 	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--is-inside-work-tree")
-	cmd.Dir = repoRoot
+	cmd.Dir = workingDir
 	return cmd.Run() == nil
 }
 
@@ -55,11 +55,11 @@ func GitRunCmdErr(ctx context.Context, dir string, name string, args ...string) 
 }
 
 // CurrentBranch returns the current active branch in the repository.
-func CurrentBranch(ctx context.Context, repoRoot string) (string, error) {
-	if !Available(ctx, repoRoot) {
-		return "", fmt.Errorf("not a git repository: %s", repoRoot)
+func CurrentBranch(ctx context.Context, workingDir string) (string, error) {
+	if !Available(ctx, workingDir) {
+		return "", fmt.Errorf("not a git repository: %s", workingDir)
 	}
-	out, err := GitRunCmdOutput(ctx, repoRoot, "git", "rev-parse", "--abbrev-ref", "HEAD")
+	out, err := GitRunCmdOutput(ctx, workingDir, "git", "rev-parse", "--abbrev-ref", "HEAD")
 	if err != nil {
 		return "", fmt.Errorf("resolve base branch: %w", err)
 	}

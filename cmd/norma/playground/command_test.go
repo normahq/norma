@@ -179,8 +179,8 @@ func TestRunGeminiACPOneShot(t *testing.T) {
 
 func TestRunGeminiACPReusesSessionInREPL(t *testing.T) {
 	wrapper, _ := writeGeminiWrapper(t)
-	testACPSessionReuseInREPL(t, func(ctx context.Context, repoRoot string, input io.Reader, stdout, stderr io.Writer) error {
-		return acpcmd.RunGeminiACP(ctx, repoRoot, acpcmd.GeminiOptions{GeminiBin: wrapper}, input, stdout, stderr)
+	testACPSessionReuseInREPL(t, func(ctx context.Context, workingDir string, input io.Reader, stdout, stderr io.Writer) error {
+		return acpcmd.RunGeminiACP(ctx, workingDir, acpcmd.GeminiOptions{GeminiBin: wrapper}, input, stdout, stderr)
 	})
 }
 
@@ -216,8 +216,8 @@ func TestRunOpenCodeACPOneShot(t *testing.T) {
 
 func TestRunOpenCodeACPReusesSessionInREPL(t *testing.T) {
 	wrapper, _ := writeOpenCodeWrapper(t)
-	testACPSessionReuseInREPL(t, func(ctx context.Context, repoRoot string, input io.Reader, stdout, stderr io.Writer) error {
-		return acpcmd.RunOpenCodeACP(ctx, repoRoot, acpcmd.OpenCodeOptions{OpenCodeBin: wrapper}, input, stdout, stderr)
+	testACPSessionReuseInREPL(t, func(ctx context.Context, workingDir string, input io.Reader, stdout, stderr io.Writer) error {
+		return acpcmd.RunOpenCodeACP(ctx, workingDir, acpcmd.OpenCodeOptions{OpenCodeBin: wrapper}, input, stdout, stderr)
 	})
 }
 
@@ -251,12 +251,12 @@ func TestRunCodexACPOneShot(t *testing.T) {
 
 func TestRunCodexACPReusesSessionInREPL(t *testing.T) {
 	wrapper, _ := writeCodexACPWrapper(t)
-	testACPSessionReuseInREPL(t, func(ctx context.Context, repoRoot string, input io.Reader, stdout, stderr io.Writer) error {
-		return acpcmd.RunCodexACP(ctx, repoRoot, acpcmd.CodexOptions{BridgeBin: wrapper}, input, stdout, stderr)
+	testACPSessionReuseInREPL(t, func(ctx context.Context, workingDir string, input io.Reader, stdout, stderr io.Writer) error {
+		return acpcmd.RunCodexACP(ctx, workingDir, acpcmd.CodexOptions{BridgeBin: wrapper}, input, stdout, stderr)
 	})
 }
 
-type acpREPLRunner func(ctx context.Context, repoRoot string, input io.Reader, stdout, stderr io.Writer) error
+type acpREPLRunner func(ctx context.Context, workingDir string, input io.Reader, stdout, stderr io.Writer) error
 
 func testACPSessionReuseInREPL(t *testing.T, runner acpREPLRunner) {
 	t.Helper()
@@ -303,27 +303,27 @@ func (b *lockedBuffer) String() string {
 func TestRunACPInfoHuman(t *testing.T) {
 	tests := []struct {
 		name string
-		run  func(ctx context.Context, repoRoot string, stdout, stderr io.Writer) error
+		run  func(ctx context.Context, workingDir string, stdout, stderr io.Writer) error
 	}{
 		{
 			name: acpSubcommandGemini,
-			run: func(ctx context.Context, repoRoot string, stdout, stderr io.Writer) error {
+			run: func(ctx context.Context, workingDir string, stdout, stderr io.Writer) error {
 				wrapper, _ := writeGeminiWrapper(t)
-				return acpcmd.RunGeminiACPInfo(ctx, repoRoot, acpcmd.GeminiOptions{GeminiBin: wrapper}, false, stdout, stderr)
+				return acpcmd.RunGeminiACPInfo(ctx, workingDir, acpcmd.GeminiOptions{GeminiBin: wrapper}, false, stdout, stderr)
 			},
 		},
 		{
 			name: acpSubcommandOpenCode,
-			run: func(ctx context.Context, repoRoot string, stdout, stderr io.Writer) error {
+			run: func(ctx context.Context, workingDir string, stdout, stderr io.Writer) error {
 				wrapper, _ := writeOpenCodeWrapper(t)
-				return acpcmd.RunOpenCodeACPInfo(ctx, repoRoot, acpcmd.OpenCodeOptions{OpenCodeBin: wrapper}, false, stdout, stderr)
+				return acpcmd.RunOpenCodeACPInfo(ctx, workingDir, acpcmd.OpenCodeOptions{OpenCodeBin: wrapper}, false, stdout, stderr)
 			},
 		},
 		{
 			name: acpSubcommandCodex,
-			run: func(ctx context.Context, repoRoot string, stdout, stderr io.Writer) error {
+			run: func(ctx context.Context, workingDir string, stdout, stderr io.Writer) error {
 				wrapper, _ := writeCodexACPWrapper(t)
-				return acpcmd.RunCodexACPInfo(ctx, repoRoot, acpcmd.CodexOptions{BridgeBin: wrapper}, false, stdout, stderr)
+				return acpcmd.RunCodexACPInfo(ctx, workingDir, acpcmd.CodexOptions{BridgeBin: wrapper}, false, stdout, stderr)
 			},
 		},
 	}

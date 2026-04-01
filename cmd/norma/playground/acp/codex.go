@@ -28,8 +28,8 @@ func CodexCommand() *cobra.Command {
 			cmd.Flags().StringVar(&opts.Model, "model", "", "Codex model name")
 			cmd.Flags().StringVar(&opts.Name, "name", "", "ACP agent name exposed by the Codex proxy")
 		},
-		func(ctx context.Context, repoRoot string, stdin io.Reader, stdout, stderr io.Writer) error {
-			return RunCodexACP(ctx, repoRoot, opts, stdin, stdout, stderr)
+		func(ctx context.Context, workingDir string, stdin io.Reader, stdout, stderr io.Writer) error {
+			return RunCodexACP(ctx, workingDir, opts, stdin, stdout, stderr)
 		},
 	)
 }
@@ -44,8 +44,8 @@ func CodexInfoCommand() *cobra.Command {
 			cmd.Flags().StringVar(&opts.Name, "name", "", "ACP agent name exposed by the Codex proxy")
 			cmd.Flags().StringVar(&opts.BridgeBin, "bridge-bin", "", "Codex ACP proxy executable path (defaults to current norma binary)")
 		},
-		func(ctx context.Context, repoRoot string, jsonOutput bool, stdout io.Writer, stderr io.Writer) error {
-			return RunCodexACPInfo(ctx, repoRoot, opts, jsonOutput, stdout, stderr)
+		func(ctx context.Context, workingDir string, jsonOutput bool, stdout io.Writer, stderr io.Writer) error {
+			return RunCodexACPInfo(ctx, workingDir, opts, jsonOutput, stdout, stderr)
 		},
 	)
 }
@@ -60,18 +60,18 @@ func CodexWebCommand() *cobra.Command {
 			cmd.Flags().StringVar(&opts.Name, "name", "", "ACP agent name exposed by the Codex proxy")
 			cmd.Flags().StringVar(&opts.BridgeBin, "bridge-bin", "", "Codex ACP proxy executable path (defaults to current norma binary)")
 		},
-		func(ctx context.Context, repoRoot string, launcherArgs []string, stderr io.Writer) error {
-			return RunCodexACPWeb(ctx, repoRoot, opts, launcherArgs, stderr)
+		func(ctx context.Context, workingDir string, launcherArgs []string, stderr io.Writer) error {
+			return RunCodexACPWeb(ctx, workingDir, opts, launcherArgs, stderr)
 		},
 	)
 }
 
-func RunCodexACP(ctx context.Context, repoRoot string, opts CodexOptions, stdin io.Reader, stdout, stderr io.Writer) error {
+func RunCodexACP(ctx context.Context, workingDir string, opts CodexOptions, stdin io.Reader, stdout, stderr io.Writer) error {
 	acpCmd, err := BuildCodexACPCommand(opts)
 	if err != nil {
 		return err
 	}
-	return runStandardACP(ctx, repoRoot, opts.Prompt, acpCmd, opts.Model, runtimeSpec{
+	return runStandardACP(ctx, workingDir, opts.Prompt, acpCmd, opts.Model, runtimeSpec{
 		component:   "playground.codex_acp",
 		name:        "CodexACP",
 		description: "Codex MCP server via ACP proxy",
@@ -101,7 +101,7 @@ func BuildCodexACPCommand(opts CodexOptions) ([]string, error) {
 
 func RunCodexACPInfo(
 	ctx context.Context,
-	repoRoot string,
+	workingDir string,
 	opts CodexOptions,
 	jsonOutput bool,
 	stdout io.Writer,
@@ -113,7 +113,7 @@ func RunCodexACPInfo(
 	}
 	return runACPInfo(
 		ctx,
-		repoRoot,
+		workingDir,
 		acpCmd,
 		opts.Model,
 		"playground.codex_acp_info",
@@ -126,7 +126,7 @@ func RunCodexACPInfo(
 
 func RunCodexACPWeb(
 	ctx context.Context,
-	repoRoot string,
+	workingDir string,
 	opts CodexOptions,
 	launcherArgs []string,
 	stderr io.Writer,
@@ -135,7 +135,7 @@ func RunCodexACPWeb(
 	if err != nil {
 		return err
 	}
-	return runACPWeb(ctx, repoRoot, acpCmd, opts.Model, runtimeSpec{
+	return runACPWeb(ctx, workingDir, acpCmd, opts.Model, runtimeSpec{
 		component:   "playground.codex_acp_web",
 		name:        "CodexACPWeb",
 		description: "Codex MCP server via ACP proxy (web launcher)",

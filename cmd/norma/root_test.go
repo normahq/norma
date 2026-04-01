@@ -9,14 +9,14 @@ import (
 )
 
 func TestInitBeads_SkipsWhenBeadsExistsAtGitTopLevel(t *testing.T) {
-	repoRoot := t.TempDir()
-	runGit(t, repoRoot, "init")
+	workingDir := t.TempDir()
+	runGit(t, workingDir, "init")
 
-	if err := os.MkdirAll(filepath.Join(repoRoot, ".beads"), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(workingDir, ".beads"), 0o700); err != nil {
 		t.Fatalf("create .beads: %v", err)
 	}
 
-	nestedDir := filepath.Join(repoRoot, "nested", "dir")
+	nestedDir := filepath.Join(workingDir, "nested", "dir")
 	if err := os.MkdirAll(nestedDir, 0o700); err != nil {
 		t.Fatalf("create nested dir: %v", err)
 	}
@@ -51,8 +51,8 @@ func TestInitBeads_SkipsWhenBeadsExistsAtGitTopLevel(t *testing.T) {
 }
 
 func TestInitBeads_InitializesWhenMissing(t *testing.T) {
-	repoRoot := t.TempDir()
-	runGit(t, repoRoot, "init")
+	workingDir := t.TempDir()
+	runGit(t, workingDir, "init")
 
 	prevWD, err := os.Getwd()
 	if err != nil {
@@ -63,17 +63,17 @@ func TestInitBeads_InitializesWhenMissing(t *testing.T) {
 			t.Fatalf("restore wd: %v", chErr)
 		}
 	})
-	if err := os.Chdir(repoRoot); err != nil {
-		t.Fatalf("chdir repo root: %v", err)
+	if err := os.Chdir(workingDir); err != nil {
+		t.Fatalf("chdir working directory: %v", err)
 	}
 
 	called := 0
-	gotRepoRoot := ""
+	gotWorkingDir := ""
 	prevRunner := runBeadsInit
 	t.Cleanup(func() { runBeadsInit = prevRunner })
 	runBeadsInit = func(_ context.Context, root string) error {
 		called++
-		gotRepoRoot = root
+		gotWorkingDir = root
 		return nil
 	}
 
@@ -83,8 +83,8 @@ func TestInitBeads_InitializesWhenMissing(t *testing.T) {
 	if called != 1 {
 		t.Fatalf("runBeadsInit called %d times, want 1", called)
 	}
-	if gotRepoRoot != repoRoot {
-		t.Fatalf("runBeadsInit repoRoot = %q, want %q", gotRepoRoot, repoRoot)
+	if gotWorkingDir != workingDir {
+		t.Fatalf("runBeadsInit workingDir = %q, want %q", gotWorkingDir, workingDir)
 	}
 }
 

@@ -25,7 +25,7 @@ type relayConfigDocumentForTest struct {
 }
 
 func TestLoadRuntime_PrefersConfigDirOverRepoAndGlobal(t *testing.T) {
-	repoRoot := t.TempDir()
+	workingDir := t.TempDir()
 	xdgRoot := t.TempDir()
 	extraRoot := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", xdgRoot)
@@ -33,14 +33,14 @@ func TestLoadRuntime_PrefersConfigDirOverRepoAndGlobal(t *testing.T) {
 	if err := writeRuntimeFile(filepath.Join(xdgRoot, "norma", "cli.yaml"), runtimeYAMLWithCmd("global")); err != nil {
 		t.Fatalf("write global config: %v", err)
 	}
-	if err := writeRuntimeFile(filepath.Join(repoRoot, ".norma", "cli.yaml"), runtimeYAMLWithCmd("repo")); err != nil {
+	if err := writeRuntimeFile(filepath.Join(workingDir, ".norma", "cli.yaml"), runtimeYAMLWithCmd("repo")); err != nil {
 		t.Fatalf("write repo config: %v", err)
 	}
 	if err := writeRuntimeFile(filepath.Join(extraRoot, "cli.yaml"), runtimeYAMLWithCmd("extra")); err != nil {
 		t.Fatalf("write extra config: %v", err)
 	}
 
-	cfg, err := LoadRuntime(RuntimeLoadOptions{RepoRoot: repoRoot, ConfigDir: extraRoot})
+	cfg, err := LoadRuntime(RuntimeLoadOptions{WorkingDir: workingDir, ConfigDir: extraRoot})
 	if err != nil {
 		t.Fatalf("LoadRuntime: %v", err)
 	}
@@ -54,14 +54,14 @@ func TestLoadRuntime_PrefersConfigDirOverRepoAndGlobal(t *testing.T) {
 }
 
 func TestLoadRuntime_UsesSingleEffectiveFileWithoutCrossRootMerge(t *testing.T) {
-	repoRoot := t.TempDir()
+	workingDir := t.TempDir()
 	xdgRoot := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", xdgRoot)
 
 	if err := writeRuntimeFile(filepath.Join(xdgRoot, "norma", "cli.yaml"), runtimeYAMLWithCmd("global")); err != nil {
 		t.Fatalf("write global config: %v", err)
 	}
-	if err := writeRuntimeFile(filepath.Join(repoRoot, ".norma", "cli.yaml"), `norma:
+	if err := writeRuntimeFile(filepath.Join(workingDir, ".norma", "cli.yaml"), `norma:
   agents:
     agent:
       type: generic_acp
@@ -71,18 +71,18 @@ func TestLoadRuntime_UsesSingleEffectiveFileWithoutCrossRootMerge(t *testing.T) 
 		t.Fatalf("write repo config: %v", err)
 	}
 
-	_, err := LoadRuntime(RuntimeLoadOptions{RepoRoot: repoRoot})
+	_, err := LoadRuntime(RuntimeLoadOptions{WorkingDir: workingDir})
 	if err == nil {
 		t.Fatal("LoadRuntime returned nil error, want validation error from incomplete repo config")
 	}
 }
 
 func TestLoadConfigDocument_AppliesProfileOverridesAndEnv(t *testing.T) {
-	repoRoot := t.TempDir()
+	workingDir := t.TempDir()
 	t.Setenv("RELAY_TELEGRAM_WEBHOOK_URL", "https://example.com/webhook")
 	t.Setenv("RELAY_TELEGRAM_WEBHOOK_ENABLED", "true")
 
-	if err := writeRuntimeFile(filepath.Join(repoRoot, ".norma", "relay.yaml"), `norma:
+	if err := writeRuntimeFile(filepath.Join(workingDir, ".norma", "relay.yaml"), `norma:
   agents:
     agent:
       type: generic_acp
@@ -107,7 +107,7 @@ profiles:
 
 	var doc relayConfigDocumentForTest
 	_, err := appconfig.LoadConfigDocument(
-		appconfig.RuntimeLoadOptions{RepoRoot: repoRoot, Profile: "default"},
+		appconfig.RuntimeLoadOptions{WorkingDir: workingDir, Profile: "default"},
 		appconfig.AppLoadOptions{
 			AppName: "relay",
 			DefaultsYAML: []byte(`relay:
@@ -138,9 +138,9 @@ profiles:
 }
 
 func TestLoadConfigDocument_PrefersAppSpecificFileOverCoreConfigWithoutMerging(t *testing.T) {
-	repoRoot := t.TempDir()
+	workingDir := t.TempDir()
 
-	if err := writeRuntimeFile(filepath.Join(repoRoot, ".norma", "config.yaml"), `norma:
+	if err := writeRuntimeFile(filepath.Join(workingDir, ".norma", "config.yaml"), `norma:
   agents:
     agent:
       type: generic_acp
@@ -157,7 +157,7 @@ relay:
 `); err != nil {
 		t.Fatalf("write core config: %v", err)
 	}
-	if err := writeRuntimeFile(filepath.Join(repoRoot, ".norma", "relay.yaml"), `norma:
+	if err := writeRuntimeFile(filepath.Join(workingDir, ".norma", "relay.yaml"), `norma:
   agents:
     agent:
       type: generic_acp
@@ -177,7 +177,7 @@ relay:
 
 	var doc relayConfigDocumentForTest
 	_, err := appconfig.LoadConfigDocument(
-		appconfig.RuntimeLoadOptions{RepoRoot: repoRoot},
+		appconfig.RuntimeLoadOptions{WorkingDir: workingDir},
 		appconfig.AppLoadOptions{AppName: "relay"},
 		&doc,
 	)
@@ -194,9 +194,9 @@ relay:
 }
 
 func TestLoadConfigDocument_FallsBackToCoreConfigWhenAppSpecificMissing(t *testing.T) {
-	repoRoot := t.TempDir()
+	workingDir := t.TempDir()
 
-	if err := writeRuntimeFile(filepath.Join(repoRoot, ".norma", "config.yaml"), `norma:
+	if err := writeRuntimeFile(filepath.Join(workingDir, ".norma", "config.yaml"), `norma:
   agents:
     agent:
       type: generic_acp
@@ -216,7 +216,7 @@ relay:
 
 	var doc relayConfigDocumentForTest
 	_, err := appconfig.LoadConfigDocument(
-		appconfig.RuntimeLoadOptions{RepoRoot: repoRoot},
+		appconfig.RuntimeLoadOptions{WorkingDir: workingDir},
 		appconfig.AppLoadOptions{AppName: "relay"},
 		&doc,
 	)
@@ -230,8 +230,8 @@ relay:
 }
 
 func TestLoadRuntime_AcceptsNormaMCPServersKey(t *testing.T) {
-	repoRoot := t.TempDir()
-	if err := writeRuntimeFile(filepath.Join(repoRoot, ".norma", "config.yaml"), `norma:
+	workingDir := t.TempDir()
+	if err := writeRuntimeFile(filepath.Join(workingDir, ".norma", "config.yaml"), `norma:
   agents:
     agent:
       type: generic_acp
@@ -251,7 +251,7 @@ cli:
 		t.Fatalf("write runtime config: %v", err)
 	}
 
-	cfg, err := LoadRuntime(RuntimeLoadOptions{RepoRoot: repoRoot})
+	cfg, err := LoadRuntime(RuntimeLoadOptions{WorkingDir: workingDir})
 	if err != nil {
 		t.Fatalf("LoadRuntime returned error: %v", err)
 	}
@@ -261,7 +261,7 @@ cli:
 }
 
 func TestLoadRuntime_AllowsExtraOutOfScopeFields(t *testing.T) {
-	repoRoot := t.TempDir()
+	workingDir := t.TempDir()
 	content := "norma:\n" +
 		"  agents:\n" +
 		"    agent:\n" +
@@ -275,11 +275,11 @@ func TestLoadRuntime_AllowsExtraOutOfScopeFields(t *testing.T) {
 		"    do: agent\n" +
 		"    check: agent\n" +
 		"    act: agent\n"
-	if err := writeRuntimeFile(filepath.Join(repoRoot, ".norma", "config.yaml"), content); err != nil {
+	if err := writeRuntimeFile(filepath.Join(workingDir, ".norma", "config.yaml"), content); err != nil {
 		t.Fatalf("write runtime config: %v", err)
 	}
 
-	if _, err := LoadRuntime(RuntimeLoadOptions{RepoRoot: repoRoot}); err != nil {
+	if _, err := LoadRuntime(RuntimeLoadOptions{WorkingDir: workingDir}); err != nil {
 		t.Fatalf("LoadRuntime returned error for extra field: %v", err)
 	}
 }

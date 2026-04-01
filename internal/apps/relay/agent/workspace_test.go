@@ -13,28 +13,28 @@ func TestWorkspaceImportDiscardsDirtyChangesAndSyncsToMaster(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	repoRoot := t.TempDir()
-	initGitRepo(t, ctx, repoRoot)
+	workingDir := t.TempDir()
+	initGitRepo(t, ctx, workingDir)
 
-	writeFile(t, filepath.Join(repoRoot, "base.txt"), "base\n")
-	runGit(t, ctx, repoRoot, "add", "base.txt")
-	runGit(t, ctx, repoRoot, "commit", "-m", "chore: seed")
+	writeFile(t, filepath.Join(workingDir, "base.txt"), "base\n")
+	runGit(t, ctx, workingDir, "add", "base.txt")
+	runGit(t, ctx, workingDir, "commit", "-m", "chore: seed")
 
 	workspaceDir := filepath.Join(t.TempDir(), "relay-workspace")
 	branchName := "norma/relay/relay-1-0"
-	runGit(t, ctx, repoRoot, "worktree", "add", "-b", branchName, workspaceDir, "HEAD")
+	runGit(t, ctx, workingDir, "worktree", "add", "-b", branchName, workspaceDir, "HEAD")
 	t.Cleanup(func() {
-		_ = runGitAllowError(ctx, repoRoot, "worktree", "remove", "--force", workspaceDir)
+		_ = runGitAllowError(ctx, workingDir, "worktree", "remove", "--force", workspaceDir)
 	})
 
 	writeFile(t, filepath.Join(workspaceDir, "base.txt"), "dirty change\n")
 	writeFile(t, filepath.Join(workspaceDir, "scratch.txt"), "scratch\n")
 
-	writeFile(t, filepath.Join(repoRoot, "master-only.txt"), "master-only\n")
-	runGit(t, ctx, repoRoot, "add", "master-only.txt")
-	runGit(t, ctx, repoRoot, "commit", "-m", "chore: update master")
+	writeFile(t, filepath.Join(workingDir, "master-only.txt"), "master-only\n")
+	runGit(t, ctx, workingDir, "add", "master-only.txt")
+	runGit(t, ctx, workingDir, "commit", "-m", "chore: update master")
 
-	m := NewWorkspaceManager(repoRoot)
+	m := NewWorkspaceManager(workingDir)
 	if err := m.Import(ctx, workspaceDir); err != nil {
 		t.Fatalf("Import() error = %v", err)
 	}
@@ -60,29 +60,29 @@ func TestWorkspaceImportRebasesCleanBranch(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	repoRoot := t.TempDir()
-	initGitRepo(t, ctx, repoRoot)
+	workingDir := t.TempDir()
+	initGitRepo(t, ctx, workingDir)
 
-	writeFile(t, filepath.Join(repoRoot, "base.txt"), "base\n")
-	runGit(t, ctx, repoRoot, "add", "base.txt")
-	runGit(t, ctx, repoRoot, "commit", "-m", "chore: seed")
+	writeFile(t, filepath.Join(workingDir, "base.txt"), "base\n")
+	runGit(t, ctx, workingDir, "add", "base.txt")
+	runGit(t, ctx, workingDir, "commit", "-m", "chore: seed")
 
 	workspaceDir := filepath.Join(t.TempDir(), "relay-workspace")
 	branchName := "norma/relay/relay-1-1"
-	runGit(t, ctx, repoRoot, "worktree", "add", "-b", branchName, workspaceDir, "HEAD")
+	runGit(t, ctx, workingDir, "worktree", "add", "-b", branchName, workspaceDir, "HEAD")
 	t.Cleanup(func() {
-		_ = runGitAllowError(ctx, repoRoot, "worktree", "remove", "--force", workspaceDir)
+		_ = runGitAllowError(ctx, workingDir, "worktree", "remove", "--force", workspaceDir)
 	})
 
 	writeFile(t, filepath.Join(workspaceDir, "branch.txt"), "branch\n")
 	runGit(t, ctx, workspaceDir, "add", "branch.txt")
 	runGit(t, ctx, workspaceDir, "commit", "-m", "feat: branch change")
 
-	writeFile(t, filepath.Join(repoRoot, "master.txt"), "master\n")
-	runGit(t, ctx, repoRoot, "add", "master.txt")
-	runGit(t, ctx, repoRoot, "commit", "-m", "chore: master change")
+	writeFile(t, filepath.Join(workingDir, "master.txt"), "master\n")
+	runGit(t, ctx, workingDir, "add", "master.txt")
+	runGit(t, ctx, workingDir, "commit", "-m", "chore: master change")
 
-	m := NewWorkspaceManager(repoRoot)
+	m := NewWorkspaceManager(workingDir)
 	if err := m.Import(ctx, workspaceDir); err != nil {
 		t.Fatalf("Import() error = %v", err)
 	}
@@ -104,29 +104,29 @@ func TestWorkspaceImportAbortsRebaseOnConflict(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	repoRoot := t.TempDir()
-	initGitRepo(t, ctx, repoRoot)
+	workingDir := t.TempDir()
+	initGitRepo(t, ctx, workingDir)
 
-	writeFile(t, filepath.Join(repoRoot, "conflict.txt"), "base\n")
-	runGit(t, ctx, repoRoot, "add", "conflict.txt")
-	runGit(t, ctx, repoRoot, "commit", "-m", "chore: seed")
+	writeFile(t, filepath.Join(workingDir, "conflict.txt"), "base\n")
+	runGit(t, ctx, workingDir, "add", "conflict.txt")
+	runGit(t, ctx, workingDir, "commit", "-m", "chore: seed")
 
 	workspaceDir := filepath.Join(t.TempDir(), "relay-workspace")
 	branchName := "norma/relay/relay-1-2"
-	runGit(t, ctx, repoRoot, "worktree", "add", "-b", branchName, workspaceDir, "HEAD")
+	runGit(t, ctx, workingDir, "worktree", "add", "-b", branchName, workspaceDir, "HEAD")
 	t.Cleanup(func() {
-		_ = runGitAllowError(ctx, repoRoot, "worktree", "remove", "--force", workspaceDir)
+		_ = runGitAllowError(ctx, workingDir, "worktree", "remove", "--force", workspaceDir)
 	})
 
 	writeFile(t, filepath.Join(workspaceDir, "conflict.txt"), "branch\n")
 	runGit(t, ctx, workspaceDir, "add", "conflict.txt")
 	runGit(t, ctx, workspaceDir, "commit", "-m", "feat: branch conflict")
 
-	writeFile(t, filepath.Join(repoRoot, "conflict.txt"), "master\n")
-	runGit(t, ctx, repoRoot, "add", "conflict.txt")
-	runGit(t, ctx, repoRoot, "commit", "-m", "chore: master conflict")
+	writeFile(t, filepath.Join(workingDir, "conflict.txt"), "master\n")
+	runGit(t, ctx, workingDir, "add", "conflict.txt")
+	runGit(t, ctx, workingDir, "commit", "-m", "chore: master conflict")
 
-	m := NewWorkspaceManager(repoRoot)
+	m := NewWorkspaceManager(workingDir)
 	err := m.Import(ctx, workspaceDir)
 	if err == nil {
 		t.Fatal("Import() error = nil, want conflict error")
@@ -154,11 +154,11 @@ func TestWorkspaceImportAbortsRebaseOnConflict(t *testing.T) {
 	}
 }
 
-func initGitRepo(t *testing.T, ctx context.Context, repoRoot string) {
+func initGitRepo(t *testing.T, ctx context.Context, workingDir string) {
 	t.Helper()
-	runGit(t, ctx, repoRoot, "init")
-	runGit(t, ctx, repoRoot, "config", "user.name", "Norma Test")
-	runGit(t, ctx, repoRoot, "config", "user.email", "norma-test@example.com")
+	runGit(t, ctx, workingDir, "init")
+	runGit(t, ctx, workingDir, "config", "user.name", "Norma Test")
+	runGit(t, ctx, workingDir, "config", "user.email", "norma-test@example.com")
 }
 
 func writeFile(t *testing.T, path, content string) {

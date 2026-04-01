@@ -25,19 +25,19 @@ import (
 const opencodeIntegrationTimeout = 90 * time.Second
 
 func TestOpenCodeACPIntegration_InitializeAndNewSession(t *testing.T) {
-	repoRoot := requireOpenCodeEnvironment(t)
-	client, stderr := newOpenCodeACPClient(t, repoRoot, "acp")
+	workingDir := requireOpenCodeEnvironment(t)
+	client, stderr := newOpenCodeACPClient(t, workingDir, "acp")
 
 	initResp := mustInitializeACP(t, client, stderr)
 	if initResp.ProtocolVersion != acp.ProtocolVersion(acp.ProtocolVersionNumber) {
 		t.Fatalf("initialize protocol version = %d, want %d", initResp.ProtocolVersion, acp.ProtocolVersionNumber)
 	}
-	_ = mustNewACPSession(t, client, stderr, repoRoot)
+	_ = mustNewACPSession(t, client, stderr, workingDir)
 }
 
 func TestOpenCodeACPIntegration_NewSessionWithMCPServers(t *testing.T) {
-	repoRoot := requireOpenCodeEnvironment(t)
-	client, stderr := newOpenCodeACPClient(t, repoRoot, "acp")
+	workingDir := requireOpenCodeEnvironment(t)
+	client, stderr := newOpenCodeACPClient(t, workingDir, "acp")
 
 	_ = mustInitializeACP(t, client, stderr)
 	mcpCommand := opencodeMCPHelperCommand(t)
@@ -55,14 +55,14 @@ func TestOpenCodeACPIntegration_NewSessionWithMCPServers(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), opencodeIntegrationTimeout)
 	defer cancel()
 
-	if _, err := client.NewSession(ctx, repoRoot, mcpServers); err != nil {
+	if _, err := client.NewSession(ctx, workingDir, mcpServers); err != nil {
 		maybeSkipOpenCodeIntegration(t, err, stderr.String())
 		failWithDetails(t, "session/new failed with mcpServers", err, stderr.String())
 	}
 }
 
 func TestOpenCodeACPIntegration_AgentWithMCPServers(t *testing.T) {
-	repoRoot := requireOpenCodeEnvironment(t)
+	workingDir := requireOpenCodeEnvironment(t)
 	configureOpenCodeWritableEnv(t)
 	mcpCommand := opencodeMCPHelperCommand(t)
 
@@ -70,7 +70,7 @@ func TestOpenCodeACPIntegration_AgentWithMCPServers(t *testing.T) {
 	agentWithMCP, err := New(Config{
 		Context:    context.Background(),
 		Command:    []string{"opencode", "acp"},
-		WorkingDir: repoRoot,
+		WorkingDir: workingDir,
 		Stderr:     &stderr,
 		MCPServers: map[string]MCPServerConfig{
 			"norma-opencode-mcp-helper": {
@@ -122,11 +122,11 @@ func TestOpenCodeACPIntegration_AgentWithMCPServers(t *testing.T) {
 }
 
 func TestOpenCodeACPIntegration_PromptRoundTrip(t *testing.T) {
-	repoRoot := requireOpenCodeEnvironment(t)
-	client, stderr := newOpenCodeACPClient(t, repoRoot, "acp")
+	workingDir := requireOpenCodeEnvironment(t)
+	client, stderr := newOpenCodeACPClient(t, workingDir, "acp")
 
 	_ = mustInitializeACP(t, client, stderr)
-	sess := mustNewACPSession(t, client, stderr, repoRoot)
+	sess := mustNewACPSession(t, client, stderr, workingDir)
 
 	ctx, cancel := context.WithTimeout(context.Background(), opencodeIntegrationTimeout)
 	defer cancel()
@@ -153,8 +153,8 @@ func TestOpenCodeACPIntegration_PromptRoundTrip(t *testing.T) {
 }
 
 func TestOpenCodeACPIntegration_InvalidArgFailsInitialize(t *testing.T) {
-	repoRoot := requireOpenCodeEnvironment(t)
-	client, stderr := newOpenCodeACPClient(t, repoRoot, "--definitely-invalid-flag", "acp")
+	workingDir := requireOpenCodeEnvironment(t)
+	client, stderr := newOpenCodeACPClient(t, workingDir, "--definitely-invalid-flag", "acp")
 
 	ctx, cancel := context.WithTimeout(context.Background(), opencodeIntegrationTimeout)
 	defer cancel()
@@ -199,13 +199,13 @@ func findRepoRoot(t *testing.T) string {
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			t.Fatalf("could not locate repo root containing go.mod (started from %q)", dir)
+			t.Fatalf("could not locate working directory containing go.mod (started from %q)", dir)
 		}
 		dir = parent
 	}
 }
 
-func newOpenCodeACPClient(t *testing.T, repoRoot string, commandArgs ...string) (*Client, *bytes.Buffer) {
+func newOpenCodeACPClient(t *testing.T, workingDir string, commandArgs ...string) (*Client, *bytes.Buffer) {
 	t.Helper()
 
 	configureOpenCodeWritableEnv(t)
@@ -214,7 +214,7 @@ func newOpenCodeACPClient(t *testing.T, repoRoot string, commandArgs ...string) 
 	var stderr bytes.Buffer
 	client, err := NewClient(context.Background(), ClientConfig{
 		Command:    command,
-		WorkingDir: repoRoot,
+		WorkingDir: workingDir,
 		Stderr:     &stderr,
 	})
 	if err != nil {

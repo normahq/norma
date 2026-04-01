@@ -5,10 +5,10 @@ import (
 	"github.com/spf13/viper"
 )
 
-func loadConfig(repoRoot string) (config.Config, error) {
+func loadConfig(workingDir string) (config.Config, error) {
 	return config.LoadRuntime(config.RuntimeLoadOptions{
-		RepoRoot:  repoRoot,
-		ConfigDir: viper.GetString("config_dir"),
-		Profile:   viper.GetString("profile"),
+		WorkingDir: workingDir,
+		ConfigDir:  viper.GetString("config_dir"),
+		Profile:    viper.GetString("profile"),
 	})
 }

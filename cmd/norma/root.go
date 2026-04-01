@@ -33,9 +33,9 @@ var (
 	debug        bool
 	trace        bool
 	profile      string
-	runBeadsInit = func(ctx context.Context, repoRoot string) error {
+	runBeadsInit = func(ctx context.Context, workingDir string) error {
 		cmd := exec.CommandContext(ctx, "bd", "init", "--prefix", "norma")
-		cmd.Dir = repoRoot
+		cmd.Dir = workingDir
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		return cmd.Run()
@@ -68,12 +68,12 @@ func Execute() error {
 			logLevel = logging.LevelTrace
 		}
 		_ = logging.Init(logging.WithLevel(logLevel))
-		repoRoot, err := os.Getwd()
+		workingDir, err := os.Getwd()
 		if err != nil {
 			log.Warn().Err(err).Msg("failed to get current working directory")
 			return
 		}
-		if git.Available(cmd.Context(), repoRoot) {
+		if git.Available(cmd.Context(), workingDir) {
 			if err := initBeads(cmd.Context()); err != nil {
 				log.Warn().Err(err).Msg("failed to initialize beads")
 			}
@@ -98,17 +98,17 @@ func initDotEnv() {
 }
 
 func initBeads(ctx context.Context) error {
-	repoRoot, err := os.Getwd()
+	workingDir, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("get current working directory: %w", err)
 	}
 
-	topLevelOut, err := git.GitRunCmdOutput(ctx, repoRoot, "git", "rev-parse", "--show-toplevel")
+	topLevelOut, err := git.GitRunCmdOutput(ctx, workingDir, "git", "rev-parse", "--show-toplevel")
 	if err == nil {
-		repoRoot = strings.TrimSpace(topLevelOut)
+		workingDir = strings.TrimSpace(topLevelOut)
 	}
 
-	beadsPath := filepath.Join(repoRoot, ".beads")
+	beadsPath := filepath.Join(workingDir, ".beads")
 	if _, err := os.Stat(beadsPath); err == nil {
 		return nil
 	} else if !errors.Is(err, fs.ErrNotExist) {
@@ -116,5 +116,5 @@ func initBeads(ctx context.Context) error {
 	}
 
 	log.Info().Str("path", beadsPath).Msg(".beads not found, initializing with prefix 'norma'")
-	return runBeadsInit(ctx, repoRoot)
+	return runBeadsInit(ctx, workingDir)
 }

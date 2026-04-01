@@ -21,7 +21,7 @@ func TestCommandRegistersTasks(t *testing.T) {
 }
 
 func TestTasksCommandUsesRepoRootFlag(t *testing.T) {
-	var gotRepoRoot string
+	var gotWorkingDir string
 	prevNewTracker := newTracker
 	prevRunTasksServer := runTasksServer
 	t.Cleanup(func() {
@@ -29,8 +29,8 @@ func TestTasksCommandUsesRepoRootFlag(t *testing.T) {
 		runTasksServer = prevRunTasksServer
 	})
 
-	newTracker = func(repoRoot string) task.Tracker {
-		gotRepoRoot = repoRoot
+	newTracker = func(workingDir string) task.Tracker {
+		gotWorkingDir = workingDir
 		return &task.BeadsTracker{}
 	}
 	runTasksServer = func(_ context.Context, _ task.Tracker) error {
@@ -38,22 +38,22 @@ func TestTasksCommandUsesRepoRootFlag(t *testing.T) {
 	}
 
 	cmd := TasksCommand()
-	repoRoot := filepath.Join(t.TempDir(), "repo")
-	cmd.SetArgs([]string{"--repo-root", repoRoot})
+	workingDir := filepath.Join(t.TempDir(), "repo")
+	cmd.SetArgs([]string{"--working-dir", workingDir})
 
 	if err := cmd.ExecuteContext(context.Background()); err != nil {
 		t.Fatalf("ExecuteContext() error = %v", err)
 	}
 
-	want := filepath.Clean(repoRoot)
-	got := filepath.Clean(gotRepoRoot)
+	want := filepath.Clean(workingDir)
+	got := filepath.Clean(gotWorkingDir)
 	if got != want {
-		t.Fatalf("repo root = %q, want %q", got, want)
+		t.Fatalf("working directory = %q, want %q", got, want)
 	}
 }
 
 func TestTasksCommandDefaultsRepoRootToCurrentDirectory(t *testing.T) {
-	var gotRepoRoot string
+	var gotWorkingDir string
 	prevNewTracker := newTracker
 	prevRunTasksServer := runTasksServer
 	t.Cleanup(func() {
@@ -61,8 +61,8 @@ func TestTasksCommandDefaultsRepoRootToCurrentDirectory(t *testing.T) {
 		runTasksServer = prevRunTasksServer
 	})
 
-	newTracker = func(repoRoot string) task.Tracker {
-		gotRepoRoot = repoRoot
+	newTracker = func(workingDir string) task.Tracker {
+		gotWorkingDir = workingDir
 		return &task.BeadsTracker{}
 	}
 	runTasksServer = func(_ context.Context, _ task.Tracker) error {
@@ -87,9 +87,9 @@ func TestTasksCommandDefaultsRepoRootToCurrentDirectory(t *testing.T) {
 	}
 
 	want := filepath.Clean(workingDir)
-	got := filepath.Clean(gotRepoRoot)
+	got := filepath.Clean(gotWorkingDir)
 	if got != want {
-		t.Fatalf("repo root = %q, want %q", got, want)
+		t.Fatalf("working directory = %q, want %q", got, want)
 	}
 }
 

@@ -23,9 +23,9 @@ const (
 
 // RuntimeLoadOptions configures runtime config loading.
 type RuntimeLoadOptions struct {
-	RepoRoot  string
-	ConfigDir string
-	Profile   string
+	WorkingDir string
+	ConfigDir  string
+	Profile    string
 }
 
 // AppLoadOptions configures app config loading on top of runtime config.
@@ -76,7 +76,7 @@ func loadResolvedSettings(runtimeOpts RuntimeLoadOptions, opts AppLoadOptions) (
 		return nil, "", fmt.Errorf("app name is required")
 	}
 
-	roots := coreConfigRoots(runtimeOpts.RepoRoot, runtimeOpts.ConfigDir)
+	roots := coreConfigRoots(runtimeOpts.WorkingDir, runtimeOpts.ConfigDir)
 	selectedPath, searchedPaths, err := selectConfigFile(roots, appName)
 	if err != nil {
 		return nil, "", err
@@ -271,18 +271,18 @@ func DecodeSettings(settings map[string]any, out any) error {
 	return nil
 }
 
-func coreConfigRoots(repoRoot, configuredRoot string) []string {
+func coreConfigRoots(workingDir, configuredRoot string) []string {
 	roots := make([]string, 0, 3)
 
 	if extra := strings.TrimSpace(configuredRoot); extra != "" {
-		if !filepath.IsAbs(extra) && repoRoot != "" {
-			extra = filepath.Join(repoRoot, extra)
+		if !filepath.IsAbs(extra) && workingDir != "" {
+			extra = filepath.Join(workingDir, extra)
 		}
 		roots = append(roots, extra)
 	}
 
-	if repoRoot != "" {
-		roots = append(roots, filepath.Join(repoRoot, ".norma"))
+	if workingDir != "" {
+		roots = append(roots, filepath.Join(workingDir, ".norma"))
 	}
 
 	if global := globalConfigRoot(); global != "" {

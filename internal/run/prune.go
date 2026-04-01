@@ -104,15 +104,15 @@ func PruneRuns(ctx context.Context, db *sql.DB, runsDir string, policy Retention
 }
 
 // Prune removes all runs, their directories, and any associated git worktrees.
-func Prune(ctx context.Context, db *sql.DB, repoRoot string) error {
+func Prune(ctx context.Context, db *sql.DB, workingDir string) error {
 	// 1. Git worktree prune
-	_ = git.GitRunCmdErr(ctx, repoRoot, "git", "worktree", "prune")
+	_ = git.GitRunCmdErr(ctx, workingDir, "git", "worktree", "prune")
 
 	// 2. Identify and remove all worktrees that are inside .norma/runs
-	out := git.GitRunCmd(ctx, repoRoot, "git", "worktree", "list", "--porcelain")
+	out := git.GitRunCmd(ctx, workingDir, "git", "worktree", "list", "--porcelain")
 	lines := strings.Split(out, "\n")
 	var currentWorktree string
-	normaRunsPrefix := filepath.Join(repoRoot, ".norma", "runs")
+	normaRunsPrefix := filepath.Join(workingDir, ".norma", "runs")
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" {
@@ -122,13 +122,13 @@ func Prune(ctx context.Context, db *sql.DB, repoRoot string) error {
 			currentWorktree = strings.TrimPrefix(line, "worktree ")
 			if strings.HasPrefix(currentWorktree, normaRunsPrefix) {
 				log.Info().Str("worktree", currentWorktree).Msg("pruning worktree")
-				_ = git.GitRunCmdErr(ctx, repoRoot, "git", "worktree", "remove", "--force", currentWorktree)
+				_ = git.GitRunCmdErr(ctx, workingDir, "git", "worktree", "remove", "--force", currentWorktree)
 			}
 		}
 	}
 
 	// 3. Prune stale task branches that are no longer attached to any worktree.
-	if err := pruneStaleNormaTaskBranches(ctx, repoRoot); err != nil {
+	if err := pruneStaleNormaTaskBranches(ctx, workingDir); err != nil {
 		return err
 	}
 
@@ -151,13 +151,13 @@ func Prune(ctx context.Context, db *sql.DB, repoRoot string) error {
 	return nil
 }
 
-func pruneStaleNormaTaskBranches(ctx context.Context, repoRoot string) error {
-	branchesOut, err := git.GitRunCmdOutput(ctx, repoRoot, "git", "for-each-ref", "--format=%(refname:short)", "refs/heads/norma/task")
+func pruneStaleNormaTaskBranches(ctx context.Context, workingDir string) error {
+	branchesOut, err := git.GitRunCmdOutput(ctx, workingDir, "git", "for-each-ref", "--format=%(refname:short)", "refs/heads/norma/task")
 	if err != nil {
 		return fmt.Errorf("list norma task branches: %w", err)
 	}
 
-	checkedOut, err := checkedOutLocalBranches(ctx, repoRoot)
+	checkedOut, err := checkedOutLocalBranches(ctx, workingDir)
 	if err != nil {
 		return err
 	}
@@ -171,7 +171,7 @@ func pruneStaleNormaTaskBranches(ctx context.Context, repoRoot string) error {
 		if _, isCheckedOut := checkedOut[branch]; isCheckedOut {
 			continue
 		}
-		if err := git.GitRunCmdErr(ctx, repoRoot, "git", "branch", "-D", branch); err != nil {
+		if err := git.GitRunCmdErr(ctx, workingDir, "git", "branch", "-D", branch); err != nil {
 			deleteErrors = append(deleteErrors, fmt.Sprintf("%s: %v", branch, err))
 			continue
 		}
@@ -184,8 +184,8 @@ func pruneStaleNormaTaskBranches(ctx context.Context, repoRoot string) error {
 	return nil
 }
 
-func checkedOutLocalBranches(ctx context.Context, repoRoot string) (map[string]struct{}, error) {
-	out, err := git.GitRunCmdOutput(ctx, repoRoot, "git", "worktree", "list", "--porcelain")
+func checkedOutLocalBranches(ctx context.Context, workingDir string) (map[string]struct{}, error) {
+	out, err := git.GitRunCmdOutput(ctx, workingDir, "git", "worktree", "list", "--porcelain")
 	if err != nil {
 		return nil, fmt.Errorf("list git worktrees: %w", err)
 	}

@@ -118,13 +118,13 @@ func newIntegrationBeadsTracker(t *testing.T) *BeadsTracker {
 		t.Skipf("bd not available: %v", err)
 	}
 
-	repoRoot := t.TempDir()
-	runTestCmd(t, repoRoot, "git", "init")
-	runTestCmd(t, repoRoot, "bd", "--no-daemon", "init", "--prefix", "norma")
+	workingDir := t.TempDir()
+	runTestCmd(t, workingDir, "git", "init")
+	runTestCmd(t, workingDir, "bd", "--no-daemon", "init", "--prefix", "norma")
 
 	return &BeadsTracker{
 		BinPath:    "bd",
-		WorkingDir: repoRoot,
+		WorkingDir: workingDir,
 	}
 }
 

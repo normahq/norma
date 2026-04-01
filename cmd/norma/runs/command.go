@@ -27,13 +27,13 @@ func pruneCommand() *cobra.Command {
 		Use:   "prune",
 		Short: "Prune old runs from disk and database",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			storeDB, repoRoot, closeFn, err := openDB(cmd.Context())
+			storeDB, workingDir, closeFn, err := openDB(cmd.Context())
 			if err != nil {
 				return err
 			}
 			defer closeFn()
 
-			_, cliCfg, err := loadRuntimeAndCLIConfig(repoRoot)
+			_, cliCfg, err := loadRuntimeAndCLIConfig(workingDir)
 			if err != nil {
 				return err
 			}
@@ -50,7 +50,7 @@ func pruneCommand() *cobra.Command {
 				return fmt.Errorf("set --keep-last or --keep-days (or configure cli.retention in .norma/config.yaml or .norma/cli.yaml)")
 			}
 
-			normaDir := filepath.Join(repoRoot, ".norma")
+			normaDir := filepath.Join(workingDir, ".norma")
 			lock, err := run.AcquireRunLock(normaDir)
 			if err != nil {
 				return err

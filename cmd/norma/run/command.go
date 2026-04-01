@@ -20,17 +20,17 @@ func Command() *cobra.Command {
 		SilenceUsage: true,
 		Args:         cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			storeDB, repoRoot, closeFn, err := openDB(cmd.Context())
+			storeDB, workingDir, closeFn, err := openDB(cmd.Context())
 			if err != nil {
 				return err
 			}
 			defer closeFn()
 
-			if !git.Available(cmd.Context(), repoRoot) {
+			if !git.Available(cmd.Context(), workingDir) {
 				return fmt.Errorf("current directory is not a git repository")
 			}
 
-			cfg, cliCfg, err := loadRuntimeAndCLIConfig(repoRoot)
+			cfg, cliCfg, err := loadRuntimeAndCLIConfig(workingDir)
 			if err != nil {
 				return err
 			}
@@ -38,11 +38,11 @@ func Command() *cobra.Command {
 			tracker := task.NewBeadsTracker("")
 			runStore := db.NewStore(storeDB)
 			pdcaFactory := pdca.NewFactory(cfg, cliCfg.EffectiveBudgets().MaxIterations, runStore, tracker)
-			runner, err := run.NewADKRunner(repoRoot, cfg, runStore, tracker, pdcaFactory)
+			runner, err := run.NewADKRunner(workingDir, cfg, runStore, tracker, pdcaFactory)
 			if err != nil {
 				return err
 			}
-			normaDir := filepath.Join(repoRoot, ".norma")
+			normaDir := filepath.Join(workingDir, ".norma")
 			if err := recoverDoingTasks(cmd.Context(), tracker, runStore, normaDir); err != nil {
 				return err
 			}

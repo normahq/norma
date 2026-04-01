@@ -27,11 +27,11 @@ func webCommand() *cobra.Command {
 			restoreStdLog := installPlanWebStdLogBridge()
 			defer restoreStdLog()
 
-			repoRoot, err := os.Getwd()
+			workingDir, err := os.Getwd()
 			if err != nil {
 				return fmt.Errorf("get working directory: %w", err)
 			}
-			cfg, err := loadConfig(repoRoot)
+			cfg, err := loadConfig(workingDir)
 			if err != nil {
 				return err
 			}
@@ -39,7 +39,7 @@ func webCommand() *cobra.Command {
 			if !ok {
 				return fmt.Errorf("planner agent not configured in selected profile %q", cfg.Profile)
 			}
-			plannerDebugAgent, closePlannerAgent, err := createPlannerAgent(cmd.Context(), repoRoot, cfg.Norma.Agents, cfg.Norma.MCPServers, plannerID)
+			plannerDebugAgent, closePlannerAgent, err := createPlannerAgent(cmd.Context(), workingDir, cfg.Norma.Agents, cfg.Norma.MCPServers, plannerID)
 			if err != nil {
 				return err
 			}

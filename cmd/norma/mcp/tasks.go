@@ -14,9 +14,9 @@ import (
 var (
 	runTasksServer     = tasksmcp.Run
 	runTasksServerHTTP = tasksmcp.RunHTTP
-	newTracker         = func(repoRoot string) task.Tracker {
+	newTracker         = func(workingDir string) task.Tracker {
 		tracker := task.NewBeadsTracker("")
-		tracker.WorkingDir = repoRoot
+		tracker.WorkingDir = workingDir
 		return tracker
 	}
 )
@@ -25,9 +25,9 @@ var (
 // By default it runs over stdio; use --http to run over HTTP.
 func TasksCommand() *cobra.Command {
 	var (
-		repoRoot string
-		httpMode bool
-		httpAddr string
+		workingDir string
+		httpMode   bool
+		httpAddr   string
 	)
 
 	cmd := &cobra.Command{
@@ -36,21 +36,21 @@ func TasksCommand() *cobra.Command {
 		SilenceUsage: true,
 		Args:         cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			resolvedRepoRoot := strings.TrimSpace(repoRoot)
-			if resolvedRepoRoot == "" {
+			resolvedWorkingDir := strings.TrimSpace(workingDir)
+			if resolvedWorkingDir == "" {
 				cwd, err := os.Getwd()
 				if err != nil {
 					return fmt.Errorf("resolve current working directory: %w", err)
 				}
-				resolvedRepoRoot = cwd
+				resolvedWorkingDir = cwd
 			}
 
-			absoluteRepoRoot, err := filepath.Abs(resolvedRepoRoot)
+			absoluteWorkingDir, err := filepath.Abs(resolvedWorkingDir)
 			if err != nil {
-				return fmt.Errorf("resolve absolute repo root %q: %w", resolvedRepoRoot, err)
+				return fmt.Errorf("resolve absolute working directory %q: %w", resolvedWorkingDir, err)
 			}
 
-			tracker := newTracker(absoluteRepoRoot)
+			tracker := newTracker(absoluteWorkingDir)
 
 			if httpMode {
 				addr := strings.TrimSpace(httpAddr)
@@ -64,7 +64,7 @@ func TasksCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&repoRoot, "repo-root", "", "Repository root for task context resolution (default: current directory)")
+	cmd.Flags().StringVar(&workingDir, "working-dir", "", "Working directory for task context resolution (default: current directory)")
 	cmd.Flags().BoolVar(&httpMode, "http", false, "Run over HTTP instead of stdio")
 	cmd.Flags().StringVar(&httpAddr, "addr", "localhost:8080", "HTTP listen address (host:port)")
 	return cmd

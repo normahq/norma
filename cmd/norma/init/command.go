@@ -15,9 +15,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var runBeadsInit = func(ctx context.Context, repoRoot string) error {
+var runBeadsInit = func(ctx context.Context, workingDir string) error {
 	cmd := exec.CommandContext(ctx, "bd", "init", "--prefix", "norma")
-	cmd.Dir = repoRoot
+	cmd.Dir = workingDir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
@@ -29,15 +29,15 @@ func Command() *cobra.Command {
 		Use:   "init",
 		Short: "Initialize norma in the current repository",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			repoRoot, err := os.Getwd()
+			workingDir, err := os.Getwd()
 			if err != nil {
 				return err
 			}
-			if !git.Available(cmd.Context(), repoRoot) {
+			if !git.Available(cmd.Context(), workingDir) {
 				return fmt.Errorf("current directory is not a git repository")
 			}
 
-			normaDir := filepath.Join(repoRoot, ".norma")
+			normaDir := filepath.Join(workingDir, ".norma")
 			log.Info().Str("dir", normaDir).Msg("creating norma directory")
 			if err := os.MkdirAll(filepath.Join(normaDir, "runs"), 0o700); err != nil {
 				return fmt.Errorf("create runs dir: %w", err)
@@ -78,17 +78,17 @@ func Command() *cobra.Command {
 }
 
 func initBeads(ctx context.Context) error {
-	repoRoot, err := os.Getwd()
+	workingDir, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("get current working directory: %w", err)
 	}
 
-	topLevelOut, err := git.GitRunCmdOutput(ctx, repoRoot, "git", "rev-parse", "--show-toplevel")
+	topLevelOut, err := git.GitRunCmdOutput(ctx, workingDir, "git", "rev-parse", "--show-toplevel")
 	if err == nil {
-		repoRoot = strings.TrimSpace(topLevelOut)
+		workingDir = strings.TrimSpace(topLevelOut)
 	}
 
-	beadsPath := filepath.Join(repoRoot, ".beads")
+	beadsPath := filepath.Join(workingDir, ".beads")
 	if _, err := os.Stat(beadsPath); err == nil {
 		return nil
 	} else if !errors.Is(err, fs.ErrNotExist) {
@@ -96,7 +96,7 @@ func initBeads(ctx context.Context) error {
 	}
 
 	log.Info().Str("path", beadsPath).Msg(".beads not found, initializing with prefix 'norma'")
-	return runBeadsInit(ctx, repoRoot)
+	return runBeadsInit(ctx, workingDir)
 }
 
 const NormaGitignoreContent = `# ignore everything in .norma by default

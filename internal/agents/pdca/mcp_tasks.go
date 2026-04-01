@@ -28,20 +28,20 @@ type embeddedMCPServers struct {
 
 // startEmbeddedMCPServers starts both the tasks and state MCP servers for inter-process communication.
 // Returns the embedded servers for cleanup.
-func startEmbeddedMCPServers(ctx context.Context, repoRoot string) (*embeddedMCPServers, map[string]agentconfig.MCPServerConfig, error) {
-	trimmedRepoRoot := strings.TrimSpace(repoRoot)
-	if trimmedRepoRoot == "" {
-		return nil, nil, fmt.Errorf("repo root is required")
+func startEmbeddedMCPServers(ctx context.Context, workingDir string) (*embeddedMCPServers, map[string]agentconfig.MCPServerConfig, error) {
+	trimmedWorkingDir := strings.TrimSpace(workingDir)
+	if trimmedWorkingDir == "" {
+		return nil, nil, fmt.Errorf("working directory is required")
 	}
 
-	absoluteRepoRoot, err := filepath.Abs(trimmedRepoRoot)
+	absoluteWorkingDir, err := filepath.Abs(trimmedWorkingDir)
 	if err != nil {
-		return nil, nil, fmt.Errorf("resolve repo root path %q: %w", trimmedRepoRoot, err)
+		return nil, nil, fmt.Errorf("resolve working directory path %q: %w", trimmedWorkingDir, err)
 	}
 
 	// Start tasks MCP server
 	tracker := task.NewBeadsTracker("")
-	tracker.WorkingDir = absoluteRepoRoot
+	tracker.WorkingDir = absoluteWorkingDir
 
 	taskServer, err := tasksmcp.StartHTTPServer(ctx, tracker, "127.0.0.1:0")
 	if err != nil {
@@ -88,19 +88,19 @@ func (e *embeddedMCPServers) close() error {
 	return firstErr
 }
 
-func roleMCPServers(roleName, repoRoot string) (map[string]agentconfig.MCPServerConfig, error) {
+func roleMCPServers(roleName, workingDir string) (map[string]agentconfig.MCPServerConfig, error) {
 	if strings.TrimSpace(roleName) != RolePlan {
 		return nil, nil
 	}
 
-	trimmedRepoRoot := strings.TrimSpace(repoRoot)
-	if trimmedRepoRoot == "" {
-		return nil, fmt.Errorf("repo root is required for %q role MCP tasks server", RolePlan)
+	trimmedWorkingDir := strings.TrimSpace(workingDir)
+	if trimmedWorkingDir == "" {
+		return nil, fmt.Errorf("working directory is required for %q role MCP tasks server", RolePlan)
 	}
 
-	absoluteRepoRoot, err := filepath.Abs(trimmedRepoRoot)
+	absoluteWorkingDir, err := filepath.Abs(trimmedWorkingDir)
 	if err != nil {
-		return nil, fmt.Errorf("resolve repo root path %q: %w", trimmedRepoRoot, err)
+		return nil, fmt.Errorf("resolve working directory path %q: %w", trimmedWorkingDir, err)
 	}
 
 	executablePath, err := resolveExecutablePath()
@@ -115,7 +115,7 @@ func roleMCPServers(roleName, repoRoot string) (map[string]agentconfig.MCPServer
 	return map[string]agentconfig.MCPServerConfig{
 		tasksMCPServerName: {
 			Type: agentconfig.MCPServerTypeStdio,
-			Cmd:  []string{executablePath, "mcp", "tasks", "--repo-root", absoluteRepoRoot},
+			Cmd:  []string{executablePath, "mcp", "tasks", "--working-dir", absoluteWorkingDir},
 		},
 	}, nil
 }

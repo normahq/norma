@@ -10,8 +10,8 @@ import (
 )
 
 func TestLoadConfig_LoadsRuntimeFromConfigYAML(t *testing.T) {
-	repoRoot := t.TempDir()
-	if err := writeTestFile(filepath.Join(repoRoot, defaultConfigPath), `norma:
+	workingDir := t.TempDir()
+	if err := writeTestFile(filepath.Join(workingDir, defaultConfigPath), `norma:
   agents:
     opencode:
       type: opencode_acp
@@ -33,7 +33,7 @@ cli:
 	viper.Reset()
 	t.Cleanup(viper.Reset)
 
-	cfg, err := loadConfig(repoRoot)
+	cfg, err := loadConfig(workingDir)
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
@@ -53,8 +53,8 @@ cli:
 }
 
 func TestLoadRuntimeAndCLIConfig_LoadsCLIAppSettings(t *testing.T) {
-	repoRoot := t.TempDir()
-	if err := writeTestFile(filepath.Join(repoRoot, defaultConfigPath), `norma:
+	workingDir := t.TempDir()
+	if err := writeTestFile(filepath.Join(workingDir, defaultConfigPath), `norma:
   agents:
     opencode:
       type: opencode_acp
@@ -78,7 +78,7 @@ cli:
 	viper.Reset()
 	t.Cleanup(viper.Reset)
 
-	_, cliCfg, err := loadRuntimeAndCLIConfig(repoRoot)
+	_, cliCfg, err := loadRuntimeAndCLIConfig(workingDir)
 	if err != nil {
 		t.Fatalf("load runtime and cli config: %v", err)
 	}
@@ -92,8 +92,8 @@ cli:
 }
 
 func TestLoadConfig_IgnoresNormaYAML(t *testing.T) {
-	repoRoot := t.TempDir()
-	normaYAMLPath := filepath.Join(repoRoot, ".norma", "norma.yaml")
+	workingDir := t.TempDir()
+	normaYAMLPath := filepath.Join(workingDir, ".norma", "norma.yaml")
 	if err := writeTestFile(normaYAMLPath, `norma:
   agents:
     opencode:
@@ -113,7 +113,7 @@ cli:
 	viper.Reset()
 	t.Cleanup(viper.Reset)
 
-	_, err := loadConfig(repoRoot)
+	_, err := loadConfig(workingDir)
 	if err == nil {
 		t.Fatal("loadConfig returned nil error, want missing cli.yaml/config.yaml error")
 	}
