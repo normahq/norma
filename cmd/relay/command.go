@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/normahq/norma/internal/apps/relay"
 	"github.com/normahq/norma/internal/apps/relay/auth"
@@ -17,6 +18,8 @@ import (
 
 //go:embed relay.yaml
 var defaultRelayConfig []byte
+
+const shutdownTimeout = 10 * time.Second
 
 type relayConfigDocument struct {
 	Norma appconfig.NormaConfig `mapstructure:"norma"`
@@ -78,7 +81,9 @@ func serveCommand() *cobra.Command {
 			logRelayStartup(ctx, relayCfg.Relay.Telegram.Token, ownerToken)
 
 			<-ctx.Done()
-			if err := app.Stop(context.Background()); err != nil {
+			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdownTimeout)
+			defer shutdownCancel()
+			if err := app.Stop(shutdownCtx); err != nil {
 				return fmt.Errorf("stopping relay app: %w", err)
 			}
 

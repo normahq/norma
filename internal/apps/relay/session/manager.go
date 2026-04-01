@@ -6,6 +6,7 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/normahq/norma/internal/apps/relay/agent"
 	relaystate "github.com/normahq/norma/internal/apps/relay/state"
@@ -16,6 +17,8 @@ import (
 )
 
 const sessionIDPrefix = "relay"
+
+const cleanupTimeout = 10 * time.Second
 
 // Manager manages per-topic ADK agent sessions and persists session metadata.
 type Manager struct {
@@ -76,7 +79,7 @@ func NewManager(p ManagerParams) (*Manager, error) {
 		OnStop: func(ctx context.Context) error {
 			m.logger.Info().Int("active_sessions", len(m.sessions)).Msg("session manager stopping")
 			m.rootCancel()
-			m.StopAll()
+			m.stopAllWithContext(ctx)
 			return nil
 		},
 	})
@@ -406,10 +409,12 @@ func (m *Manager) StopSession(chatID int64, topicID int) {
 		m.logger.Warn().Str("session_id", sessionID).Msg("session not found for stop")
 		return
 	}
-	if err := m.closeTopicSession(ts); err != nil {
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), cleanupTimeout)
+	defer cancel()
+	if err := m.closeTopicSession(cleanupCtx, ts); err != nil {
 		m.logger.Warn().Err(err).Str("session_id", sessionID).Msg("failed to close topic session")
 	}
-	if err := m.sessionStore.DeleteBySessionID(m.rootCtx, sessionID); err != nil {
+	if err := m.sessionStore.DeleteBySessionID(cleanupCtx, sessionID); err != nil {
 		m.logger.Warn().Err(err).Str("session_id", sessionID).Msg("failed to delete persisted session metadata")
 	}
 
@@ -418,6 +423,10 @@ func (m *Manager) StopSession(chatID int64, topicID int) {
 
 // StopAll closes all sessions.
 func (m *Manager) StopAll() {
+	m.stopAllWithContext(context.Background())
+}
+
+func (m *Manager) stopAllWithContext(ctx context.Context) {
 	m.mu.Lock()
 	sessions := make([]*TopicSession, 0, len(m.sessions))
 	for _, ts := range m.sessions {
@@ -429,7 +438,7 @@ func (m *Manager) StopAll() {
 	m.logger.Info().Int("count", len(sessions)).Msg("stopping all sessions")
 
 	for _, ts := range sessions {
-		if err := m.closeTopicSession(ts); err != nil {
+		if err := m.closeTopicSession(ctx, ts); err != nil {
 			m.logger.Warn().Err(err).Str("session_id", ts.sessionID).Msg("failed to close topic session")
 		}
 	}
@@ -470,7 +479,7 @@ type TopicSessionInfo struct {
 	BranchName   string
 }
 
-func (m *Manager) closeTopicSession(ts *TopicSession) error {
+func (m *Manager) closeTopicSession(ctx context.Context, ts *TopicSession) error {
 	var firstErr error
 	if closer, ok := ts.agent.(io.Closer); ok {
 		if err := closer.Close(); err != nil {
@@ -478,7 +487,7 @@ func (m *Manager) closeTopicSession(ts *TopicSession) error {
 		}
 	}
 	if m.workspaceEnabled && ts.workspaceDir != "" {
-		if err := m.workspaces.CleanupWorkspace(m.rootCtx, ts.workspaceDir); err != nil && firstErr == nil {
+		if err := m.workspaces.CleanupWorkspace(ctx, ts.workspaceDir); err != nil && firstErr == nil {
 			firstErr = err
 		}
 	}
