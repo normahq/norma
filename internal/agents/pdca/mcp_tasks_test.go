@@ -52,7 +52,7 @@ func TestRoleMCPServersNonPlanRoles(t *testing.T) {
 	}
 }
 
-func TestRoleMCPServersPlanRoleRequiresRepoRoot(t *testing.T) {
+func TestRoleMCPServersPlanRoleRequiresWorkingDir(t *testing.T) {
 	_, err := roleMCPServers(RolePlan, "   ")
 	if err == nil {
 		t.Fatal("roleMCPServers() error = nil, want non-nil")

@@ -129,10 +129,10 @@ func requireCodexEnvironment(t *testing.T) string {
 		t.Fatalf("codex mcp-server --help failed: %v | output=%s", err, strings.TrimSpace(helpOut.String()))
 	}
 
-	return findRepoRoot(t)
+	return findWorkingDir(t)
 }
 
-func findRepoRoot(t *testing.T) string {
+func findWorkingDir(t *testing.T) string {
 	t.Helper()
 
 	dir, err := os.Getwd()

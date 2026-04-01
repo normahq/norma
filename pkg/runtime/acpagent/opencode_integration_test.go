@@ -180,10 +180,10 @@ func requireOpenCodeEnvironment(t *testing.T) string {
 		t.Fatalf("opencode acp --help failed: %v | output=%s", err, strings.TrimSpace(helpOut.String()))
 	}
 
-	return findRepoRoot(t)
+	return findWorkingDir(t)
 }
 
-func findRepoRoot(t *testing.T) string {
+func findWorkingDir(t *testing.T) string {
 	t.Helper()
 
 	dir, err := os.Getwd()

@@ -20,7 +20,7 @@ func TestCommandRegistersTasks(t *testing.T) {
 	}
 }
 
-func TestTasksCommandUsesRepoRootFlag(t *testing.T) {
+func TestTasksCommandUsesWorkingDirFlag(t *testing.T) {
 	var gotWorkingDir string
 	prevNewTracker := newTracker
 	prevRunTasksServer := runTasksServer
@@ -52,7 +52,7 @@ func TestTasksCommandUsesRepoRootFlag(t *testing.T) {
 	}
 }
 
-func TestTasksCommandDefaultsRepoRootToCurrentDirectory(t *testing.T) {
+func TestTasksCommandDefaultsWorkingDirToCurrentDirectory(t *testing.T) {
 	var gotWorkingDir string
 	prevNewTracker := newTracker
 	prevRunTasksServer := runTasksServer
