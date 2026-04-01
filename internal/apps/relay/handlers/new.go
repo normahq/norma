@@ -15,10 +15,17 @@ import (
 	"go.uber.org/fx"
 )
 
-// CommandHandler handles /new command to create topic agent sessions.
+type commandSessionManager interface {
+	CreateTopicSession(ctx context.Context, chatID int64, agentName string) (string, int, error)
+	GetAgentInfo(agentName string) (string, []string)
+	StopSession(chatID int64, topicID int)
+	CloseTopic(ctx context.Context, chatID int64, topicID int)
+}
+
+// CommandHandler handles relay commands like /new and /close.
 type CommandHandler struct {
 	ownerStore     *auth.OwnerStore
-	sessionManager *session.Manager
+	sessionManager commandSessionManager
 	messenger      *messenger.Messenger
 }
 
@@ -34,7 +41,7 @@ type commandHandlerParams struct {
 	Messenger      *messenger.Messenger
 }
 
-// NewCommandHandler creates a new /new command handler.
+// NewCommandHandler creates a new relay command handler.
 func NewCommandHandler(params commandHandlerParams) *CommandHandler {
 	return &CommandHandler{
 		ownerStore:     params.OwnerStore,
@@ -49,10 +56,17 @@ func (h *CommandHandler) Register(registry handlers.RegistryInterface) {
 }
 
 func (h *CommandHandler) onCommand(ctx context.Context, event *events.CommandEvent) error {
-	if event.Command != "new" {
+	switch event.Command {
+	case "new":
+		return h.onNewCommand(ctx, event)
+	case "close":
+		return h.onCloseCommand(ctx, event)
+	default:
 		return nil
 	}
+}
 
+func (h *CommandHandler) onNewCommand(ctx context.Context, event *events.CommandEvent) error {
 	chatID := event.Message.Chat.Id
 	userID := event.Message.From.Id
 
@@ -94,5 +108,44 @@ func (h *CommandHandler) onCommand(ctx context.Context, event *events.CommandEve
 		return err
 	}
 
+	return nil
+}
+
+func (h *CommandHandler) onCloseCommand(ctx context.Context, event *events.CommandEvent) error {
+	chatID := event.Message.Chat.Id
+	userID := event.Message.From.Id
+
+	if !h.ownerStore.HasOwner() || !h.ownerStore.IsOwner(userID) {
+		if err := h.messenger.SendPlain(ctx, chatID, "Only the bot owner can use this command.", 0); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	topicID := 0
+	if event.Message.MessageThreadId != nil {
+		topicID = *event.Message.MessageThreadId
+	}
+
+	if strings.TrimSpace(event.Args) != "" {
+		if err := h.messenger.SendPlain(ctx, chatID, "Usage: /close", topicID); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	if topicID > 0 {
+		if err := h.messenger.SendPlain(ctx, chatID, "Closing this topic and stopping agent session.", topicID); err != nil {
+			log.Warn().Err(err).Int64("chat_id", chatID).Int("topic_id", topicID).Msg("failed to send /close confirmation")
+		}
+		h.sessionManager.CloseTopic(ctx, chatID, topicID)
+		h.sessionManager.StopSession(chatID, topicID)
+		return nil
+	}
+
+	if err := h.messenger.SendPlain(ctx, chatID, "Stopping root agent session. It will be recreated on your next message.", topicID); err != nil {
+		log.Warn().Err(err).Int64("chat_id", chatID).Msg("failed to send /close root confirmation")
+	}
+	h.sessionManager.StopSession(chatID, topicID)
 	return nil
 }

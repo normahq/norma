@@ -129,6 +129,12 @@ Both paths create:
 - A topic-bound ADK session
 - A dedicated Git worktree when `relay.workspace.mode` resolves to enabled
 
+### Manual session control
+
+- `/new <agent_name>` creates a new topic-bound subagent session.
+- `/close` closes the current topic (when `message_thread_id > 0`) and stops the current agent session.
+- In the main chat (`topic_id = 0`), `/close` only stops the root session (topic is not closed).
+
 ## Relay MCP API (V1)
 
 - `norma.relay.start_agent`
@@ -154,3 +160,4 @@ Both paths create:
 10. Per turn, two non-zero draft streams are used and kept separate (response vs events).
 11. Reusing the same `draft_id` within each stream updates the same animated draft message.
 12. Response stream uses MarkdownV2 (with fallback retry without `parse_mode`), while events stream stays plain text.
+13. `/close` in a topic closes that topic and stops the session; `/close` in root chat stops only root session.
