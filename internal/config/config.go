@@ -47,10 +47,11 @@ const defaultProfile = "default"
 const (
 	AgentTypeGenericACP = agentconfig.AgentTypeGenericACP
 
-	AgentTypeCodexACP    = agentconfig.AgentTypeCodexACP
-	AgentTypeOpenCodeACP = agentconfig.AgentTypeOpenCodeACP
-	AgentTypeGeminiACP   = agentconfig.AgentTypeGeminiACP
-	AgentTypeCopilotACP  = agentconfig.AgentTypeCopilotACP
+	AgentTypeCodexACP      = agentconfig.AgentTypeCodexACP
+	AgentTypeOpenCodeACP   = agentconfig.AgentTypeOpenCodeACP
+	AgentTypeGeminiACP     = agentconfig.AgentTypeGeminiACP
+	AgentTypeCopilotACP    = agentconfig.AgentTypeCopilotACP
+	AgentTypeClaudeCodeACP = agentconfig.AgentTypeClaudeCodeACP
 )
 
 // IsACPType reports whether an agent type uses the ACP runtime.

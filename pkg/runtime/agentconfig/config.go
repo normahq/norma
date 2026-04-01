@@ -53,16 +53,17 @@ type PoolConfig struct {
 //	<agent_type>:
 //	  ...type-specific config...
 type Config struct {
-	Type              string   `json:"type"                           mapstructure:"type"               validate:"required,oneof=generic_acp gemini_acp codex_acp opencode_acp copilot_acp pool,agent_blocks"`
+	Type              string   `json:"type"                           mapstructure:"type"               validate:"required,oneof=generic_acp gemini_acp codex_acp opencode_acp copilot_acp claude_code_acp pool,agent_blocks"`
 	MCPServers        []string `json:"mcp_servers,omitempty"          mapstructure:"mcp_servers"        validate:"omitempty,dive,notblank"`
 	SystemInstruction string   `json:"system_instruction,omitempty"    mapstructure:"system_instruction" validate:"omitempty,notblank"`
 
-	GenericACP  *ACPConfig  `json:"generic_acp,omitempty"  mapstructure:"generic_acp"`
-	GeminiACP   *ACPConfig  `json:"gemini_acp,omitempty"   mapstructure:"gemini_acp"`
-	CodexACP    *ACPConfig  `json:"codex_acp,omitempty"    mapstructure:"codex_acp"`
-	OpenCodeACP *ACPConfig  `json:"opencode_acp,omitempty" mapstructure:"opencode_acp"`
-	CopilotACP  *ACPConfig  `json:"copilot_acp,omitempty"  mapstructure:"copilot_acp"`
-	PoolConfig  *PoolConfig `json:"pool,omitempty"         mapstructure:"pool"`
+	GenericACP    *ACPConfig  `json:"generic_acp,omitempty"     mapstructure:"generic_acp"`
+	GeminiACP     *ACPConfig  `json:"gemini_acp,omitempty"      mapstructure:"gemini_acp"`
+	CodexACP      *ACPConfig  `json:"codex_acp,omitempty"       mapstructure:"codex_acp"`
+	OpenCodeACP   *ACPConfig  `json:"opencode_acp,omitempty"    mapstructure:"opencode_acp"`
+	CopilotACP    *ACPConfig  `json:"copilot_acp,omitempty"     mapstructure:"copilot_acp"`
+	ClaudeCodeACP *ACPConfig  `json:"claude_code_acp,omitempty" mapstructure:"claude_code_acp"`
+	PoolConfig    *PoolConfig `json:"pool,omitempty"            mapstructure:"pool"`
 }
 
 // ResolvedConfig is a runtime-ready agent configuration produced from Config normalization.
@@ -190,6 +191,8 @@ const (
 	AgentTypeOpenCodeACP = "opencode_acp"
 	// AgentTypeCopilotACP is the alias for Copilot CLI ACP mode.
 	AgentTypeCopilotACP = "copilot_acp"
+	// AgentTypeClaudeCodeACP is the alias for Claude Code ACP mode.
+	AgentTypeClaudeCodeACP = "claude_code_acp"
 	// AgentTypePool is the pool type with ordered failover.
 	AgentTypePool = "pool"
 )
@@ -202,6 +205,7 @@ func SupportedAgentTypes() []string {
 		AgentTypeCodexACP,
 		AgentTypeOpenCodeACP,
 		AgentTypeCopilotACP,
+		AgentTypeClaudeCodeACP,
 		AgentTypePool,
 	}
 }
@@ -224,7 +228,7 @@ func IsPoolType(agentType string) bool {
 // IsACPType reports whether an agent type uses the ACP runtime.
 func IsACPType(agentType string) bool {
 	switch strings.TrimSpace(agentType) {
-	case AgentTypeGenericACP, AgentTypeGeminiACP, AgentTypeOpenCodeACP, AgentTypeCodexACP, AgentTypeCopilotACP:
+	case AgentTypeGenericACP, AgentTypeGeminiACP, AgentTypeOpenCodeACP, AgentTypeCodexACP, AgentTypeCopilotACP, AgentTypeClaudeCodeACP:
 		return true
 	default:
 		return false
@@ -321,6 +325,9 @@ func validateAgentBlocks(fl validator.FieldLevel) bool {
 	if cfg.CopilotACP != nil {
 		present++
 	}
+	if cfg.ClaudeCodeACP != nil {
+		present++
+	}
 	if cfg.PoolConfig != nil {
 		present++
 	}
@@ -339,6 +346,8 @@ func validateAgentBlocks(fl validator.FieldLevel) bool {
 		return cfg.OpenCodeACP != nil && len(cfg.OpenCodeACP.Cmd) == 0
 	case AgentTypeCopilotACP:
 		return cfg.CopilotACP != nil && len(cfg.CopilotACP.Cmd) == 0
+	case AgentTypeClaudeCodeACP:
+		return cfg.ClaudeCodeACP != nil && len(cfg.ClaudeCodeACP.Cmd) == 0
 	case AgentTypePool:
 		return cfg.PoolConfig != nil && len(cfg.PoolConfig.Members) > 0
 	default:
@@ -348,12 +357,13 @@ func validateAgentBlocks(fl validator.FieldLevel) bool {
 
 func explainAgentBlocksError(cfg Config) string {
 	typeBlocks := map[string]bool{
-		AgentTypeGenericACP:  cfg.GenericACP != nil,
-		AgentTypeGeminiACP:   cfg.GeminiACP != nil,
-		AgentTypeCodexACP:    cfg.CodexACP != nil,
-		AgentTypeOpenCodeACP: cfg.OpenCodeACP != nil,
-		AgentTypeCopilotACP:  cfg.CopilotACP != nil,
-		AgentTypePool:        cfg.PoolConfig != nil,
+		AgentTypeGenericACP:    cfg.GenericACP != nil,
+		AgentTypeGeminiACP:     cfg.GeminiACP != nil,
+		AgentTypeCodexACP:      cfg.CodexACP != nil,
+		AgentTypeOpenCodeACP:   cfg.OpenCodeACP != nil,
+		AgentTypeCopilotACP:    cfg.CopilotACP != nil,
+		AgentTypeClaudeCodeACP: cfg.ClaudeCodeACP != nil,
+		AgentTypePool:          cfg.PoolConfig != nil,
 	}
 	selectedCount := 0
 	for _, present := range typeBlocks {
@@ -396,6 +406,10 @@ func explainAgentBlocksError(cfg Config) string {
 	case AgentTypeCopilotACP:
 		if cfg.CopilotACP != nil && len(cfg.CopilotACP.Cmd) > 0 {
 			return fmt.Sprintf("cmd must be omitted for type %s", AgentTypeCopilotACP)
+		}
+	case AgentTypeClaudeCodeACP:
+		if cfg.ClaudeCodeACP != nil && len(cfg.ClaudeCodeACP.Cmd) > 0 {
+			return fmt.Sprintf("cmd must be omitted for type %s", AgentTypeClaudeCodeACP)
 		}
 	case AgentTypePool:
 		if cfg.PoolConfig == nil || len(cfg.PoolConfig.Members) == 0 {
@@ -471,6 +485,16 @@ func NormalizeConfig(cfg Config, executablePath string) (ResolvedConfig, error) 
 			ExtraArgs: append([]string(nil), cfg.CopilotACP.ExtraArgs...),
 			Model:     cfg.CopilotACP.Model,
 			Mode:      cfg.CopilotACP.Mode,
+		}), nil
+	case AgentTypeClaudeCodeACP:
+		if cfg.ClaudeCodeACP == nil {
+			return ResolvedConfig{}, fmt.Errorf("claude_code_acp block is required")
+		}
+		return resolveACPConfig(resolved, AgentTypeGenericACP, ACPConfig{
+			Cmd:       []string{"npx", "-y", "@zed-industries/claude-code-acp@latest"},
+			ExtraArgs: append([]string(nil), cfg.ClaudeCodeACP.ExtraArgs...),
+			Model:     cfg.ClaudeCodeACP.Model,
+			Mode:      cfg.ClaudeCodeACP.Mode,
 		}), nil
 	case AgentTypeGenericACP:
 		if cfg.GenericACP == nil {
@@ -558,6 +582,8 @@ func (c Config) selectedACPBlock() (*ACPConfig, bool) {
 		return c.OpenCodeACP, c.OpenCodeACP != nil
 	case AgentTypeCopilotACP:
 		return c.CopilotACP, c.CopilotACP != nil
+	case AgentTypeClaudeCodeACP:
+		return c.ClaudeCodeACP, c.ClaudeCodeACP != nil
 	default:
 		return nil, false
 	}

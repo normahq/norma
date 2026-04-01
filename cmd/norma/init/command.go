@@ -127,6 +127,10 @@ const DefaultConfigYAML = `norma:
       type: copilot_acp
       copilot_acp:
         model: gpt-5-codex
+    claude_code_acp_agent:
+      type: claude_code_acp
+      claude_code_acp:
+        model: claude-sonnet-4-20250514
     custom_generic_acp_agent:
       type: generic_acp
       generic_acp:

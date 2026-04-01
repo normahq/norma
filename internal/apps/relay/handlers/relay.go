@@ -15,6 +15,7 @@ import (
 	"github.com/tgbotkit/client"
 	"github.com/tgbotkit/runtime/events"
 	"github.com/tgbotkit/runtime/handlers"
+	"github.com/tgbotkit/runtime/messagetype"
 	"go.uber.org/fx"
 	"google.golang.org/adk/agent"
 	"google.golang.org/adk/runner"
@@ -77,6 +78,10 @@ func NewRelayHandler(deps relayHandlerDeps) (*RelayHandler, error) {
 // Register registers the handler with the registry.
 func (h *RelayHandler) Register(registry handlers.RegistryInterface) {
 	registry.OnMessage(h.onMessage)
+	registry.OnMessageType(messagetype.ForumTopicCreated, h.onForumTopicLifecycle)
+	registry.OnMessageType(messagetype.ForumTopicEdited, h.onForumTopicLifecycle)
+	registry.OnMessageType(messagetype.ForumTopicClosed, h.onForumTopicLifecycle)
+	registry.OnMessageType(messagetype.ForumTopicReopened, h.onForumTopicLifecycle)
 }
 
 // SetOwner binds the handler to the owner. Pass chatID=0 when the chat
@@ -107,6 +112,10 @@ func (h *RelayHandler) SendToOwner(ctx context.Context, msg string) error {
 }
 
 func (h *RelayHandler) onMessage(ctx context.Context, event *events.MessageEvent) error {
+	if event == nil || event.Message == nil || event.Message.From == nil {
+		return nil
+	}
+
 	ownerID := h.getOwnerID()
 	chatID := h.getChatID()
 
@@ -206,6 +215,54 @@ func (h *RelayHandler) onMessage(ctx context.Context, event *events.MessageEvent
 		if sendErr := h.messenger.SendPlain(ctx, chatID, errText, topicID); sendErr != nil {
 			log.Warn().Err(sendErr).Int("topic_id", topicID).Msg("failed to send relay error message")
 		}
+	}
+
+	return nil
+}
+
+func (h *RelayHandler) onForumTopicLifecycle(_ context.Context, event *events.MessageEvent) error {
+	if event == nil || event.Message == nil {
+		return nil
+	}
+
+	chatID := event.Message.Chat.Id
+	boundChatID := h.getChatID()
+	if boundChatID != 0 && chatID != boundChatID {
+		return nil
+	}
+
+	topicID := 0
+	if event.Message.MessageThreadId != nil {
+		topicID = *event.Message.MessageThreadId
+	}
+	if topicID <= 0 {
+		h.logger.Debug().
+			Int64("chat_id", chatID).
+			Str("event_type", string(event.Type)).
+			Msg("ignoring forum topic lifecycle event without topic id")
+		return nil
+	}
+
+	evt := h.logger.Info().
+		Int64("chat_id", chatID).
+		Int("topic_id", topicID).
+		Int("message_id", event.Message.MessageId).
+		Str("event_type", string(event.Type))
+	if event.Message.From != nil {
+		evt = evt.Int64("user_id", event.Message.From.Id)
+	}
+
+	switch event.Type {
+	case messagetype.ForumTopicCreated:
+		evt.Msg("forum topic created")
+	case messagetype.ForumTopicEdited:
+		evt.Msg("forum topic edited")
+	case messagetype.ForumTopicClosed:
+		evt.Msg("forum topic closed")
+	case messagetype.ForumTopicReopened:
+		evt.Msg("forum topic reopened")
+	default:
+		evt.Msg("forum topic lifecycle event")
 	}
 
 	return nil

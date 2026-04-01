@@ -55,6 +55,14 @@ func TestConfigValidate(t *testing.T) {
 			wantErr: "cmd must be omitted for type gemini_acp",
 		},
 		{
+			name: "claude_code_alias_forbids_cmd",
+			cfg: Config{
+				Type:          AgentTypeClaudeCodeACP,
+				ClaudeCodeACP: &ACPConfig{Cmd: []string{"npx", "-y", "@zed-industries/claude-code-acp@latest"}},
+			},
+			wantErr: "cmd must be omitted for type claude_code_acp",
+		},
+		{
 			name: "cmd_item_must_be_nonempty",
 			cfg: Config{
 				Type: AgentTypeGenericACP,
@@ -172,6 +180,24 @@ func TestNormalizeConfig(t *testing.T) {
 			},
 		},
 		{
+			name: "claude_code_alias",
+			cfg: Config{
+				Type: AgentTypeClaudeCodeACP,
+				ClaudeCodeACP: &ACPConfig{
+					Model:     "claude-sonnet-4-20250514",
+					Mode:      "code",
+					ExtraArgs: []string{"--trace"},
+				},
+			},
+			exec: execPath,
+			want: ResolvedConfig{
+				Type:    AgentTypeGenericACP,
+				Command: []string{"npx", "-y", "@zed-industries/claude-code-acp@latest", "--trace"},
+				Model:   "claude-sonnet-4-20250514",
+				Mode:    "code",
+			},
+		},
+		{
 			name: "generic_with_template",
 			cfg: Config{
 				Type: AgentTypeGenericACP,
@@ -201,8 +227,8 @@ func TestNormalizeConfig(t *testing.T) {
 			},
 		},
 		{
-			name: "codex_alias_empty_exec_path",
-			cfg: Config{Type: AgentTypeCodexACP, CodexACP: &ACPConfig{}},
+			name:    "codex_alias_empty_exec_path",
+			cfg:     Config{Type: AgentTypeCodexACP, CodexACP: &ACPConfig{}},
 			wantErr: "resolve executable path: empty",
 		},
 	}
@@ -272,8 +298,8 @@ func TestNormalizeConfigs(t *testing.T) {
 			CodexACP: &ACPConfig{Model: "gpt-5-codex"},
 		},
 		"act": {
-			Type:       AgentTypeCopilotACP,
-			CopilotACP: &ACPConfig{},
+			Type:          AgentTypeClaudeCodeACP,
+			ClaudeCodeACP: &ACPConfig{},
 		},
 		"planner": {
 			Type:       AgentTypeGenericACP,
@@ -312,7 +338,7 @@ func TestNormalizeConfigs(t *testing.T) {
 	if actCfg.Type != AgentTypeGenericACP {
 		t.Fatalf("act type = %q, want %q", actCfg.Type, AgentTypeGenericACP)
 	}
-	if len(actCfg.Command) < 2 || actCfg.Command[0] != "copilot" || actCfg.Command[1] != "--acp" {
-		t.Fatalf("act command = %v, want copilot --acp", actCfg.Command)
+	if len(actCfg.Command) < 3 || actCfg.Command[0] != "npx" || actCfg.Command[1] != "-y" || actCfg.Command[2] != "@zed-industries/claude-code-acp@latest" {
+		t.Fatalf("act command = %v, want npx -y @zed-industries/claude-code-acp@latest", actCfg.Command)
 	}
 }
