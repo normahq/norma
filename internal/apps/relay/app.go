@@ -2,6 +2,7 @@ package relay
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -179,6 +180,10 @@ func Module(cfg Config, normaCfg runtimeconfig.NormaConfig) fx.Option {
 				OnStart: func(ctx context.Context) error {
 					go func() {
 						if err := bot.Run(runCtx); err != nil {
+							if isExpectedBotRunShutdown(err) {
+								bot.Logger().Debugf("bot run stopped during shutdown: %v", err)
+								return
+							}
 							bot.Logger().Errorf("bot run failed: %v", err)
 						}
 					}()
@@ -212,6 +217,13 @@ func resolveWorkingDir(raw string) (string, error) {
 		return "", fmt.Errorf("resolve absolute working_dir %q: %w", raw, err)
 	}
 	return filepath.Clean(resolved), nil
+}
+
+func isExpectedBotRunShutdown(err error) bool {
+	if err == nil {
+		return false
+	}
+	return errors.Is(err, context.Canceled)
 }
 
 func resolveStateDir(workingDir, raw string) (string, error) {
