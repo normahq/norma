@@ -1,0 +1,564 @@
+package agentconfig
+
+import (
+	"fmt"
+	"reflect"
+	"sort"
+	"strings"
+
+	"github.com/go-playground/validator/v10"
+)
+
+// MCPServerType represents the transport type for an MCP server.
+type MCPServerType string
+
+const (
+	// MCPServerTypeStdio is the stdio transport type.
+	MCPServerTypeStdio MCPServerType = "stdio"
+	// MCPServerTypeHTTP is the HTTP transport type.
+	MCPServerTypeHTTP MCPServerType = "http"
+	// MCPServerTypeSSE is the SSE (Server-Sent Events) transport type.
+	MCPServerTypeSSE MCPServerType = "sse"
+)
+
+// MCPServerConfig describes how to connect to an MCP server.
+type MCPServerConfig struct {
+	Type       MCPServerType     `json:"type"                  mapstructure:"type"        validate:"required,oneof=stdio http sse,mcp_requirements"`
+	Cmd        []string          `json:"cmd,omitempty"         mapstructure:"cmd"         validate:"omitempty,dive,notblank"`
+	Args       []string          `json:"args,omitempty"        mapstructure:"args"        validate:"omitempty,dive,notblank"`
+	Env        map[string]string `json:"env,omitempty"         mapstructure:"env"`
+	WorkingDir string            `json:"working_dir,omitempty" mapstructure:"working_dir" validate:"omitempty,notblank"`
+	URL        string            `json:"url,omitempty"         mapstructure:"url"`
+	Headers    map[string]string `json:"headers,omitempty"     mapstructure:"headers"`
+}
+
+// ACPConfig is an ACP runtime configuration block used by generic and alias types.
+type ACPConfig struct {
+	Cmd       []string `json:"cmd,omitempty"        mapstructure:"cmd"        validate:"omitempty,dive,notblank"`
+	ExtraArgs []string `json:"extra_args,omitempty" mapstructure:"extra_args" validate:"omitempty,dive,notblank"`
+	Model     string   `json:"model,omitempty"      mapstructure:"model"      validate:"omitempty,notblank"`
+	Mode      string   `json:"mode,omitempty"       mapstructure:"mode"       validate:"omitempty,notblank"`
+}
+
+// PoolConfig is the pool runtime configuration block.
+type PoolConfig struct {
+	Members []string `json:"members,omitempty" mapstructure:"members" validate:"omitempty,dive,notblank"`
+}
+
+// Config describes how to run an agent.
+//
+// The schema is strict and discriminated by type:
+//
+//	type: <agent_type>
+//	<agent_type>:
+//	  ...type-specific config...
+type Config struct {
+	Type              string   `json:"type"                           mapstructure:"type"               validate:"required,oneof=generic_acp gemini_acp codex_acp opencode_acp copilot_acp pool,agent_blocks"`
+	MCPServers        []string `json:"mcp_servers,omitempty"          mapstructure:"mcp_servers"        validate:"omitempty,dive,notblank"`
+	SystemInstruction string   `json:"system_instruction,omitempty"    mapstructure:"system_instruction" validate:"omitempty,notblank"`
+
+	GenericACP  *ACPConfig  `json:"generic_acp,omitempty"  mapstructure:"generic_acp"`
+	GeminiACP   *ACPConfig  `json:"gemini_acp,omitempty"   mapstructure:"gemini_acp"`
+	CodexACP    *ACPConfig  `json:"codex_acp,omitempty"    mapstructure:"codex_acp"`
+	OpenCodeACP *ACPConfig  `json:"opencode_acp,omitempty" mapstructure:"opencode_acp"`
+	CopilotACP  *ACPConfig  `json:"copilot_acp,omitempty"  mapstructure:"copilot_acp"`
+	PoolConfig  *PoolConfig `json:"pool,omitempty"         mapstructure:"pool"`
+}
+
+// ResolvedConfig is a runtime-ready agent configuration produced from Config normalization.
+type ResolvedConfig struct {
+	Type              string
+	MCPServers        []string
+	SystemInstruction string
+
+	Command     []string
+	Model       string
+	Mode        string
+	PoolMembers []string
+}
+
+// Description returns a human-readable description of the agent config.
+// Format: "name: type=<type> model=<model> mode=<mode>" with missing parts omitted.
+func (c Config) Description(name string) string {
+	var parts []string
+	if c.Type != "" {
+		parts = append(parts, fmt.Sprintf("type=%s", c.Type))
+	}
+	if spec, ok := c.selectedACPBlock(); ok {
+		if spec.Model != "" {
+			parts = append(parts, fmt.Sprintf("model=%s", spec.Model))
+		}
+		if spec.Mode != "" {
+			parts = append(parts, fmt.Sprintf("mode=%s", spec.Mode))
+		}
+	}
+	if len(parts) == 0 {
+		return name
+	}
+	return fmt.Sprintf("%s: %s", name, strings.Join(parts, " "))
+}
+
+// Description returns a human-readable description of the resolved runtime config.
+func (c ResolvedConfig) Description(name string) string {
+	var parts []string
+	if c.Type != "" {
+		parts = append(parts, fmt.Sprintf("type=%s", c.Type))
+	}
+	if c.Model != "" {
+		parts = append(parts, fmt.Sprintf("model=%s", c.Model))
+	}
+	if c.Mode != "" {
+		parts = append(parts, fmt.Sprintf("mode=%s", c.Mode))
+	}
+	if len(parts) == 0 {
+		return name
+	}
+	return fmt.Sprintf("%s: %s", name, strings.Join(parts, " "))
+}
+
+var configValidator = newConfigValidator()
+
+func newConfigValidator() *validator.Validate {
+	v := validator.New()
+	v.RegisterTagNameFunc(func(fld reflect.StructField) string {
+		name := strings.SplitN(fld.Tag.Get("json"), ",", 2)[0]
+		if name == "" || name == "-" {
+			return fld.Name
+		}
+		return name
+	})
+	_ = v.RegisterValidation("notblank", validateNotBlank)
+	_ = v.RegisterValidation("agent_blocks", validateAgentBlocks)
+	_ = v.RegisterValidation("mcp_requirements", validateMCPRequirements)
+	return v
+}
+
+// Validate validates the agent configuration.
+func (c Config) Validate() error {
+	errs := make([]string, 0)
+
+	if err := configValidator.Struct(c); err != nil {
+		if invErr, ok := err.(*validator.InvalidValidationError); ok {
+			return fmt.Errorf("validate agent config: %w", invErr)
+		}
+		for _, validationErr := range err.(validator.ValidationErrors) {
+			if validationErr.Tag() == "agent_blocks" {
+				errs = append(errs, explainAgentBlocksError(c))
+				continue
+			}
+			errs = append(errs, formatValidationError(validationErr))
+		}
+	}
+
+	if len(errs) == 0 {
+		return nil
+	}
+	sort.Strings(errs)
+
+	return fmt.Errorf("agent config schema validation failed: %s", strings.Join(errs, "; "))
+}
+
+func formatValidationError(err validator.FieldError) string {
+	field := err.Field()
+	switch err.Tag() {
+	case "required":
+		return field + " is required"
+	case "oneof":
+		return field + " must be one of: " + err.Param()
+	case "min":
+		return field + " must be at least " + err.Param()
+	case "notblank":
+		return field + " must have at least 1 character"
+	case "agent_blocks":
+		return "type-specific block configuration is invalid for selected type"
+	case "mcp_requirements":
+		return "mcp server type-specific requirements are invalid"
+	default:
+		return field + " failed validation rule " + err.Tag()
+	}
+}
+
+const (
+	// AgentTypeGenericACP is the type for custom ACP CLI executables.
+	AgentTypeGenericACP = "generic_acp"
+
+	// AgentTypeGeminiACP is the alias for Gemini CLI ACP mode.
+	AgentTypeGeminiACP = "gemini_acp"
+	// AgentTypeCodexACP is the alias for Codex ACP bridge mode.
+	AgentTypeCodexACP = "codex_acp"
+	// AgentTypeOpenCodeACP is the alias for OpenCode CLI ACP mode.
+	AgentTypeOpenCodeACP = "opencode_acp"
+	// AgentTypeCopilotACP is the alias for Copilot CLI ACP mode.
+	AgentTypeCopilotACP = "copilot_acp"
+	// AgentTypePool is the pool type with ordered failover.
+	AgentTypePool = "pool"
+)
+
+// SupportedAgentTypes returns all supported agent types.
+func SupportedAgentTypes() []string {
+	return []string{
+		AgentTypeGenericACP,
+		AgentTypeGeminiACP,
+		AgentTypeCodexACP,
+		AgentTypeOpenCodeACP,
+		AgentTypeCopilotACP,
+		AgentTypePool,
+	}
+}
+
+// IsValidAgentType reports whether the given type is a valid agent type.
+func IsValidAgentType(agentType string) bool {
+	for _, t := range SupportedAgentTypes() {
+		if t == agentType {
+			return true
+		}
+	}
+	return false
+}
+
+// IsPoolType reports whether an agent type is a pool.
+func IsPoolType(agentType string) bool {
+	return strings.TrimSpace(agentType) == AgentTypePool
+}
+
+// IsACPType reports whether an agent type uses the ACP runtime.
+func IsACPType(agentType string) bool {
+	switch strings.TrimSpace(agentType) {
+	case AgentTypeGenericACP, AgentTypeGeminiACP, AgentTypeOpenCodeACP, AgentTypeCodexACP, AgentTypeCopilotACP:
+		return true
+	default:
+		return false
+	}
+}
+
+// IsPlannerSupportedType reports whether planner mode supports the agent type.
+func IsPlannerSupportedType(agentType string) bool {
+	return IsACPType(agentType)
+}
+
+// SupportedMCPServerTypes returns all supported MCP server types.
+func SupportedMCPServerTypes() []MCPServerType {
+	return []MCPServerType{
+		MCPServerTypeStdio,
+		MCPServerTypeHTTP,
+		MCPServerTypeSSE,
+	}
+}
+
+// IsValidMCPServerType reports whether the given type is a valid MCP server type.
+func IsValidMCPServerType(serverType MCPServerType) bool {
+	for _, t := range SupportedMCPServerTypes() {
+		if t == serverType {
+			return true
+		}
+	}
+	return false
+}
+
+// ValidateMCPServerConfig validates an MCP server configuration.
+func ValidateMCPServerConfig(cfg MCPServerConfig) error {
+	errs := make([]string, 0)
+	if err := configValidator.Struct(cfg); err != nil {
+		if invErr, ok := err.(*validator.InvalidValidationError); ok {
+			return fmt.Errorf("validate mcp server config: %w", invErr)
+		}
+		for _, validationErr := range err.(validator.ValidationErrors) {
+			if validationErr.Tag() == "mcp_requirements" {
+				errs = append(errs, explainMCPRequirementsError(cfg))
+				continue
+			}
+			errs = append(errs, formatValidationError(validationErr))
+		}
+	}
+
+	if len(errs) == 0 {
+		return nil
+	}
+	sort.Strings(errs)
+	return fmt.Errorf("mcp server config validation failed: %s", strings.Join(errs, "; "))
+}
+
+func validateNotBlank(fl validator.FieldLevel) bool {
+	if fl.Field().Kind() != reflect.String {
+		return false
+	}
+	return strings.TrimSpace(fl.Field().String()) != ""
+}
+
+func validateMCPRequirements(fl validator.FieldLevel) bool {
+	cfg, ok := fl.Parent().Interface().(MCPServerConfig)
+	if !ok {
+		return false
+	}
+	switch cfg.Type {
+	case MCPServerTypeStdio:
+		return len(cfg.Cmd) > 0
+	case MCPServerTypeHTTP, MCPServerTypeSSE:
+		return strings.TrimSpace(cfg.URL) != ""
+	default:
+		return false
+	}
+}
+
+func validateAgentBlocks(fl validator.FieldLevel) bool {
+	cfg, ok := fl.Parent().Interface().(Config)
+	if !ok {
+		return false
+	}
+	present := 0
+	if cfg.GenericACP != nil {
+		present++
+	}
+	if cfg.GeminiACP != nil {
+		present++
+	}
+	if cfg.CodexACP != nil {
+		present++
+	}
+	if cfg.OpenCodeACP != nil {
+		present++
+	}
+	if cfg.CopilotACP != nil {
+		present++
+	}
+	if cfg.PoolConfig != nil {
+		present++
+	}
+	if present != 1 {
+		return false
+	}
+
+	switch strings.TrimSpace(cfg.Type) {
+	case AgentTypeGenericACP:
+		return cfg.GenericACP != nil && len(cfg.GenericACP.Cmd) > 0
+	case AgentTypeGeminiACP:
+		return cfg.GeminiACP != nil && len(cfg.GeminiACP.Cmd) == 0
+	case AgentTypeCodexACP:
+		return cfg.CodexACP != nil && len(cfg.CodexACP.Cmd) == 0
+	case AgentTypeOpenCodeACP:
+		return cfg.OpenCodeACP != nil && len(cfg.OpenCodeACP.Cmd) == 0
+	case AgentTypeCopilotACP:
+		return cfg.CopilotACP != nil && len(cfg.CopilotACP.Cmd) == 0
+	case AgentTypePool:
+		return cfg.PoolConfig != nil && len(cfg.PoolConfig.Members) > 0
+	default:
+		return false
+	}
+}
+
+func explainAgentBlocksError(cfg Config) string {
+	typeBlocks := map[string]bool{
+		AgentTypeGenericACP:  cfg.GenericACP != nil,
+		AgentTypeGeminiACP:   cfg.GeminiACP != nil,
+		AgentTypeCodexACP:    cfg.CodexACP != nil,
+		AgentTypeOpenCodeACP: cfg.OpenCodeACP != nil,
+		AgentTypeCopilotACP:  cfg.CopilotACP != nil,
+		AgentTypePool:        cfg.PoolConfig != nil,
+	}
+	selectedCount := 0
+	for _, present := range typeBlocks {
+		if present {
+			selectedCount++
+		}
+	}
+	if selectedCount != 1 {
+		return "exactly one type-specific block must be set"
+	}
+
+	typeName := strings.TrimSpace(cfg.Type)
+	if present, ok := typeBlocks[typeName]; ok && !present {
+		return fmt.Sprintf("%s block is required for type %s", typeName, typeName)
+	}
+	for blockType, present := range typeBlocks {
+		if !present || blockType == typeName {
+			continue
+		}
+		return fmt.Sprintf("%s block must be omitted when type is %s", blockType, typeName)
+	}
+
+	switch typeName {
+	case AgentTypeGenericACP:
+		if cfg.GenericACP == nil || len(cfg.GenericACP.Cmd) == 0 {
+			return fmt.Sprintf("cmd is required for type %s", AgentTypeGenericACP)
+		}
+	case AgentTypeGeminiACP:
+		if cfg.GeminiACP != nil && len(cfg.GeminiACP.Cmd) > 0 {
+			return fmt.Sprintf("cmd must be omitted for type %s", AgentTypeGeminiACP)
+		}
+	case AgentTypeCodexACP:
+		if cfg.CodexACP != nil && len(cfg.CodexACP.Cmd) > 0 {
+			return fmt.Sprintf("cmd must be omitted for type %s", AgentTypeCodexACP)
+		}
+	case AgentTypeOpenCodeACP:
+		if cfg.OpenCodeACP != nil && len(cfg.OpenCodeACP.Cmd) > 0 {
+			return fmt.Sprintf("cmd must be omitted for type %s", AgentTypeOpenCodeACP)
+		}
+	case AgentTypeCopilotACP:
+		if cfg.CopilotACP != nil && len(cfg.CopilotACP.Cmd) > 0 {
+			return fmt.Sprintf("cmd must be omitted for type %s", AgentTypeCopilotACP)
+		}
+	case AgentTypePool:
+		if cfg.PoolConfig == nil || len(cfg.PoolConfig.Members) == 0 {
+			return "pool.members is required for type pool"
+		}
+	}
+	return "type-specific block configuration is invalid for selected type"
+}
+
+func explainMCPRequirementsError(cfg MCPServerConfig) string {
+	switch cfg.Type {
+	case MCPServerTypeStdio:
+		return "cmd is required for stdio type"
+	case MCPServerTypeHTTP, MCPServerTypeSSE:
+		return "url is required for http/sse type"
+	default:
+		return "mcp server type-specific requirements are invalid"
+	}
+}
+
+// NormalizeConfig canonicalizes aliases and returns a runtime-ready configuration.
+func NormalizeConfig(cfg Config, executablePath string) (ResolvedConfig, error) {
+	resolved := ResolvedConfig{
+		MCPServers:        append([]string(nil), cfg.MCPServers...),
+		SystemInstruction: cfg.SystemInstruction,
+	}
+
+	switch strings.TrimSpace(cfg.Type) {
+	case AgentTypeGeminiACP:
+		if cfg.GeminiACP == nil {
+			return ResolvedConfig{}, fmt.Errorf("gemini_acp block is required")
+		}
+		return resolveACPConfig(resolved, AgentTypeGenericACP, ACPConfig{
+			Cmd:       appendGeminiModelFlag([]string{"gemini", "--acp"}, cfg.GeminiACP.Model),
+			ExtraArgs: append([]string(nil), cfg.GeminiACP.ExtraArgs...),
+			Model:     cfg.GeminiACP.Model,
+			Mode:      cfg.GeminiACP.Mode,
+		}), nil
+	case AgentTypeOpenCodeACP:
+		if cfg.OpenCodeACP == nil {
+			return ResolvedConfig{}, fmt.Errorf("opencode_acp block is required")
+		}
+		return resolveACPConfig(resolved, AgentTypeGenericACP, ACPConfig{
+			Cmd:       []string{"opencode", "acp"},
+			ExtraArgs: append([]string(nil), cfg.OpenCodeACP.ExtraArgs...),
+			Model:     cfg.OpenCodeACP.Model,
+			Mode:      cfg.OpenCodeACP.Mode,
+		}), nil
+	case AgentTypeCodexACP:
+		if cfg.CodexACP == nil {
+			return ResolvedConfig{}, fmt.Errorf("codex_acp block is required")
+		}
+		exePath := strings.TrimSpace(executablePath)
+		if exePath == "" {
+			return ResolvedConfig{}, fmt.Errorf("resolve executable path: empty")
+		}
+		cmd := []string{exePath, "tool", "codex-acp-bridge"}
+		if cfg.CodexACP.Model != "" {
+			cmd = append(cmd, "--codex-model", cfg.CodexACP.Model)
+		}
+		return resolveACPConfig(resolved, AgentTypeGenericACP, ACPConfig{
+			Cmd:       cmd,
+			ExtraArgs: append([]string(nil), cfg.CodexACP.ExtraArgs...),
+			Model:     cfg.CodexACP.Model,
+			Mode:      cfg.CodexACP.Mode,
+		}), nil
+	case AgentTypeCopilotACP:
+		if cfg.CopilotACP == nil {
+			return ResolvedConfig{}, fmt.Errorf("copilot_acp block is required")
+		}
+		return resolveACPConfig(resolved, AgentTypeGenericACP, ACPConfig{
+			Cmd:       []string{"copilot", "--acp"},
+			ExtraArgs: append([]string(nil), cfg.CopilotACP.ExtraArgs...),
+			Model:     cfg.CopilotACP.Model,
+			Mode:      cfg.CopilotACP.Mode,
+		}), nil
+	case AgentTypeGenericACP:
+		if cfg.GenericACP == nil {
+			return ResolvedConfig{}, fmt.Errorf("generic_acp block is required")
+		}
+		return resolveACPConfig(resolved, AgentTypeGenericACP, *cfg.GenericACP), nil
+	case AgentTypePool:
+		if cfg.PoolConfig == nil {
+			return ResolvedConfig{}, fmt.Errorf("pool block is required")
+		}
+		resolved.Type = AgentTypePool
+		resolved.PoolMembers = append([]string(nil), cfg.PoolConfig.Members...)
+		return resolved, nil
+	default:
+		return ResolvedConfig{}, fmt.Errorf("unsupported agent type %q", cfg.Type)
+	}
+}
+
+// NormalizeConfigs canonicalizes agent configs for a map of named config blocks.
+func NormalizeConfigs(cfgs map[string]Config, executablePath string) (map[string]ResolvedConfig, error) {
+	if len(cfgs) == 0 {
+		return map[string]ResolvedConfig{}, nil
+	}
+
+	resolved := make(map[string]ResolvedConfig, len(cfgs))
+	for name, cfg := range cfgs {
+		normCfg, err := NormalizeConfig(cfg, executablePath)
+		if err != nil {
+			return nil, fmt.Errorf("normalize agent %q: %w", name, err)
+		}
+		resolved[name] = normCfg
+	}
+
+	return resolved, nil
+}
+
+// NormalizeACPConfig is kept for compatibility and delegates to NormalizeConfig.
+func NormalizeACPConfig(cfg Config, executablePath string) (ResolvedConfig, error) {
+	return NormalizeConfig(cfg, executablePath)
+}
+
+// NormalizeACPConfigs is kept for compatibility and delegates to NormalizeConfigs.
+func NormalizeACPConfigs(cfgs map[string]Config, executablePath string) (map[string]ResolvedConfig, error) {
+	return NormalizeConfigs(cfgs, executablePath)
+}
+
+func resolveACPConfig(base ResolvedConfig, resolvedType string, spec ACPConfig) ResolvedConfig {
+	base.Type = resolvedType
+	base.Model = spec.Model
+	base.Mode = spec.Mode
+	base.Command = resolveTemplatedArgs(spec.Cmd, spec.Model)
+	if len(spec.ExtraArgs) > 0 {
+		base.Command = append(base.Command, resolveTemplatedArgs(spec.ExtraArgs, spec.Model)...)
+	}
+	return base
+}
+
+func appendGeminiModelFlag(cmd []string, model string) []string {
+	if model == "" {
+		return cmd
+	}
+	return append(cmd, "--model", model)
+}
+
+func resolveTemplatedArgs(args []string, model string) []string {
+	if len(args) == 0 {
+		return nil
+	}
+	res := make([]string, len(args))
+	for i, arg := range args {
+		res[i] = strings.ReplaceAll(arg, "{{.Model}}", model)
+	}
+	return res
+}
+
+func (c Config) selectedACPBlock() (*ACPConfig, bool) {
+	switch strings.TrimSpace(c.Type) {
+	case AgentTypeGenericACP:
+		return c.GenericACP, c.GenericACP != nil
+	case AgentTypeGeminiACP:
+		return c.GeminiACP, c.GeminiACP != nil
+	case AgentTypeCodexACP:
+		return c.CodexACP, c.CodexACP != nil
+	case AgentTypeOpenCodeACP:
+		return c.OpenCodeACP, c.OpenCodeACP != nil
+	case AgentTypeCopilotACP:
+		return c.CopilotACP, c.CopilotACP != nil
+	default:
+		return nil, false
+	}
+}

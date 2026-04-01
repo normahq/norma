@@ -10,9 +10,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/normahq/norma/internal/adk/mcpregistry"
 	"github.com/normahq/norma/internal/apps/relay/session"
 	"github.com/normahq/norma/internal/apps/sessionmcp"
+	"github.com/normahq/norma/pkg/runtime/mcpregistry"
 	"github.com/rs/zerolog"
 )
 

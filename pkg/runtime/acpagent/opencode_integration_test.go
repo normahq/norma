@@ -15,7 +15,6 @@ import (
 	"time"
 
 	acp "github.com/coder/acp-go-sdk"
-	"github.com/normahq/norma/internal/adk/agentconfig"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	adkagent "google.golang.org/adk/agent"
 	runnerpkg "google.golang.org/adk/runner"
@@ -73,9 +72,9 @@ func TestOpenCodeACPIntegration_AgentWithMCPServers(t *testing.T) {
 		Command:    []string{"opencode", "acp"},
 		WorkingDir: repoRoot,
 		Stderr:     &stderr,
-		MCPServers: map[string]agentconfig.MCPServerConfig{
+		MCPServers: map[string]MCPServerConfig{
 			"norma-opencode-mcp-helper": {
-				Type: agentconfig.MCPServerTypeStdio,
+				Type: MCPServerTypeStdio,
 				Cmd:  append([]string(nil), mcpCommand...),
 			},
 		},

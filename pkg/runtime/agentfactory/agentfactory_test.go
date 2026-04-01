@@ -9,9 +9,9 @@ import (
 	"testing"
 
 	acp "github.com/coder/acp-go-sdk"
-	"github.com/normahq/norma/internal/adk/acpagent"
-	"github.com/normahq/norma/internal/adk/agentconfig"
-	"github.com/normahq/norma/internal/adk/mcpregistry"
+	"github.com/normahq/norma/pkg/runtime/acpagent"
+	"github.com/normahq/norma/pkg/runtime/agentconfig"
+	"github.com/normahq/norma/pkg/runtime/mcpregistry"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/adk/agent"
@@ -123,73 +123,36 @@ func TestAgentFactoryACPHelperProcess(t *testing.T) {
 	os.Exit(0)
 }
 
-func TestResolveACPCommand(t *testing.T) {
-	tests := []struct {
-		name    string
-		cfg     agentconfig.Config
-		want    []string
-		wantErr bool
-	}{
-		{
-			name: "ACP Exec with cmd",
-			cfg: agentconfig.Config{
-				Type: agentconfig.AgentTypeGenericACP,
-				GenericACP: &agentconfig.ACPConfig{
-					Cmd: []string{"custom-acp", "server"},
-				},
-			},
-			want: []string{"custom-acp", "server"},
-		},
-		{
-			name: "ACP Exec with templated extra args",
-			cfg: agentconfig.Config{
-				Type: agentconfig.AgentTypeGenericACP,
-				GenericACP: &agentconfig.ACPConfig{
-					Cmd:       []string{"custom-acp", "--model", "{{.Model}}"},
-					Model:     "gpt-5.4",
-					ExtraArgs: []string{"--trace", "--model={{.Model}}"},
-				},
-			},
-			want: []string{"custom-acp", "--model", "gpt-5.4", "--trace", "--model=gpt-5.4"},
-		},
-		{
-			name: "ACP Exec appends extra args after normalized codex bridge command",
-			cfg: agentconfig.Config{
-				Type: agentconfig.AgentTypeGenericACP,
-				GenericACP: &agentconfig.ACPConfig{
-					Cmd:       []string{"/tmp/norma", "tool", "codex-acp-bridge", "--codex-model", "gpt-5-codex"},
-					ExtraArgs: []string{"--debug", "--trace"},
-				},
-			},
-			want: []string{"/tmp/norma", "tool", "codex-acp-bridge", "--codex-model", "gpt-5-codex", "--debug", "--trace"},
-		},
-		{
-			name: "ACP Exec missing cmd",
-			cfg: agentconfig.Config{
-				Type: agentconfig.AgentTypeGenericACP,
-			},
-			wantErr: true,
-		},
-		{
-			name: "Unknown ACP type",
-			cfg: agentconfig.Config{
-				Type: "unsupported",
-			},
-			wantErr: true,
-		},
+func TestFactoryBuild_NormalizesTemplatedACPCommand(t *testing.T) {
+	origNewACPAgent := newACPAgent
+	t.Cleanup(func() {
+		newACPAgent = origNewACPAgent
+	})
+
+	var capturedCommand []string
+	newACPAgent = func(cfg acpagent.Config) (agent.Agent, error) {
+		capturedCommand = append([]string(nil), cfg.Command...)
+		return nil, nil
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := ResolveACPCommand(tt.cfg)
-			if tt.wantErr {
-				assert.Error(t, err)
-			} else {
-				assert.NoError(t, err)
-				assert.Equal(t, tt.want, got)
-			}
-		})
+	agents := map[string]agentconfig.Config{
+		"test-acp": {
+			Type: agentconfig.AgentTypeGenericACP,
+			GenericACP: &agentconfig.ACPConfig{
+				Cmd:       []string{"custom-acp", "--model", "{{.Model}}"},
+				Model:     "gpt-5.4",
+				ExtraArgs: []string{"--trace", "--model={{.Model}}"},
+			},
+		},
 	}
+	f := New(agents, mcpregistry.New(nil))
+
+	_, err := f.Build(context.Background(), BuildRequest{AgentID: "test-acp", WorkingDirectory: t.TempDir()})
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+	want := []string{"custom-acp", "--model", "gpt-5.4", "--trace", "--model=gpt-5.4"}
+	assert.Equal(t, want, capturedCommand)
 }
 
 func TestACPConstructor_PropagatesContextLogger(t *testing.T) {
@@ -208,11 +171,9 @@ func TestACPConstructor_PropagatesContextLogger(t *testing.T) {
 	baseLogger := zerolog.New(&logBuf).Level(zerolog.TraceLevel)
 	ctx := baseLogger.WithContext(context.Background())
 
-	_, err := acpConstructor(ctx, agentconfig.Config{
-		Type: agentconfig.AgentTypeGenericACP,
-		GenericACP: &agentconfig.ACPConfig{
-			Cmd: []string{"fake-acp", "serve"},
-		},
+	_, err := acpConstructor(ctx, agentconfig.ResolvedConfig{
+		Type:    agentconfig.AgentTypeGenericACP,
+		Command: []string{"fake-acp", "serve"},
 	}, BuildRequest{
 		AgentID:          "test-acp",
 		Name:             "test-acp",
@@ -236,7 +197,7 @@ func TestFactoryBuild_UsesBuildRequestMCPServerIDsOverride(t *testing.T) {
 		newACPAgent = origNewACPAgent
 	})
 
-	var capturedMCP map[string]agentconfig.MCPServerConfig
+	var capturedMCP map[string]acpagent.MCPServerConfig
 	newACPAgent = func(cfg acpagent.Config) (agent.Agent, error) {
 		capturedMCP = cfg.MCPServers
 		return nil, nil

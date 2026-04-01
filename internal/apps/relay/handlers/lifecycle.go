@@ -12,14 +12,14 @@ import (
 	"sync"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/normahq/norma/internal/adk/agentconfig"
-	"github.com/normahq/norma/internal/adk/mcpregistry"
 	"github.com/normahq/norma/internal/apps/configmcp"
 	"github.com/normahq/norma/internal/apps/relay/messenger"
 	"github.com/normahq/norma/internal/apps/relay/session"
 	"github.com/normahq/norma/internal/apps/relaymcp"
 	"github.com/normahq/norma/internal/apps/sessionmcp"
 	"github.com/normahq/norma/internal/apps/workspacemcp"
+	"github.com/normahq/norma/pkg/runtime/agentconfig"
+	"github.com/normahq/norma/pkg/runtime/mcpregistry"
 	"github.com/rs/zerolog"
 	"go.uber.org/fx"
 )

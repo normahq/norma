@@ -6,7 +6,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/normahq/norma/internal/adk/agentconfig"
+	"github.com/normahq/norma/pkg/runtime/agentconfig"
 
 	"google.golang.org/adk/agent"
 	"google.golang.org/adk/session"

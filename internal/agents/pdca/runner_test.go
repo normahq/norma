@@ -14,10 +14,10 @@ import (
 	"testing"
 
 	acp "github.com/coder/acp-go-sdk"
-	"github.com/normahq/norma/internal/adk/agentconfig"
-	"github.com/normahq/norma/internal/adk/structuredio"
 	"github.com/normahq/norma/internal/agents/pdca/contracts"
 	"github.com/normahq/norma/internal/config"
+	"github.com/normahq/norma/pkg/runtime/agentconfig"
+	"github.com/normahq/norma/pkg/runtime/structuredagent"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -416,14 +416,14 @@ func parseJSONLines(t *testing.T, data []byte) []map[string]any {
 func TestRunnerWrapsErrorsWithPercentW(t *testing.T) {
 	t.Parallel()
 
-	err := fmt.Errorf("outer: %w", structuredio.ErrStructuredOutputSchemaValidation)
-	assert.True(t, errors.Is(err, structuredio.ErrStructuredOutputSchemaValidation),
+	err := fmt.Errorf("outer: %w", structuredagent.ErrStructuredOutputSchemaValidation)
+	assert.True(t, errors.Is(err, structuredagent.ErrStructuredOutputSchemaValidation),
 		"errors.Is should work through %%w wrapping")
-	assert.True(t, errors.Is(err, structuredio.ErrStructuredIOSchemaValidation),
+	assert.True(t, errors.Is(err, structuredagent.ErrStructuredIOSchemaValidation),
 		"errors.Is should work through %%w wrapping to umbrella error")
 
-	err = fmt.Errorf("outer: %w", fmt.Errorf("inner: %w", structuredio.ErrStructuredIOSchemaValidation))
-	assert.True(t, errors.Is(err, structuredio.ErrStructuredIOSchemaValidation),
+	err = fmt.Errorf("outer: %w", fmt.Errorf("inner: %w", structuredagent.ErrStructuredIOSchemaValidation))
+	assert.True(t, errors.Is(err, structuredagent.ErrStructuredIOSchemaValidation),
 		"errors.Is should work through nested %%w wrapping")
 }
 

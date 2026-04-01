@@ -1,4 +1,4 @@
-package structuredio
+package structuredagent
 
 import "errors"
 

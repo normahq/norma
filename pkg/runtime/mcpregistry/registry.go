@@ -3,7 +3,7 @@ package mcpregistry
 import (
 	"sync"
 
-	"github.com/normahq/norma/internal/adk/agentconfig"
+	"github.com/normahq/norma/pkg/runtime/agentconfig"
 )
 
 // Reader looks up MCP server configuration by ID.

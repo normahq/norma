@@ -10,10 +10,10 @@ import (
 	"strings"
 
 	"github.com/go-playground/validator/v10"
-	"github.com/normahq/norma/internal/adk/acpagent"
-	"github.com/normahq/norma/internal/adk/agentconfig"
-	"github.com/normahq/norma/internal/adk/mcpregistry"
-	"github.com/normahq/norma/internal/adk/poolagent"
+	"github.com/normahq/norma/pkg/runtime/acpagent"
+	"github.com/normahq/norma/pkg/runtime/agentconfig"
+	"github.com/normahq/norma/pkg/runtime/mcpregistry"
+	"github.com/normahq/norma/pkg/runtime/poolagent"
 	"github.com/rs/zerolog"
 	"google.golang.org/adk/agent"
 )
@@ -89,7 +89,7 @@ func WithPermissionHandler(handler acpagent.PermissionHandler) Option {
 }
 
 // constructor creates a new agent instance.
-type constructor func(ctx context.Context, cfg agentconfig.Config, req BuildRequest, f *Factory, resolvedMCP map[string]agentconfig.MCPServerConfig) (agent.Agent, error)
+type constructor func(ctx context.Context, cfg agentconfig.ResolvedConfig, req BuildRequest, f *Factory, resolvedMCP map[string]agentconfig.MCPServerConfig) (agent.Agent, error)
 
 // Factory is a registry of agent configurations.
 type Factory struct {
@@ -120,7 +120,7 @@ func New(agents map[string]agentconfig.Config, mcp mcpregistry.Reader, opts ...O
 	return f
 }
 
-// GetAgentConfig returns the configuration for agentID.
+// GetAgentConfig returns the schema configuration for agentID.
 func (f *Factory) GetAgentConfig(agentID string) (agentconfig.Config, error) {
 	cfg, ok := f.registry[agentID]
 	if !ok {
@@ -135,12 +135,12 @@ func (f *Factory) ValidateAgent(agentID string) error {
 	if err != nil {
 		return err
 	}
-	cfg, err = agentconfig.NormalizeACPConfig(cfg, f.executablePath)
+	resolvedCfg, err := agentconfig.NormalizeConfig(cfg, f.executablePath)
 	if err != nil {
 		return fmt.Errorf("normalize agent %q: %w", agentID, err)
 	}
-	if _, ok := constructors[cfg.Type]; !ok {
-		return fmt.Errorf("agent type %q is not supported", cfg.Type)
+	if _, ok := constructors[resolvedCfg.Type]; !ok {
+		return fmt.Errorf("agent type %q is not supported", resolvedCfg.Type)
 	}
 	return nil
 }
@@ -153,11 +153,11 @@ func (f *Factory) Build(ctx context.Context, req BuildRequest) (agent.Agent, err
 	req.AgentID = strings.TrimSpace(req.AgentID)
 	req.WorkingDirectory = strings.TrimSpace(req.WorkingDirectory)
 
-	cfg, ok := f.registry[req.AgentID]
+	schemaCfg, ok := f.registry[req.AgentID]
 	if !ok {
 		return nil, fmt.Errorf("agent %q not found or unsupported", req.AgentID)
 	}
-	cfg, err := agentconfig.NormalizeACPConfig(cfg, f.executablePath)
+	cfg, err := agentconfig.NormalizeConfig(schemaCfg, f.executablePath)
 	if err != nil {
 		return nil, fmt.Errorf("normalize agent %q: %w", req.AgentID, err)
 	}
@@ -205,6 +205,50 @@ func (f *Factory) resolveMCPServers(agentID string, ids []string) (map[string]ag
 	return resolved, nil
 }
 
+func toRuntimeMCPServers(configs map[string]agentconfig.MCPServerConfig) map[string]acpagent.MCPServerConfig {
+	if len(configs) == 0 {
+		return nil
+	}
+
+	runtimeConfigs := make(map[string]acpagent.MCPServerConfig, len(configs))
+	for name, cfg := range configs {
+		runtimeConfigs[name] = acpagent.MCPServerConfig{
+			Type:       toRuntimeMCPServerType(cfg.Type),
+			Cmd:        append([]string(nil), cfg.Cmd...),
+			Args:       append([]string(nil), cfg.Args...),
+			Env:        cloneStringMap(cfg.Env),
+			WorkingDir: cfg.WorkingDir,
+			URL:        cfg.URL,
+			Headers:    cloneStringMap(cfg.Headers),
+		}
+	}
+	return runtimeConfigs
+}
+
+func toRuntimeMCPServerType(serverType agentconfig.MCPServerType) acpagent.MCPServerType {
+	switch serverType {
+	case agentconfig.MCPServerTypeStdio:
+		return acpagent.MCPServerTypeStdio
+	case agentconfig.MCPServerTypeHTTP:
+		return acpagent.MCPServerTypeHTTP
+	case agentconfig.MCPServerTypeSSE:
+		return acpagent.MCPServerTypeSSE
+	default:
+		return acpagent.MCPServerType(serverType)
+	}
+}
+
+func cloneStringMap(src map[string]string) map[string]string {
+	if len(src) == 0 {
+		return nil
+	}
+	cloned := make(map[string]string, len(src))
+	for k, v := range src {
+		cloned[k] = v
+	}
+	return cloned
+}
+
 // constructors registry.
 var constructors = map[string]constructor{
 	agentconfig.AgentTypeGenericACP: acpConstructor,
@@ -237,7 +281,7 @@ func effectiveName(req BuildRequest) string {
 	return req.AgentID
 }
 
-func effectiveDescription(req BuildRequest, cfg agentconfig.Config) string {
+func effectiveDescription(req BuildRequest, cfg agentconfig.ResolvedConfig) string {
 	description := strings.TrimSpace(req.Description)
 	if description != "" {
 		return description
@@ -245,7 +289,7 @@ func effectiveDescription(req BuildRequest, cfg agentconfig.Config) string {
 	return cfg.Description(req.AgentID)
 }
 
-func effectiveSystemInstruction(req BuildRequest, cfg agentconfig.Config) string {
+func effectiveSystemInstruction(req BuildRequest, cfg agentconfig.ResolvedConfig) string {
 	override := strings.TrimSpace(req.SystemInstruction)
 	if override != "" {
 		return override
@@ -253,10 +297,12 @@ func effectiveSystemInstruction(req BuildRequest, cfg agentconfig.Config) string
 	return strings.TrimSpace(cfg.SystemInstruction)
 }
 
-var acpConstructor = func(ctx context.Context, cfg agentconfig.Config, req BuildRequest, f *Factory, resolvedMCP map[string]agentconfig.MCPServerConfig) (agent.Agent, error) {
-	cmd, err := ResolveACPCommand(cfg)
-	if err != nil {
-		return nil, err
+var acpConstructor = func(ctx context.Context, cfg agentconfig.ResolvedConfig, req BuildRequest, f *Factory, resolvedMCP map[string]agentconfig.MCPServerConfig) (agent.Agent, error) {
+	if cfg.Type != agentconfig.AgentTypeGenericACP {
+		return nil, fmt.Errorf("unknown acp agent type %q", cfg.Type)
+	}
+	if len(cfg.Command) == 0 {
+		return nil, fmt.Errorf("generic_acp agent requires cmd")
 	}
 
 	return newACPAgent(acpagent.Config{
@@ -266,16 +312,16 @@ var acpConstructor = func(ctx context.Context, cfg agentconfig.Config, req Build
 		Model:              cfg.Model,
 		Mode:               cfg.Mode,
 		SystemInstructions: effectiveSystemInstruction(req, cfg),
-		Command:            cmd,
+		Command:            append([]string(nil), cfg.Command...),
 		WorkingDir:         req.WorkingDirectory,
 		PermissionHandler:  f.permissionHandler,
 		Logger:             loggerFromContext(ctx),
-		MCPServers:         resolvedMCP,
+		MCPServers:         toRuntimeMCPServers(resolvedMCP),
 	})
 }
 
-var poolConstructor = func(ctx context.Context, cfg agentconfig.Config, req BuildRequest, f *Factory, _ map[string]agentconfig.MCPServerConfig) (agent.Agent, error) {
-	members, err := validatePoolMembers(req.AgentID, cfg.Pool, f.registry)
+var poolConstructor = func(ctx context.Context, cfg agentconfig.ResolvedConfig, req BuildRequest, f *Factory, _ map[string]agentconfig.MCPServerConfig) (agent.Agent, error) {
+	members, err := validatePoolMembers(req.AgentID, cfg.PoolMembers, f.registry)
 	if err != nil {
 		return nil, err
 	}
@@ -339,42 +385,4 @@ func validatePoolMembers(poolName string, pool []string, registry map[string]age
 		members = append(members, poolMemberConfig{Name: memberName, Cfg: memberCfg})
 	}
 	return members, nil
-}
-
-// ResolveACPCommand resolves the command for ACP-backed agent types.
-func ResolveACPCommand(cfg agentconfig.Config) ([]string, error) {
-	if cfg.Type != agentconfig.AgentTypeGenericACP {
-		return nil, fmt.Errorf("unknown acp agent type %q", cfg.Type)
-	}
-
-	cmd := cfg.Cmd
-	extraArgs := cfg.ExtraArgs
-	model := cfg.Model
-	if len(cmd) == 0 && cfg.GenericACP != nil {
-		cmd = cfg.GenericACP.Cmd
-		extraArgs = cfg.GenericACP.ExtraArgs
-		if model == "" {
-			model = cfg.GenericACP.Model
-		}
-	}
-	if len(cmd) == 0 {
-		return nil, fmt.Errorf("generic_acp agent requires cmd")
-	}
-
-	res := resolveTemplatedCmd(cmd, model)
-	if len(extraArgs) > 0 {
-		res = append(res, resolveTemplatedCmd(extraArgs, model)...)
-	}
-	return res, nil
-}
-
-func resolveTemplatedCmd(cmd []string, model string) []string {
-	if len(cmd) == 0 {
-		return nil
-	}
-	res := make([]string, len(cmd))
-	for i, arg := range cmd {
-		res[i] = strings.ReplaceAll(arg, "{{.Model}}", model)
-	}
-	return res
 }

@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/normahq/norma/internal/adk/agentconfig"
 	"github.com/normahq/norma/internal/agents/pdca/contracts"
 	"github.com/normahq/norma/internal/agents/pdca/roles/act"
 	"github.com/normahq/norma/internal/agents/pdca/roles/check"
@@ -21,6 +20,7 @@ import (
 	"github.com/normahq/norma/internal/git"
 	"github.com/normahq/norma/internal/logging"
 	"github.com/normahq/norma/internal/task"
+	"github.com/normahq/norma/pkg/runtime/agentconfig"
 	"github.com/rs/zerolog/log"
 
 	"google.golang.org/adk/agent"

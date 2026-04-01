@@ -30,7 +30,6 @@ const (
 	acpSubcommandCodex      = "codex"
 	acpSubcommandInfo       = "info"
 	acpSubcommandWeb        = "web"
-	structuredSubcmd        = "structured"
 	mcpSubcommand           = "mcp"
 	pingPongSubcommand      = "ping-pong"
 )
@@ -121,13 +120,6 @@ func TestPlaygroundCommandRegistered(t *testing.T) {
 	}
 	if sub == nil || sub.Name() != acpSubcommandCodex {
 		t.Fatalf("subcommand = %v, want %s", sub, acpSubcommandCodex)
-	}
-	sub, _, err = cmd.Find([]string{structuredSubcmd})
-	if err != nil {
-		t.Fatalf("Find() error = %v", err)
-	}
-	if sub == nil || sub.Name() != structuredSubcmd {
-		t.Fatalf("subcommand = %v, want %s", sub, structuredSubcmd)
 	}
 	sub, _, err = cmd.Find([]string{mcpSubcommand})
 	if err != nil {

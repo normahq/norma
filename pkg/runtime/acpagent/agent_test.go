@@ -17,7 +17,6 @@ import (
 	"time"
 
 	acp "github.com/coder/acp-go-sdk"
-	"github.com/normahq/norma/internal/adk/agentconfig"
 	"github.com/rs/zerolog"
 	"google.golang.org/adk/agent"
 	runnerpkg "google.golang.org/adk/runner"
@@ -1196,17 +1195,17 @@ func TestAgentConfigMCPServersUseEmptyArraysNotNull(t *testing.T) {
 		Context:    context.Background(),
 		Command:    helperCommandWithEnv(t, map[string]string{"GO_EXPECT_MCP_SERVERS_RAW": expectedRaw}),
 		WorkingDir: t.TempDir(),
-		MCPServers: map[string]agentconfig.MCPServerConfig{
+		MCPServers: map[string]MCPServerConfig{
 			"stdio_server": {
-				Type: agentconfig.MCPServerTypeStdio,
+				Type: MCPServerTypeStdio,
 				Cmd:  []string{"echo"},
 			},
 			"http_server": {
-				Type: agentconfig.MCPServerTypeHTTP,
+				Type: MCPServerTypeHTTP,
 				URL:  "http://localhost:9999/mcp",
 			},
 			"sse_server": {
-				Type: agentconfig.MCPServerTypeSSE,
+				Type: MCPServerTypeSSE,
 				URL:  "http://localhost:9998/sse",
 			},
 		},

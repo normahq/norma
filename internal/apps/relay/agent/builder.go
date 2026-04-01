@@ -9,8 +9,8 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/normahq/norma/internal/adk/agentfactory"
-	runtimeconfig "github.com/normahq/norma/pkg/runtime/config"
+	"github.com/normahq/norma/pkg/runtime/agentfactory"
+	runtimeconfig "github.com/normahq/norma/pkg/runtime/appconfig"
 	"go.uber.org/fx"
 	"google.golang.org/adk/agent"
 	"google.golang.org/adk/runner"

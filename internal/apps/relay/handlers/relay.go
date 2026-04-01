@@ -9,7 +9,7 @@ import (
 	"github.com/normahq/norma/internal/apps/relay/auth"
 	"github.com/normahq/norma/internal/apps/relay/messenger"
 	relaysession "github.com/normahq/norma/internal/apps/relay/session"
-	runtimeconfig "github.com/normahq/norma/pkg/runtime/config"
+	runtimeconfig "github.com/normahq/norma/pkg/runtime/appconfig"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/tgbotkit/client"

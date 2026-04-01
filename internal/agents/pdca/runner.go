@@ -8,12 +8,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/normahq/norma/internal/adk/agentconfig"
-	"github.com/normahq/norma/internal/adk/agentfactory"
-	"github.com/normahq/norma/internal/adk/mcpregistry"
-	"github.com/normahq/norma/internal/adk/structuredio"
 	"github.com/normahq/norma/internal/agents/pdca/contracts"
 	"github.com/normahq/norma/internal/config"
+	"github.com/normahq/norma/pkg/runtime/agentconfig"
+	"github.com/normahq/norma/pkg/runtime/agentfactory"
+	"github.com/normahq/norma/pkg/runtime/mcpregistry"
+	"github.com/normahq/norma/pkg/runtime/structuredagent"
 	"github.com/rs/zerolog/log"
 
 	"google.golang.org/adk/agent"
@@ -119,10 +119,10 @@ func (r *adkRunner) Run(ctx context.Context, req []byte, stdout, stderr, eventsL
 
 	// Wrap with structured I/O
 	schemas := r.role.Schemas()
-	ag, err := structuredio.NewAgent(innerAgent,
-		structuredio.WithSystemInstruction(systemInstruction),
-		structuredio.WithInputSchema(schemas.InputSchema),
-		structuredio.WithOutputSchema(schemas.OutputSchema),
+	ag, err := structuredagent.NewAgent(innerAgent,
+		structuredagent.WithSystemInstruction(systemInstruction),
+		structuredagent.WithInputSchema(schemas.InputSchema),
+		structuredagent.WithOutputSchema(schemas.OutputSchema),
 	)
 	if err != nil {
 		return nil, nil, 1, fmt.Errorf("wrap with structured IO: %w", err)

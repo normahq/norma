@@ -15,8 +15,8 @@ import (
 	"time"
 
 	acp "github.com/coder/acp-go-sdk"
-	"github.com/normahq/norma/internal/adk/acpagent"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/normahq/norma/pkg/runtime/acpagent"
 )
 
 const testTimeout = 45 * time.Second

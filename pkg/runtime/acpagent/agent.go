@@ -12,7 +12,6 @@ import (
 	"sync"
 
 	acp "github.com/coder/acp-go-sdk"
-	"github.com/normahq/norma/internal/adk/agentconfig"
 	"github.com/rs/zerolog"
 	adkagent "google.golang.org/adk/agent"
 	"google.golang.org/adk/session"
@@ -48,7 +47,7 @@ type Config struct {
 	// Logger is the zerolog logger to use for this agent.
 	Logger *zerolog.Logger
 	// MCPServers is the map of MCP server configurations.
-	MCPServers map[string]agentconfig.MCPServerConfig
+	MCPServers map[string]MCPServerConfig
 }
 
 // Agent adapts an Agentic Computing Protocol (ACP) runtime to the ADK agent interface.
@@ -355,7 +354,7 @@ func extractPromptText(content *genai.Content) string {
 	return strings.TrimSpace(builder.String())
 }
 
-func convertMCPServers(configs map[string]agentconfig.MCPServerConfig) ([]acp.McpServer, error) {
+func convertMCPServers(configs map[string]MCPServerConfig) ([]acp.McpServer, error) {
 	if len(configs) == 0 {
 		return nil, nil
 	}
@@ -370,7 +369,7 @@ func convertMCPServers(configs map[string]agentconfig.MCPServerConfig) ([]acp.Mc
 		cfg := configs[name]
 		svr := acp.McpServer{}
 		switch cfg.Type {
-		case agentconfig.MCPServerTypeStdio:
+		case MCPServerTypeStdio:
 			if len(cfg.Cmd) == 0 {
 				return nil, fmt.Errorf("mcp server %q: stdio type requires command", name)
 			}
@@ -387,13 +386,13 @@ func convertMCPServers(configs map[string]agentconfig.MCPServerConfig) ([]acp.Mc
 				// ACP servers like OpenCode reject null for required array fields.
 				svr.Stdio.Args = append(make([]string, 0, len(cfg.Args)), cfg.Args...)
 			}
-		case agentconfig.MCPServerTypeHTTP:
+		case MCPServerTypeHTTP:
 			svr.Http = &acp.McpServerHttp{
 				Name:    name,
 				Url:     cfg.URL,
 				Headers: headersToHttpHeaders(cfg.Headers),
 			}
-		case agentconfig.MCPServerTypeSSE:
+		case MCPServerTypeSSE:
 			svr.Sse = &acp.McpServerSse{
 				Name:    name,
 				Url:     cfg.URL,

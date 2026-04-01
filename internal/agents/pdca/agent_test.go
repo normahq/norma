@@ -14,13 +14,17 @@ import (
 
 	"github.com/normahq/norma/internal/agents/pdca/contracts"
 	"github.com/normahq/norma/internal/config"
+	"github.com/normahq/norma/pkg/runtime/agentconfig"
 )
 
 func TestResolvedAgentForRoleReturnsConfig(t *testing.T) {
 	t.Parallel()
 
 	agents := map[string]config.AgentConfig{
-		"agent-1": {Type: "gemini_acp", Model: "gemini-1.5-flash"},
+		"agent-1": {
+			Type:      "gemini_acp",
+			GeminiACP: &agentconfig.ACPConfig{Model: "gemini-1.5-flash"},
+		},
 	}
 	roleIDs := map[string]string{
 		"plan": "agent-1",
